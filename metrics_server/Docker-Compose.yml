@@ -1,0 +1,52 @@
+services:
+
+  # Simulates the real UPF metrics exporter – do not modify.
+  metrics-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+
+  # Scrapes metrics-exporter every 15 s and stores time-series data.
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - metrics-exporter
+
+  # Filterable JSON query layer on top of the raw metrics endpoint.
+  # Override METRICS_SOURCE to point at a different exporter.
+  query-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8090:8090"
+    environment:
+      - METRICS_SOURCE=http://metrics-exporter:8080/metrics
+      - PORT=8090
+    depends_on:
+      - metrics-exporter
+
+  # Polls Prometheus with PromQL queries every 5 s and logs results.
+  # Override the command to use a different Prometheus or add a custom query:
+  #   docker compose run go-worker -config http://other:9090 -query upf_total_bytes
+  go-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["-config", "http://prometheus:9090"]
+    depends_on:
+      - prometheus
+
+  # Static dashboard served by Nginx.
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:80"

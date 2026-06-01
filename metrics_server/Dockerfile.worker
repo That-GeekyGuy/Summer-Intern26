@@ -1,0 +1,18 @@
+# Stage 1 – build
+FROM golang:alpine AS builder
+ENV GOTOOLCHAIN=local
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY main.go .
+RUN go build -o worker .
+
+# Stage 2 – run (minimal image, no Go toolchain)
+FROM alpine:3.20
+WORKDIR /app
+COPY --from=builder /build/worker .
+
+# Default points at the Compose service name; override at runtime:
+#   docker compose run go-worker -config http://other-prometheus:9090
+ENTRYPOINT ["./worker"]
+CMD ["-config", "http://prometheus:9090"]

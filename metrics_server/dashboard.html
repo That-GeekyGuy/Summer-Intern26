@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UPF Metrics Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #070b10;
+      --bg2:       #0c1420;
+      --bg3:       #111c2a;
+      --bg4:       #162030;
+      --accent:    #00d4ff;
+      --accent-lo: rgba(0,212,255,0.12);
+      --accent-glow: rgba(0,212,255,0.35);
+      --orange:    #ff6b35;
+      --orange-lo: rgba(255,107,53,0.12);
+      --purple:    #b06aff;
+      --purple-lo: rgba(176,106,255,0.12);
+      --amber:     #ffb340;
+      --amber-lo:  rgba(255,179,64,0.12);
+      --green:     #00ffaa;
+      --green-lo:  rgba(0,255,170,0.12);
+      --red:       #ff4060;
+      --yellow:    #ffe055;
+      --text:      #b8ccda;
+      --text-hi:   #e8f4ff;
+      --text-lo:   #3d5568;
+      --border:    #14202e;
+      --border2:   #1d3045;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0,212,255,0.06) 0%, transparent 70%),
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 100% 100%, 48px 48px, 48px 48px;
+    }
+
+    /* ── HEADER ─────────────────────────────────────────────── */
+    #header {
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      background: rgba(7,11,16,0.94);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border2);
+    }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1.75rem;
+      height: 60px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+    }
+
+    .brand-icon {
+      position: relative;
+      width: 34px;
+      height: 34px;
+      border: 1.5px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .brand-icon::after {
+      content: '';
+      position: absolute;
+      inset: -5px;
+      border: 1px solid rgba(0,212,255,0.18);
+    }
+    .brand-icon svg { width: 18px; height: 18px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    .brand-copy { line-height: 1.2; }
+    .brand-name {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--text-hi);
+      text-transform: uppercase;
+    }
+    .brand-sub {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-lo);
+    }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--text-lo);
+    }
+    .dot.live   { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 2.4s ease-in-out infinite; }
+    .dot.error  { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    #ts {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-lo);
+    }
+
+    .btn {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.38rem 0.9rem;
+      cursor: pointer;
+      border: 1px solid var(--border2);
+      background: transparent;
+      color: var(--accent);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: var(--accent-lo); border-color: var(--accent); }
+
+    .progress-wrap { height: 2px; background: var(--border); }
+    #progress {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent) 0%, rgba(0,212,255,0.3) 100%);
+      box-shadow: 0 0 8px var(--accent-glow);
+      transition: width 0.15s linear;
+    }
+
+    /* ── STATS STRIP ─────────────────────────────────────────── */
+    #stats-strip {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #stats-strip::-webkit-scrollbar { display: none; }
+
+    .stat-cell {
+      flex: 1;
+      min-width: 140px;
+      padding: 0.75rem 1.4rem;
+      border-right: 1px solid var(--border);
+    }
+    .stat-cell:last-child { border-right: none; }
+
+    .stat-lbl {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.58rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-lo);
+      margin-bottom: 0.25rem;
+    }
+    .stat-val {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.05rem;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    /* ── CONTROLS ────────────────────────────────────────────── */
+    #controls {
+      padding: 1rem 1.75rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      background: rgba(12,20,32,0.5);
+    }
+
+    .ctrl-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--text-lo);
+      letter-spacing: 0.1em;
+      white-space: nowrap;
+    }
+
+    .ctrl-input {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      color: var(--text-hi);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0.4rem 0.75rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .ctrl-input:focus { border-color: var(--accent); }
+    .ctrl-input::placeholder { color: var(--text-lo); }
+    #url-input { width: 280px; }
+    #filter-input { width: 220px; }
+
+    .ctrl-sep {
+      width: 1px;
+      height: 22px;
+      background: var(--border2);
+    }
+
+    .toggle-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+    }
+    .toggle-wrap input[type=checkbox] {
+      width: 14px; height: 14px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .toggle-wrap span {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--text-lo);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ── MAIN GRID ───────────────────────────────────────────── */
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(580px, 1fr));
+      gap: 1.25rem;
+      padding: 1.5rem 1.75rem;
+    }
+    .full-col { grid-column: 1 / -1; }
+
+    /* ── PANEL ───────────────────────────────────────────────── */
+    .panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      animation: rise 0.3s ease-out both;
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+      gap: 0.75rem;
+    }
+    .panel-head:hover { background: rgba(255,255,255,0.02); }
+
+    .panel-left {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      min-width: 0;
+    }
+
+    .type-tag {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.56rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.45rem;
+      border: 1px solid;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .type-gauge     { color: var(--accent);  border-color: var(--accent);  background: var(--accent-lo); }
+    .type-counter   { color: var(--orange);  border-color: var(--orange);  background: var(--orange-lo); }
+    .type-histogram { color: var(--purple);  border-color: var(--purple);  background: var(--purple-lo); }
+    .type-summary   { color: var(--amber);   border-color: var(--amber);   background: var(--amber-lo); }
+    .type-untyped   { color: var(--text-lo); border-color: var(--text-lo); background: transparent; }
+
+    .panel-name {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--text-hi);
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .panel-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+    .series-count {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--text-lo);
+    }
+    .chevron {
+      font-size: 0.7rem;
+      color: var(--text-lo);
+      transition: transform 0.2s;
+    }
+    .chevron.up { transform: rotate(-90deg); }
+
+    .panel-help {
+      padding: 0.4rem 1rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.68rem;
+      font-style: italic;
+      color: var(--text-lo);
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+    }
+
+    .panel-body {
+      overflow: auto;
+      max-height: 380px;
+    }
+    .panel-body.closed { max-height: 0; overflow: hidden; }
+
+    /* ── TABLE ───────────────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead tr {
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border2);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    th {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.62rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-lo);
+      padding: 0.45rem 0.9rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th.th-value { text-align: right; color: var(--text-lo); }
+
+    tbody tr {
+      border-bottom: 1px solid rgba(20,32,46,0.7);
+      transition: background 0.1s;
+    }
+    tbody tr:nth-child(even) { background: rgba(0,0,0,0.1); }
+    tbody tr:hover { background: rgba(0,212,255,0.04); }
+
+    td {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.72rem;
+      padding: 0.42rem 0.9rem;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    td.td-sub    { color: var(--text-lo); font-size: 0.65rem; }
+    td.td-lval   { color: var(--yellow); }
+    td.td-value  { text-align: right; color: var(--text-hi); font-weight: 500; }
+
+    @keyframes flash {
+      0%   { color: var(--green); text-shadow: 0 0 10px var(--green); }
+      100% { color: var(--text-hi); text-shadow: none; }
+    }
+    .flashed { animation: flash 1.2s ease-out; }
+
+    /* ── EMPTY / ERROR ───────────────────────────────────────── */
+    .empty {
+      grid-column: 1/-1;
+      text-align: center;
+      padding: 4rem 2rem;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--text-lo);
+    }
+
+    .err-banner {
+      grid-column: 1/-1;
+      border-left: 3px solid var(--red);
+      padding: 0.9rem 1.2rem;
+      background: rgba(255,64,96,0.06);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--red);
+    }
+    .err-banner span { color: var(--text-lo); font-size: 0.65rem; display: block; margin-top: 0.3rem; }
+
+    /* ── SCROLLBAR ───────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ──────────────────────────────────────────────────── -->
+<div id="header">
+  <div class="header-row">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <div class="brand-copy">
+        <div class="brand-name">UPF Metrics Dashboard</div>
+        <div class="brand-sub">5G User Plane Function · Prometheus</div>
+      </div>
+    </div>
+    <div class="header-controls">
+      <div id="ts">—</div>
+      <div class="status-pill">
+        <div class="dot" id="dot"></div>
+        <span id="status-txt">OFFLINE</span>
+      </div>
+      <button class="btn" onclick="doFetch()">⟳ REFRESH</button>
+    </div>
+  </div>
+  <div class="progress-wrap"><div id="progress"></div></div>
+</div>
+
+<!-- ── STATS STRIP ─────────────────────────────────────────────── -->
+<div id="stats-strip">
+  <div class="stat-cell"><div class="stat-lbl">Families</div><div class="stat-val" id="s-fam">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Series</div><div class="stat-val" id="s-ser">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Port Bytes N3 RX</div><div class="stat-val" id="s-n3rx">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Port Bytes N6 RX</div><div class="stat-val" id="s-n6rx">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Dropped N3 RX</div><div class="stat-val" id="s-drop3">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">PFCP Sessions</div><div class="stat-val" id="s-sess">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">PFCP Messages</div><div class="stat-val" id="s-pfcp">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Datapath Errors</div><div class="stat-val" id="s-dp">—</div></div>
+</div>
+
+<!-- ── CONTROLS ────────────────────────────────────────────────── -->
+<div id="controls">
+  <span class="ctrl-label">ENDPOINT:</span>
+  <input id="url-input" class="ctrl-input" type="text" value="http://localhost:8090/metrics" placeholder="http://host:port/metrics"/>
+  <button class="btn" onclick="doFetch()">FETCH</button>
+  <div class="ctrl-sep"></div>
+  <span class="ctrl-label">FILTER:</span>
+  <input id="filter-input" class="ctrl-input" type="text" placeholder="e.g. port, pfcp, upf, go_gc…" oninput="applyFilter()"/>
+  <div class="ctrl-sep"></div>
+  <label class="toggle-wrap">
+    <input type="checkbox" id="auto-cb" checked onchange="toggleAuto()"/>
+    <span>Auto-refresh 5s</span>
+  </label>
+</div>
+
+<!-- ── METRICS GRID ────────────────────────────────────────────── -->
+<div id="grid">
+  <div class="empty">Configure the endpoint above and click FETCH</div>
+</div>
+
+<script>
+// ───────────────────────────────────────────────────────────────
+// Prometheus text parser
+// ───────────────────────────────────────────────────────────────
+function parsePrometheus(raw) {
+  const helps = {}, types = {}, families = {};
+
+  for (const line of raw.split('\n')) {
+    const l = line.trim();
+    if (!l || l === '#') continue;
+
+    if (l.startsWith('# HELP ')) {
+      const m = l.slice(7).match(/^(\S+)\s+(.*)/);
+      if (m) helps[m[1]] = m[2];
+      continue;
+    }
+    if (l.startsWith('# TYPE ')) {
+      const m = l.slice(7).match(/^(\S+)\s+(\S+)/);
+      if (m) types[m[1]] = m[2];
+      continue;
+    }
+    if (l.startsWith('#')) continue;
+
+    // metric{labels} value [ts]
+    const m = l.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+([^\s]+)(?:\s+\d+)?$/);
+    if (!m) continue;
+
+    const [, fullName, lblStr = '', rawVal] = m;
+
+    // resolve base family name
+    let base = fullName;
+    for (const known of Object.keys(types)) {
+      if (fullName === known) { base = known; break; }
+      if (fullName.startsWith(known + '_')) {
+        const suf = fullName.slice(known.length + 1);
+        if (['bucket','sum','count','total','created'].includes(suf)) { base = known; break; }
+      }
+    }
+
+    if (!families[base]) {
+      families[base] = { name: base, help: helps[base] || '', type: types[base] || 'untyped', series: [] };
+    }
+
+    // parse labels
+    const labels = {};
+    for (const [, k, v] of lblStr.matchAll(/([a-zA-Z_]\w*)="([^"\\]*)"/g)) labels[k] = v;
+
+    const suffix = fullName.slice(base.length).replace(/^_/, '');
+    families[base].series.push({ fullName, suffix, labels, value: rawVal });
+  }
+  return families;
+}
+
+// ───────────────────────────────────────────────────────────────
+// Formatting
+// ───────────────────────────────────────────────────────────────
+function fmt(raw) {
+  const n = parseFloat(raw);
+  if (isNaN(n)) return raw;
+  if (n === 0) return '0';
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return (n / 1e12).toFixed(3) + ' T';
+  if (abs >= 1e9)  return (n / 1e9).toFixed(3) + ' G';
+  if (abs >= 1e6)  return (n / 1e6).toFixed(3) + ' M';
+  if (abs >= 1e3)  return (n / 1e3).toFixed(3) + ' K';
+  if (!Number.isInteger(n)) return n.toPrecision(5);
+  return n.toString();
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function safeId(s) { return s.replace(/[^a-zA-Z0-9]/g, '_'); }
+
+// ───────────────────────────────────────────────────────────────
+// State
+// ───────────────────────────────────────────────────────────────
+let state = {};            // parsed families
+let prevVals = {};         // for change detection
+let closedPanels = new Set();
+
+// ───────────────────────────────────────────────────────────────
+// Render one family panel
+// ───────────────────────────────────────────────────────────────
+function renderFamily(fam) {
+  const { name, help, type, series } = fam;
+
+  // collect all label keys across series
+  const labelKeys = [];
+  const seen = new Set();
+  for (const s of series) {
+    for (const k of Object.keys(s.labels)) {
+      if (!seen.has(k)) { seen.add(k); labelKeys.push(k); }
+    }
+  }
+
+  const hasSuffix = series.some(s => s.suffix && s.suffix !== 'total');
+  const id = safeId(name);
+  const isClosed = closedPanels.has(id);
+  const typeClass = `type-${type}`;
+
+  // thead
+  let thSuffix = hasSuffix ? '<th>SUBTYPE</th>' : '';
+  let thLabels = labelKeys.map(k => `<th>${esc(k)}</th>`).join('');
+  const thead = `<thead><tr>${thSuffix}${thLabels}<th class="th-value">VALUE</th></tr></thead>`;
+
+  // tbody
+  let tbRows = '';
+  for (const s of series) {
+    const key = s.fullName + JSON.stringify(s.labels);
+    const prev = prevVals[key];
+    const changed = prev !== undefined && prev !== s.value;
+    prevVals[key] = s.value;
+
+    const valClass = changed ? 'td-value flashed' : 'td-value';
+    const subCell = hasSuffix ? `<td class="td-sub">${esc(s.suffix || '—')}</td>` : '';
+    const lblCells = labelKeys.map(k =>
+      k in s.labels
+        ? `<td class="td-lval">${esc(s.labels[k])}</td>`
+        : `<td style="color:var(--text-lo)">—</td>`
+    ).join('');
+
+    tbRows += `<tr>${subCell}${lblCells}<td class="${valClass}">${fmt(s.value)}</td></tr>`;
+  }
+
+  const helpHtml = help
+    ? `<div class="panel-help">${esc(help)}</div>`
+    : '';
+
+  return `
+    <div class="panel" id="panel-${id}">
+      <div class="panel-head" onclick="togglePanel('${id}')">
+        <div class="panel-left">
+          <span class="type-tag ${typeClass}">${type}</span>
+          <span class="panel-name">${esc(name)}</span>
+        </div>
+        <div class="panel-right">
+          <span class="series-count">${series.length} series</span>
+          <span class="chevron ${isClosed ? 'up' : ''}" id="chev-${id}">▾</span>
+        </div>
+      </div>
+      ${helpHtml}
+      <div class="panel-body ${isClosed ? 'closed' : ''}" id="body-${id}">
+        <table>${thead}<tbody>${tbRows}</tbody></table>
+      </div>
+    </div>`;
+}
+
+// ───────────────────────────────────────────────────────────────
+// Toggle panel open/close
+// ───────────────────────────────────────────────────────────────
+function togglePanel(id) {
+  const body = document.getElementById('body-' + id);
+  const chev = document.getElementById('chev-' + id);
+  if (body.classList.contains('closed')) {
+    body.classList.remove('closed');
+    chev.classList.remove('up');
+    closedPanels.delete(id);
+  } else {
+    body.classList.add('closed');
+    chev.classList.add('up');
+    closedPanels.add(id);
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// Render all panels into the grid
+// ───────────────────────────────────────────────────────────────
+
+// Metrics we want to surface first
+const PRIORITY = [
+  'port_bytes_count','port_packets_count','port_dropped_count',
+  'pfcp_messages_total','pfcp_sessions_total',
+  'datapath_down',
+  'upf_total_bytes','upf_total_packets',
+  'upf_latency_ns','upf_jitter_ns',
+  'pfcp_messages_duration_seconds',
+];
+
+function render() {
+  const filter = document.getElementById('filter-input').value.trim().toLowerCase();
+  const families = Object.values(state);
+
+  const filtered = filter
+    ? families.filter(f => f.name.toLowerCase().includes(filter))
+    : families;
+
+  if (filtered.length === 0) {
+    document.getElementById('grid').innerHTML =
+      `<div class="empty">${filter ? 'No metrics match "' + esc(filter) + '"' : 'No data'}</div>`;
+    return;
+  }
+
+  filtered.sort((a, b) => {
+    const ai = PRIORITY.indexOf(a.name), bi = PRIORITY.indexOf(b.name);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return  1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const WIDE_TYPES = new Set(['histogram', 'summary']);
+  const WIDE_NAMES = new Set(['upf_latency_ns', 'upf_jitter_ns', 'pfcp_messages_duration_seconds']);
+
+  let html = '';
+  for (const f of filtered) {
+    const isWide = WIDE_TYPES.has(f.type) || WIDE_NAMES.has(f.name) || f.series.length > 12;
+    const html_ = renderFamily(f);
+    html += isWide ? `<div class="full-col">${html_}</div>` : html_;
+  }
+
+  document.getElementById('grid').innerHTML = html;
+  refreshStats(families);
+}
+
+function applyFilter() { render(); }
+
+// ───────────────────────────────────────────────────────────────
+// Stats strip
+// ───────────────────────────────────────────────────────────────
+function refreshStats(families) {
+  document.getElementById('s-fam').textContent = families.length;
+  document.getElementById('s-ser').textContent = families.reduce((a, f) => a + f.series.length, 0);
+
+  const pb = state['port_bytes_count'];
+  if (pb) {
+    const n3rx = pb.series.find(s => s.labels.dir === 'rx' && s.labels.iface === 'N3');
+    const n6rx = pb.series.find(s => s.labels.dir === 'rx' && s.labels.iface === 'N6');
+    if (n3rx) document.getElementById('s-n3rx').textContent = fmt(n3rx.value);
+    if (n6rx) document.getElementById('s-n6rx').textContent = fmt(n6rx.value);
+  }
+
+  const pd = state['port_dropped_count'];
+  if (pd) {
+    const d = pd.series.find(s => s.labels.dir === 'rx' && s.labels.iface === 'N3');
+    if (d) document.getElementById('s-drop3').textContent = fmt(d.value);
+  }
+
+  const sess = state['pfcp_sessions_total'];
+  if (sess && sess.series.length > 0)
+    document.getElementById('s-sess').textContent = sess.series[0].value;
+
+  const pfcp = state['pfcp_messages_total'];
+  if (pfcp)
+    document.getElementById('s-pfcp').textContent =
+      pfcp.series.reduce((a, s) => a + parseFloat(s.value || 0), 0).toFixed(0);
+
+  const dp = state['datapath_down'];
+  if (dp)
+    document.getElementById('s-dp').textContent =
+      dp.series.reduce((a, s) => a + parseFloat(s.value || 0), 0).toFixed(0);
+}
+
+// ───────────────────────────────────────────────────────────────
+// Fetch
+// ───────────────────────────────────────────────────────────────
+async function doFetch() {
+  const url = document.getElementById('url-input').value.trim();
+  const dot = document.getElementById('dot');
+  const stxt = document.getElementById('status-txt');
+
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    state = parsePrometheus(text);
+
+    dot.className = 'dot live';
+    stxt.textContent = 'LIVE';
+    stxt.style.color = 'var(--green)';
+    document.getElementById('ts').textContent = new Date().toLocaleTimeString();
+
+    render();
+  } catch (e) {
+    dot.className = 'dot error';
+    stxt.textContent = 'OFFLINE';
+    stxt.style.color = 'var(--red)';
+
+    document.getElementById('grid').innerHTML = `
+      <div class="err-banner">
+        ✕ ${esc(e.message)}
+        <span>Ensure the metrics server is running and CORS is enabled on the /metrics endpoint.</span>
+      </div>`;
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// Auto-refresh
+// ───────────────────────────────────────────────────────────────
+const INTERVAL = 5000;
+let autoTimer = null;
+let progTimer = null;
+
+function startProgress() {
+  const bar = document.getElementById('progress');
+  const t0 = Date.now();
+  clearInterval(progTimer);
+  bar.style.transition = 'none';
+  bar.style.width = '0%';
+  progTimer = setInterval(() => {
+    const pct = Math.min(((Date.now() - t0) / INTERVAL) * 100, 100);
+    bar.style.transition = 'width 0.12s linear';
+    bar.style.width = pct + '%';
+    if (pct >= 100) clearInterval(progTimer);
+  }, 100);
+}
+
+function scheduleNext() {
+  clearTimeout(autoTimer);
+  startProgress();
+  autoTimer = setTimeout(async () => {
+    await doFetch();
+    if (document.getElementById('auto-cb').checked) scheduleNext();
+  }, INTERVAL);
+}
+
+function toggleAuto() {
+  const on = document.getElementById('auto-cb').checked;
+  if (on) { scheduleNext(); }
+  else {
+    clearTimeout(autoTimer);
+    clearInterval(progTimer);
+    document.getElementById('progress').style.width = '0%';
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// Init
+// ───────────────────────────────────────────────────────────────
+doFetch().then(() => {
+  if (document.getElementById('auto-cb').checked) scheduleNext();
+});
+</script>
+</body>
+</html>

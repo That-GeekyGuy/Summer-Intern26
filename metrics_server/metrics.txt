@@ -124,10 +124,10 @@ port_bytes_count{dir="tx",iface="N3"} 842870
 port_bytes_count{dir="tx",iface="N6"} 842716
 # HELP port_dropped_count Shows the number of packets dropped on receive by the UPF DPDK port
 # TYPE port_dropped_count counter
-port_dropped_count{dir="rx",iface="N3"} 0
-port_dropped_count{dir="rx",iface="N6"} 0
-port_dropped_count{dir="tx",iface="N3"} 0
-port_dropped_count{dir="tx",iface="N6"} 0
+port_dropped_count{dir="rx",iface="N3"} 100
+port_dropped_count{dir="rx",iface="N6"} 101
+port_dropped_count{dir="tx",iface="N3"} 102
+port_dropped_count{dir="tx",iface="N6"} 304
 # HELP port_packets_count Shows the number of packets received by the UPF DPDK port
 # TYPE port_packets_count counter
 port_packets_count{dir="rx",iface="N3"} 13622
