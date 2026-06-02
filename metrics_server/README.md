@@ -1,6 +1,6 @@
 # UPF Metrics Stack
 
-A containerised observability stack for a 5G User Plane Function (UPF). It collects Prometheus-format metrics, stores them in Prometheus, exposes a filterable JSON query API, runs a Go polling worker, and serves a live browser dashboard — all as separate Docker containers.
+A containerised observability stack for a 5G User Plane Function (UPF). It collects Prometheus-format metrics, stores them in Prometheus, evaluates recording rules and firing alerts, visualises everything in Grafana, exposes a filterable JSON query API, runs a Go polling worker, and serves a live browser dashboard — all as separate Docker containers.
 
 ---
 
@@ -11,64 +11,65 @@ A containerised observability stack for a 5G User Plane Function (UPF). It colle
 3. [Services](#services)
    - [metrics-exporter](#1-metrics-exporter--port-8080)
    - [prometheus](#2-prometheus--port-9090)
-   - [query-api](#3-query-api--port-8090)
-   - [go-worker](#4-go-worker)
-   - [frontend](#5-frontend--port-3000)
-4. [Quick Start](#quick-start)
-5. [Query API Reference](#query-api-reference)
-6. [Dashboard Guide](#dashboard-guide)
-7. [Go Worker Flags](#go-worker-flags)
-8. [Configuration Reference](#configuration-reference)
-9. [Port Map](#port-map)
-10. [Running Locally Without Docker](#running-locally-without-docker)
-11. [How the Prometheus Parser Works](#how-the-prometheus-parser-works)
+   - [grafana](#3-grafana--port-3001)
+   - [query-api](#4-query-api--port-8090)
+   - [go-worker](#5-go-worker)
+   - [frontend](#6-frontend--port-3000)
+4. [Recording Rules & Alerts](#recording-rules--alerts)
+5. [Traffic Simulation](#traffic-simulation)
+6. [Quick Start](#quick-start)
+7. [Query API Reference](#query-api-reference)
+8. [Dashboard Guide](#dashboard-guide)
+9. [Go Worker Flags](#go-worker-flags)
+10. [Configuration Reference](#configuration-reference)
+11. [Port Map](#port-map)
+12. [Running Locally Without Docker](#running-locally-without-docker)
+13. [How the Prometheus Parser Works](#how-the-prometheus-parser-works)
 
 ---
 
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│                        Docker network                              │
-│                                                                    │
-│  ┌─────────────────┐   scrape /metrics    ┌──────────────────┐    │
-│  │ metrics-exporter│◄─────────────────────│   prometheus     │    │
-│  │  Python :8080   │    every 15 s        │  prom/prometheus  │    │
-│  │  serves         │                      │  :9090           │    │
-│  │  metrics.txt    │                      └─────────┬────────┘    │
-│  └────────┬────────┘                               │              │
-│           │ fetch /metrics                  PromQL │query         │
-│           │ on each request                        │              │
-│           ▼                                        ▼              │
-│  ┌─────────────────┐                    ┌──────────────────┐      │
-│  │   query-api     │                    │    go-worker     │      │
-│  │  Python :8090   │                    │  Go binary       │      │
-│  │  /query         │                    │  polls every 5 s │      │
-│  │  /metrics/names │                    │  logs to stdout  │      │
-│  │  /metrics proxy │                    └──────────────────┘      │
-│  └─────────────────┘                                              │
-│                                                                    │
-│  ┌─────────────────┐                                              │
-│  │    frontend     │                                              │
-│  │  nginx :80      │                                              │
-│  │  dashboard.html │                                              │
-│  └─────────────────┘                                              │
-└────────────────────────────────────────────────────────────────────┘
-         │                    │                    │
-    localhost:8080       localhost:8090       localhost:3000
-    (raw metrics)        (query API)          (dashboard)
-         │                    ▲
-         └────────────────────┘
-              browser fetches
-              via query-api
-              (CORS enabled)
+┌──────────────────────────────────────────────────────────────────────────┐
+│                            Docker network                                │
+│                                                                          │
+│  ┌─────────────────┐   scrape /metrics (5 s)   ┌──────────────────────┐ │
+│  │ metrics-exporter│◄──────────────────────────│      prometheus      │ │
+│  │  Python :8080   │                            │   prom/prometheus    │ │
+│  │  live simulator │   evaluate rules (5 s)     │   :9090             │ │
+│  │  port_bytes_*   │   recording rules → TSDB   │   rules.yml         │ │
+│  └────────┬────────┘   alert rules → ALERTS     └──────────┬──────────┘ │
+│           │                                                │             │
+│           │ fetch /metrics                        PromQL  │             │
+│           │ on each request                               │             │
+│           ▼                                               ▼             │
+│  ┌─────────────────┐                         ┌───────────────────────┐  │
+│  │   query-api     │                         │        grafana        │  │
+│  │  Python :8090   │                         │  grafana/grafana      │  │
+│  │  /query         │                         │  :3000 (→ host 3001)  │  │
+│  │  /metrics/names │                         │  dashboards           │  │
+│  │  /metrics proxy │                         │  alert state viewer   │  │
+│  └─────────────────┘                         └───────────────────────┘  │
+│                                                                          │
+│  ┌─────────────────┐   PromQL poll (5 s)                                │
+│  │    go-worker    │──────────────────────────────────────────────►      │
+│  │  Go binary      │                                                     │
+│  │  logs stdout    │                                                     │
+│  └─────────────────┘                                                     │
+│                                                                          │
+│  ┌─────────────────┐                                                     │
+│  │    frontend     │                                                     │
+│  │  nginx :80      │                                                     │
+│  │  dashboard.html │                                                     │
+│  └─────────────────┘                                                     │
+└──────────────────────────────────────────────────────────────────────────┘
+       │            │            │            │
+  host:8080    host:8090    host:9090    host:3001
+ (raw metrics) (query API) (prometheus)  (grafana)
+                                         host:3000
+                                        (dashboard)
 ```
-
-**Key design decisions:**
-
-- `metrics-exporter` (`server.py`) is treated as **read-only** — it simulates the real UPF application and is never modified.
-- The `query-api` acts as a CORS-enabled intermediary: the browser cannot call `metrics-exporter` directly (no CORS header there), so it goes through `query-api` which adds `Access-Control-Allow-Origin: *`.
-- `prometheus` and `go-worker` communicate only inside the Docker network; neither needs a public port for the dashboard to work.
 
 ---
 
@@ -77,25 +78,34 @@ A containerised observability stack for a 5G User Plane Function (UPF). It colle
 ```
 metrics_server/
 │
-├── server.py               # metrics-exporter: serves metrics.txt at /metrics
-├── metrics.txt             # Prometheus exposition format data (UPF metrics)
+├── server.py                   # metrics-exporter: live UPF traffic simulator
+├── metrics.txt                 # baseline counter values used on first boot
 │
-├── query_api.py            # query-api: filterable JSON layer over the exporter
+├── query_api.py                # query-api: filterable JSON layer over the exporter
 │
-├── main.go                 # go-worker: polls Prometheus with PromQL every 5 s
-├── go.mod                  # Go module manifest
-├── go.sum                  # Go dependency checksums
+├── main.go                     # go-worker: polls Prometheus with PromQL every 5 s
+├── go.mod
+├── go.sum
 │
-├── dashboard.html          # Browser dashboard (single HTML file, no build step)
+├── dashboard.html              # Browser dashboard (single HTML file, no build step)
 │
-├── prometheus.yml          # Prometheus scrape configuration
+├── prometheus.yml              # Prometheus scrape + alertmanager config
+├── rules.yml                   # Recording rules and alert rules
 │
-├── Dockerfile              # Image for metrics-exporter
-├── Dockerfile.api          # Image for query-api
-├── Dockerfile.worker       # Multi-stage image for go-worker
-├── Dockerfile.frontend     # Image for frontend (nginx)
+├── grafana/
+│   └── provisioning/
+│       ├── datasources/
+│       │   └── prometheus.yml  # Auto-wires Prometheus as the default datasource
+│       └── dashboards/
+│           ├── provider.yml    # Tells Grafana where to load dashboards from
+│           └── upf_metrics.json # UPF Port Bytes dashboard definition
 │
-└── Docker-Compose.yml      # Orchestrates all 5 services
+├── Dockerfile                  # Image for metrics-exporter
+├── Dockerfile.api              # Image for query-api
+├── Dockerfile.worker           # Multi-stage image for go-worker
+├── Dockerfile.frontend         # Image for frontend (nginx)
+│
+└── Docker-Compose.yml          # Orchestrates all 6 services
 ```
 
 ---
@@ -107,65 +117,86 @@ metrics_server/
 **File:** `server.py`  
 **Image:** built from `Dockerfile`
 
-A minimal Python HTTP server that reads `metrics.txt` and serves it verbatim at `GET /metrics`. This simulates the `/metrics` endpoint that a real UPF application would expose.
+A Python HTTP server that simulates a live UPF data plane. Rather than serving a static file, it maintains in-memory counters that increment continuously and alternates between a **normal** phase and a **spike** phase on a 30-second cycle (see [Traffic Simulation](#traffic-simulation)).
 
 ```
 GET /metrics  →  200 text/plain  (Prometheus exposition format)
 ```
 
-> **Do not modify `server.py`.** In production this will be replaced by the real application. Treat it as a black box.
+The following UPF-specific metric families are exposed:
 
-`metrics.txt` contains the following metric families (among Go runtime internals):
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `port_bytes_count` | counter | `dir`, `iface` | Bytes received/transmitted per DPDK port and direction |
+| `port_packets_count` | counter | `dir`, `iface` | Packets received/transmitted per DPDK port and direction |
+| `port_dropped_count` | counter | `dir`, `iface` | Packets dropped per DPDK port and direction |
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `port_bytes_count` | counter | Bytes received/sent per DPDK port and direction |
-| `port_packets_count` | counter | Packets received/sent per DPDK port and direction |
-| `port_dropped_count` | counter | Packets dropped per DPDK port and direction |
-| `pfcp_messages_total` | counter | PFCP messages by direction, type, and result |
-| `pfcp_messages_duration_seconds` | histogram | PFCP message latency (bucket/sum/count) |
-| `pfcp_sessions_total` | gauge | Active PFCP sessions in the UPF |
-| `datapath_down` | gauge | Datapath failure counts by reason |
-| `upf_latency_ns` | summary | Packet processing latency percentiles per interface |
-| `upf_jitter_ns` | summary | Packet processing jitter percentiles per interface |
-| `upf_total_bytes` | counter | Total bytes processed by the UPF per interface and slice |
-| `upf_total_packets` | counter | Total packets processed by the UPF per interface and slice |
+Label values: `dir` ∈ `{rx, tx}`, `iface` ∈ `{N3, N6}`.
 
 ---
 
 ### 2. prometheus — port 9090
 
-**Image:** `prom/prometheus` (official)  
-**Config:** `prometheus.yml`
+**Image:** `prom/prometheus`  
+**Config:** `prometheus.yml`, `rules.yml`
 
-Prometheus scrapes `http://metrics-exporter:8080/metrics` every 15 seconds and stores the data in its built-in time-series database (TSDB). This enables historical queries, graphing, and alerting.
+Prometheus scrapes `http://metrics-exporter:8080/metrics` every **5 seconds**, evaluates recording and alert rules on the same interval, and stores results in its built-in TSDB.
 
 `prometheus.yml`:
 ```yaml
 global:
-  scrape_interval: 15s
+  scrape_interval: 5s
+  evaluation_interval: 5s
 
 scrape_configs:
   - job_name: "metrics-exporter"
     static_configs:
       - targets: ["metrics-exporter:8080"]
+
+rule_files:
+  - "/etc/prometheus/rules.yml"
 ```
 
-The hostname `metrics-exporter` resolves to the exporter container because Docker Compose puts all services on the same internal network and assigns each service its own DNS name.
+The scrape interval is set to 5 s (rather than the default 15 s) so the `[15s]` rate window in the recording rules contains at least 3 data points and the alert cycle is visible in near-real-time.
 
-Access the Prometheus UI at **http://localhost:9090** to run PromQL queries manually.
+The `--web.enable-lifecycle` flag is passed via the Compose `command` block, enabling hot config reloads without restarting the container:
+
+```bash
+curl -X POST http://localhost:9090/-/reload
+```
+
+Access the Prometheus UI at **http://localhost:9090**.
 
 ---
 
-### 3. query-api — port 8090
+### 3. grafana — port 3001
+
+**Image:** `grafana/grafana`  
+**Provisioning:** `grafana/provisioning/`
+
+Grafana is pre-provisioned on startup — no manual datasource or dashboard setup is needed. Anonymous access is enabled with Admin role so there is no login screen.
+
+**Dashboard: UPF Port Bytes** — visible at **http://localhost:3001** under Dashboards.
+
+| Panel | What it shows |
+|-------|---------------|
+| Uplink Throughput | `rx N3` and `tx N6` byte rates over time |
+| Downlink Throughput | `rx N6` and `tx N3` byte rates over time |
+| Bytes Dropped / s | Uplink and downlink drop rates with threshold lines at 0.5 MB/s and 1 MB/s |
+| Active Alerts | Live table of `ALERTS` from Prometheus; `firing` rows appear red, `pending` orange |
+
+**Alert rules** — visible under **Alerting → Alert rules** in the Grafana sidebar. These are read from Prometheus (the datasource) and are defined in `rules.yml`.
+
+---
+
+### 4. query-api — port 8090
 
 **File:** `query_api.py`  
 **Image:** built from `Dockerfile.api`
 
-A Python HTTP server that fetches the raw metrics from `metrics-exporter` on demand, parses the Prometheus exposition format, and returns filtered JSON. This is the layer the browser dashboard and any external tooling should call.
+A Python HTTP server that fetches raw metrics from `metrics-exporter` on demand, parses the Prometheus exposition format, and returns filtered JSON. This is the layer the browser dashboard and any external tooling should call.
 
-Why a separate service instead of adding endpoints to `server.py`?  
-Because `server.py` is read-only. The query-api also adds `Access-Control-Allow-Origin: *`, which `server.py` does not have, allowing the browser dashboard to call it.
+**Why a separate service?** `server.py` has no CORS headers. The query-api adds `Access-Control-Allow-Origin: *`, allowing the browser dashboard to call it.
 
 **Configuration** (environment variables):
 
@@ -174,20 +205,20 @@ Because `server.py` is read-only. The query-api also adds `Access-Control-Allow-
 | `METRICS_SOURCE` | `http://localhost:8080/metrics` | URL to pull raw metrics from |
 | `PORT` | `8090` | Port this service listens on |
 
-In Docker Compose `METRICS_SOURCE` is set to `http://metrics-exporter:8080/metrics` (internal Docker hostname).
+In Docker Compose, `METRICS_SOURCE` is set to `http://metrics-exporter:8080/metrics`.
 
 See [Query API Reference](#query-api-reference) for full endpoint documentation.
 
 ---
 
-### 4. go-worker
+### 5. go-worker
 
 **File:** `main.go`  
 **Image:** built from `Dockerfile.worker` (multi-stage)
 
-A Go program that connects to Prometheus and repeatedly runs a fixed set of PromQL queries every 5 seconds, logging the results to stdout (visible via `docker compose logs go-worker`).
+A Go program that connects to Prometheus and repeatedly runs a fixed set of PromQL queries every 5 seconds, logging results to stdout.
 
-**Built-in queries** (always run):
+**Built-in queries:**
 
 | Label | PromQL |
 |-------|--------|
@@ -201,43 +232,74 @@ A Go program that connects to Prometheus and repeatedly runs a fixed set of Prom
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-config <url>` | `http://localhost:9090` | Prometheus base URL |
-| `-query <promql>` | *(empty)* | Extra PromQL expression appended to each poll cycle |
+| `-query <promql>` | *(empty)* | Extra PromQL expression run each cycle |
 
 See [Go Worker Flags](#go-worker-flags) for usage examples.
 
-**Build approach — multi-stage Dockerfile:**
-
-```dockerfile
-# Stage 1: compile (golang:alpine image, ~400 MB)
-FROM golang:alpine AS builder
-ENV GOTOOLCHAIN=local
-WORKDIR /build
-COPY go.mod go.sum ./
-RUN go mod download        # cached layer; only re-runs when go.mod changes
-COPY main.go .
-RUN go build -o worker .
-
-# Stage 2: run (alpine:3.20, ~10 MB — no Go toolchain)
-FROM alpine:3.20
-COPY --from=builder /build/worker .
-ENTRYPOINT ["./worker"]
-CMD ["-config", "http://prometheus:9090"]
-```
-
-`GOTOOLCHAIN=local` prevents Go from attempting to download version `1.26.3` declared in `go.mod` (that version is not yet available as a Docker image); it forces the build to use whatever Go version is in the base image.
-
 ---
 
-### 5. frontend — port 3000
+### 6. frontend — port 3000
 
 **File:** `dashboard.html`  
 **Image:** built from `Dockerfile.frontend` (nginx:alpine)
 
-A single self-contained HTML file served by Nginx. It fetches metrics from the `query-api` (port 8090) entirely in the browser — no build step, no Node.js, no bundler.
+A single self-contained HTML file served by Nginx. Fetches metrics from `query-api` entirely in the browser — no build step.
 
 Access at **http://localhost:3000**.
 
 See [Dashboard Guide](#dashboard-guide) for usage.
+
+---
+
+## Recording Rules & Alerts
+
+Defined in `rules.yml`, evaluated every 5 seconds by Prometheus.
+
+### Recording rules
+
+All base rules use `rate(counter[15s])` wrapped in `sum without(dir, iface)`. Stripping the `dir` and `iface` labels from each series is essential: without it, the uplink and downlink series have different label sets and the drop subtraction produces no output.
+
+| Recorded metric | Expression |
+|-----------------|-----------|
+| `upf:port_bytes_rx_n3:rate5m` | `sum without(dir,iface)(rate(port_bytes_count{dir="rx",iface="N3"}[15s]))` |
+| `upf:port_bytes_tx_n6:rate5m` | `sum without(dir,iface)(rate(port_bytes_count{dir="tx",iface="N6"}[15s]))` |
+| `upf:port_bytes_rx_n6:rate5m` | `sum without(dir,iface)(rate(port_bytes_count{dir="rx",iface="N6"}[15s]))` |
+| `upf:port_bytes_tx_n3:rate5m` | `sum without(dir,iface)(rate(port_bytes_count{dir="tx",iface="N3"}[15s]))` |
+| `upf:bytes_dropped_uplink:rate5m` | `upf:port_bytes_rx_n3:rate5m - upf:port_bytes_tx_n6:rate5m` |
+| `upf:bytes_dropped_downlink:rate5m` | `upf:port_bytes_rx_n6:rate5m - upf:port_bytes_tx_n3:rate5m` |
+
+### Alert rules
+
+| Alert | Condition | For | Severity |
+|-------|-----------|-----|----------|
+| `HighBytesDroppedUplink` | `upf:bytes_dropped_uplink:rate5m > 524288` (0.5 MB/s) | 10 s | warning |
+| `HighBytesDroppedDownlink` | `upf:bytes_dropped_downlink:rate5m > 524288` (0.5 MB/s) | 10 s | warning |
+
+The `for: 10s` duration means the condition must be continuously true for 10 seconds before the alert transitions from `pending` to `firing`.
+
+---
+
+## Traffic Simulation
+
+`server.py` runs an internal background thread that increments counters every 5 seconds on a **30-second repeating cycle**:
+
+| Phase | Duration | Drop rate | Alert state |
+|-------|----------|-----------|-------------|
+| Normal | 0 – 15 s | ~10 KB/s (~0.1% loss) | inactive |
+| Spike | 15 – 30 s | ~3 MB/s (30% loss) | pending → firing |
+
+During the spike phase, `tx_N6` and `tx_N3` receive only 70% of the bytes that `rx_N3` and `rx_N6` take in respectively. The resulting drop rate (~3 MB/s) is well above the 0.5 MB/s alert threshold.
+
+With a `[15s]` rate window and 5 s scrape interval, each phase is exactly one window long. The rate metric sees only the current phase's data, giving clean on/off transitions in both the Grafana graphs and the alert state.
+
+**Observed timeline per cycle:**
+
+```
+t=0  s   Normal starts  → drop ~10 KB/s   → alert: inactive
+t=15 s   Spike starts   → drop ~3 MB/s    → alert: pending
+t=25 s   for:10s met    → drop ~3 MB/s    → alert: firing
+t=30 s   Normal starts  → drop ~10 KB/s   → alert: inactive
+```
 
 ---
 
@@ -246,22 +308,19 @@ See [Dashboard Guide](#dashboard-guide) for usage.
 **Prerequisites:** Docker Desktop (or Docker Engine + Compose plugin).
 
 ```bash
-# Clone / navigate to the project directory
 cd metrics_server
 
-# Build and start all 5 containers
-docker compose up --build
-
-# To run in the background
+# Build and start all 6 containers
 docker compose up --build -d
 ```
 
 | Service | URL |
 |---------|-----|
-| Dashboard | http://localhost:3000 |
+| Grafana dashboards & alerts | http://localhost:3001 |
+| Prometheus UI | http://localhost:9090 |
+| Browser dashboard | http://localhost:3000 |
 | Query API | http://localhost:8090 |
 | Raw metrics | http://localhost:8080/metrics |
-| Prometheus UI | http://localhost:9090 |
 | Worker logs | `docker compose logs -f go-worker` |
 
 **Stop everything:**
@@ -271,7 +330,12 @@ docker compose down
 
 **Rebuild a single service after a code change:**
 ```bash
-docker compose up --build query-api
+docker compose up --build metrics-exporter
+```
+
+**Hot-reload Prometheus rules/config without restart:**
+```bash
+curl -X POST http://localhost:9090/-/reload
 ```
 
 ---
@@ -291,28 +355,14 @@ Returns every metric family discovered in the current metrics payload.
 **Response:**
 ```json
 {
-  "count": 51,
+  "count": 3,
   "metrics": [
-    {
-      "name": "datapath_down",
-      "type": "gauge",
-      "help": "Reason for datapath failure"
-    },
-    {
-      "name": "pfcp_messages_total",
-      "type": "counter",
-      "help": "Counter for incoming and outgoing PFCP messages"
-    },
-    {
-      "name": "port_bytes_count",
-      "type": "counter",
-      "help": "Shows the number of bytes received by the UPF DPDK port"
-    }
+    { "name": "port_bytes_count",   "type": "counter", "help": "Bytes received/transmitted by the UPF DPDK port" },
+    { "name": "port_packets_count", "type": "counter", "help": "Packets received/transmitted by the UPF DPDK port" },
+    { "name": "port_dropped_count", "type": "counter", "help": "Packets dropped on the UPF DPDK port" }
   ]
 }
 ```
-
-Use this endpoint first to discover what metric names are available before calling `/query`.
 
 ---
 
@@ -324,120 +374,39 @@ Returns all series for a metric family, with optional label filtering.
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `metric` | Yes | Metric family name. Case-insensitive (`PORT_BYTES_COUNT` = `port_bytes_count`). |
-| `suffix` | No | For histograms/summaries: filter to one sub-type (`bucket`, `sum`, or `count`). |
-| *any label name* | No | Filter by label value. Multiple label filters are AND-combined. Values are case-sensitive. |
+| `metric` | Yes | Metric family name (case-insensitive). |
+| *any label name* | No | Filter by label value. Multiple filters are AND-combined. |
 
-**Response fields:**
+**Examples:**
 
-| Field | Description |
-|-------|-------------|
-| `metric` | Canonical metric family name |
-| `type` | Prometheus type: `counter`, `gauge`, `histogram`, `summary` |
-| `help` | Description from `# HELP` comment |
-| `filters` | Echo of applied filters |
-| `count` | Number of series returned |
-| `results` | Array of `{labels, value[, suffix]}` objects |
-
----
-
-**Examples — progressive filtering:**
-
-#### All series (no filter)
 ```bash
+# All series
 curl "http://localhost:8090/query?metric=port_bytes_count"
-```
-```json
-{
-  "metric": "port_bytes_count",
-  "type": "counter",
-  "help": "Shows the number of bytes received by the UPF DPDK port",
-  "filters": {},
-  "count": 4,
-  "results": [
-    { "labels": { "dir": "rx", "iface": "N3" }, "value": "817404" },
-    { "labels": { "dir": "rx", "iface": "N6" }, "value": "817464" },
-    { "labels": { "dir": "tx", "iface": "N3" }, "value": "842870" },
-    { "labels": { "dir": "tx", "iface": "N6" }, "value": "842716" }
-  ]
-}
-```
 
-#### Filter by one label
-```bash
+# Filter by direction
 curl "http://localhost:8090/query?metric=port_bytes_count&dir=rx"
-```
-```json
-{
-  "filters": { "dir": "rx" },
-  "count": 2,
-  "results": [
-    { "labels": { "dir": "rx", "iface": "N3" }, "value": "817404" },
-    { "labels": { "dir": "rx", "iface": "N6" }, "value": "817464" }
-  ]
-}
-```
 
-#### Filter by two labels
-```bash
+# Filter by direction and interface
 curl "http://localhost:8090/query?metric=port_bytes_count&dir=rx&iface=N3"
 ```
-```json
-{
-  "filters": { "dir": "rx", "iface": "N3" },
-  "count": 1,
-  "results": [
-    { "labels": { "dir": "rx", "iface": "N3" }, "value": "817404" }
-  ]
-}
-```
 
-#### Histogram — filter to one sub-type
-```bash
-# All sub-types (bucket, sum, count)
-curl "http://localhost:8090/query?metric=pfcp_messages_duration_seconds"
+**Error responses:**
 
-# Only the bucket series
-curl "http://localhost:8090/query?metric=pfcp_messages_duration_seconds&suffix=bucket"
-
-# One specific bucket (le = upper bound in seconds)
-curl "http://localhost:8090/query?metric=pfcp_messages_duration_seconds&suffix=bucket&le=0.001"
-```
-
-#### Summary — latency percentiles for one interface
-```bash
-curl "http://localhost:8090/query?metric=upf_latency_ns&iface=N3"
-```
-
-#### Case-insensitive metric name
-```bash
-# All equivalent:
-curl "http://localhost:8090/query?metric=PORT_BYTES_COUNT"
-curl "http://localhost:8090/query?metric=Port_Bytes_Count"
-curl "http://localhost:8090/query?metric=port_bytes_count"
-```
+| HTTP code | Cause |
+|-----------|-------|
+| `400` | `metric` parameter missing |
+| `404` | Metric name not found |
+| `502` | Could not reach `METRICS_SOURCE` |
 
 ---
 
 ### `GET /metrics`
 
-Proxies the raw Prometheus exposition text from `METRICS_SOURCE`, adding a CORS header. Identical in content to `http://localhost:8080/metrics`.
+Proxies the raw Prometheus exposition text from `METRICS_SOURCE` with a CORS header.
 
 ```bash
 curl http://localhost:8090/metrics
 ```
-
-The dashboard uses this endpoint instead of calling port 8080 directly (which lacks CORS).
-
----
-
-### Error responses
-
-| HTTP code | Cause |
-|-----------|-------|
-| `400` | `metric` parameter missing |
-| `404` | Metric name not found (response includes `available` list) |
-| `502` | Could not reach `METRICS_SOURCE` |
 
 ---
 
@@ -449,167 +418,110 @@ Open **http://localhost:3000** after running `docker compose up`.
 
 | Control | Purpose |
 |---------|---------|
-| **ENDPOINT** field | URL to fetch metrics from. Default: `http://localhost:8090/metrics`. Change to any Prometheus-format endpoint and click **FETCH**. |
-| **FETCH** button | Manually trigger an immediate refresh. |
-| **FILTER** field | Type any substring to show only matching metric families (`port`, `pfcp`, `upf`, `go_gc`, …). Updates live as you type. |
-| **Auto-refresh 5s** checkbox | Toggle automatic polling. A progress bar below the header shows time until the next fetch. |
-
-### Stats strip
-
-The strip below the header shows live values for the most important UPF metrics: port byte counts, dropped packets, PFCP session count, PFCP message total, and datapath error count. These update on every refresh.
+| **ENDPOINT** field | URL to fetch metrics from. Default: `http://localhost:8090/metrics`. |
+| **FETCH** button | Trigger an immediate refresh. |
+| **FILTER** field | Show only matching metric families. Updates live as you type. |
+| **Auto-refresh 5s** checkbox | Toggle automatic polling. |
 
 ### Metric panels
 
-Each Prometheus metric family gets its own collapsible panel.
+Each Prometheus metric family gets its own collapsible panel. The coloured badge shows the metric type:
 
-- Click the panel header to collapse or expand it.
-- The coloured badge on the left shows the metric type:
+| Colour | Type |
+|--------|------|
+| Cyan | `gauge` |
+| Orange | `counter` |
+| Purple | `histogram` |
+| Amber | `summary` |
 
-  | Colour | Type |
-  |--------|------|
-  | Cyan | `gauge` |
-  | Orange | `counter` |
-  | Purple | `histogram` |
-  | Amber | `summary` |
-
-- Each column in the table corresponds to a Prometheus label key.
-- The **VALUE** column uses human-readable suffixes: `K`, `M`, `G`, `T`.
-- When a value changes between refreshes, it flashes green.
-- UPF-specific metrics (`port_*`, `pfcp_*`, `upf_*`, `datapath_down`) are sorted to the top. Go runtime and process metrics appear after.
-
-### Pointing the dashboard at a different source
-
-1. Edit the **ENDPOINT** field in the controls bar.
-2. Click **FETCH**.
-
-The dashboard accepts any URL that serves Prometheus exposition format text.
+Values use human-readable suffixes (`K`, `M`, `G`). Changed values flash green between refreshes.
 
 ---
 
 ## Go Worker Flags
 
-The `go-worker` container accepts two command-line flags.
-
 ### `-config <url>`
 
-Sets the Prometheus base URL. Default: `http://localhost:9090`.
+Sets the Prometheus base URL.
 
 ```bash
-# Use the default (prometheus container in Compose network)
-docker compose up go-worker
-
-# Point at an external Prometheus
-docker compose run --rm go-worker -config http://192.168.1.100:9090
-
-# Point at a different internal service (if you rename prometheus)
-docker compose run --rm go-worker -config http://my-prom:9090
-```
-
-To make a change permanent, edit the `command` field in `Docker-Compose.yml`:
-
-```yaml
-go-worker:
-  command: ["-config", "http://my-prom:9090"]
+docker compose run --rm go-worker -config http://prometheus:9090
 ```
 
 ### `-query <promql>`
 
-Appends a custom PromQL expression to every poll cycle. Default: empty (no extra query).
+Appends a custom PromQL expression to every poll cycle.
 
 ```bash
-# Watch a specific metric
 docker compose run --rm go-worker \
   -config http://prometheus:9090 \
-  -query 'upf_total_bytes'
-
-# PromQL with label selector
-docker compose run --rm go-worker \
-  -config http://prometheus:9090 \
-  -query 'port_bytes_count{dir="rx"}'
-
-# PromQL aggregation
-docker compose run --rm go-worker \
-  -config http://prometheus:9090 \
-  -query 'sum(port_packets_count) by (iface)'
+  -query 'upf:bytes_dropped_uplink:rate5m'
 ```
 
-### Viewing worker output
+### Viewing output
 
 ```bash
-# Follow logs live
 docker compose logs -f go-worker
-
-# Last 50 lines
 docker compose logs --tail=50 go-worker
-```
-
-Sample output:
-```
-2026/06/01 10:32:15 connecting to Prometheus at http://prometheus:9090
-2026/06/01 10:32:15 === 10:32:15 ===
-2026/06/01 10:32:15 [Port Bytes Count]
-2026/06/01 10:32:15   {dir="rx", iface="N3"} => 817404
-2026/06/01 10:32:15   {dir="rx", iface="N6"} => 817464
-2026/06/01 10:32:15   {dir="tx", iface="N3"} => 842870
-2026/06/01 10:32:15   {dir="tx", iface="N6"} => 842716
-2026/06/01 10:32:15 [PFCP Messages Total]
-2026/06/01 10:32:15   {direction="Outgoing", message_type="Association Setup Request", ...} => 6
 ```
 
 ---
 
 ## Configuration Reference
 
-### Environment variables (query-api)
+### Prometheus scrape & evaluation interval
 
-Set in `Docker-Compose.yml` under the `query-api` service's `environment` block.
+`prometheus.yml`:
+```yaml
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+```
+
+Set to 5 s to keep the `[15s]` rate window populated with at least 3 data points. Increasing this will slow alert transitions.
+
+### Alert thresholds
+
+`rules.yml` — edit the `expr` field on the alert rules:
+```yaml
+expr: (upf:bytes_dropped_uplink:rate5m) > 524288   # 0.5 MB/s
+```
+
+### Simulator cycle
+
+`server.py` — top-level constants:
+```python
+CYCLE       = 30   # total cycle length in seconds
+SPIKE_START = 15   # spike begins this many seconds into the cycle
+```
+
+### query-api environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `METRICS_SOURCE` | `http://localhost:8080/metrics` | Full URL of the Prometheus `/metrics` endpoint to pull from. Change this to point the query-api at a different exporter. |
-| `PORT` | `8090` | TCP port the query-api listens on inside the container. If you change this, update the `ports` mapping in Compose as well. |
-
-Example — point query-api at a remote exporter:
-```yaml
-query-api:
-  environment:
-    - METRICS_SOURCE=http://10.0.0.5:9100/metrics
-    - PORT=8090
-```
-
-### Prometheus scrape interval
-
-Edit `prometheus.yml`:
-```yaml
-global:
-  scrape_interval: 15s   # change to 5s for faster updates
-```
+| `METRICS_SOURCE` | `http://localhost:8080/metrics` | Metrics endpoint to pull from |
+| `PORT` | `8090` | Port the query-api listens on |
 
 ---
 
 ## Port Map
 
-| Port (host) | Container | Service |
-|-------------|-----------|---------|
+| Host port | Container port | Service |
+|-----------|---------------|---------|
 | `3000` | `80` | frontend (nginx) |
+| `3001` | `3000` | grafana |
 | `8080` | `8080` | metrics-exporter |
 | `8090` | `8090` | query-api |
 | `9090` | `9090` | prometheus |
 
-The `go-worker` container exposes no ports — it only writes to stdout.
+`go-worker` exposes no ports — it only writes to stdout.
 
 ---
 
 ## Running Locally Without Docker
 
-All services can be run directly on the host for development.
-
 ### metrics-exporter
 ```bash
-# Requires Python 3.x
-# metrics.txt must be in the same directory as server.py
-# (the server uses the hardcoded path /app/metrics.txt when in Docker;
-#  locally you may need to create a symlink or adjust the path)
 python3 server.py
 # Listening on http://localhost:8080
 ```
@@ -617,70 +529,48 @@ python3 server.py
 ### query-api
 ```bash
 METRICS_SOURCE=http://localhost:8080/metrics PORT=8090 python3 query_api.py
-# Listening on http://localhost:8090
 ```
 
 ### go-worker
 ```bash
-# Requires Go 1.24+
 go run main.go -config http://localhost:9090
-# Or build first:
-go build -o worker .
-./worker -config http://localhost:9090 -query upf_total_bytes
 ```
 
 ### prometheus
 ```bash
-# Requires Prometheus binary in PATH
-prometheus --config.file=prometheus.yml
-# UI at http://localhost:9090
+prometheus --config.file=prometheus.yml --web.enable-lifecycle
 ```
 
+### grafana
+Point a local Grafana instance at `http://localhost:9090` as a Prometheus datasource, then import `grafana/provisioning/dashboards/upf_metrics.json`.
+
 ### frontend
-Open `dashboard.html` directly in a browser:
+Open `dashboard.html` directly in a browser, or serve it locally:
+```bash
+python3 -m http.server 3000
+# Visit http://localhost:3000/dashboard.html
 ```
-file:///path/to/metrics_server/dashboard.html
-```
-> Note: some browsers block `file://` → `http://` fetch requests. If the dashboard shows a connection error, run the query-api locally and open the dashboard via a local server instead:
-> ```bash
-> python3 -m http.server 3000
-> # Then visit http://localhost:3000/dashboard.html
-> ```
 
 ---
 
 ## How the Prometheus Parser Works
 
-Both `query_api.py` and `dashboard.html` contain a parser for the [Prometheus exposition format](https://prometheus.io/docs/instrumenting/exposition_formats/). Understanding it helps when adding new metrics.
+Both `query_api.py` and `dashboard.html` parse the [Prometheus exposition format](https://prometheus.io/docs/instrumenting/exposition_formats/).
 
 ### Format overview
 
 ```
 # HELP metric_name Human-readable description.
-# TYPE metric_name gauge
+# TYPE metric_name counter
 metric_name{label1="val1",label2="val2"} 123.45
-metric_name{label1="val1",label2="val3"} 678.90
 ```
-
-### Metric families
-
-A **family** is the logical grouping of all series sharing the same base name. Histograms and summaries generate multiple line types that are folded back into one family:
-
-| Line in text | Base family | `suffix` field |
-|---|---|---|
-| `pfcp_messages_duration_seconds_bucket{le="0.001",...}` | `pfcp_messages_duration_seconds` | `bucket` |
-| `pfcp_messages_duration_seconds_sum{...}` | `pfcp_messages_duration_seconds` | `sum` |
-| `pfcp_messages_duration_seconds_count{...}` | `pfcp_messages_duration_seconds` | `count` |
-| `port_bytes_count{dir="rx",...}` | `port_bytes_count` | *(none)* |
-
-The parser resolves the base family by checking whether the metric name matches a known `# TYPE` entry exactly, or starts with one and ends in a recognised suffix (`bucket`, `sum`, `count`, `created`).
 
 ### Label filtering logic
 
 ```
-metric=port_bytes_count             → all 4 series
-metric=port_bytes_count&dir=rx      → series where labels["dir"] == "rx"  (2 results)
-metric=port_bytes_count&dir=rx&iface=N3  → labels["dir"]=="rx" AND labels["iface"]=="N3"  (1 result)
+metric=port_bytes_count                      → all 4 series
+metric=port_bytes_count&dir=rx               → 2 series  (N3 + N6, rx only)
+metric=port_bytes_count&dir=rx&iface=N3      → 1 series
 ```
 
-Filters are AND-combined. A series is included only if **every** supplied label filter matches. Missing labels count as non-matching (`series.labels.get(k) == v` returns `False` if key absent).
+Filters are AND-combined. A series is included only if every supplied label filter matches. Missing labels count as non-matching.
