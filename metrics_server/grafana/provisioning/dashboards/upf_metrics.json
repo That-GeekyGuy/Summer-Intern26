@@ -26,7 +26,7 @@
         "w": 12,
         "x": 0,
         "y": 0
-      },ü
+      },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
