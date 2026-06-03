@@ -1,33 +1,33 @@
 services:
 
-  # URL shortener service – exposes /metrics on :8080 for Prometheus scraping.
+  # Go URL shortener — exposes REST API and /metrics on :8080.
   shortener:
     build:
       context: .
-      dockerfile: Dockerfile.shortener
+      dockerfile: docker/Dockerfile.shortener
     ports:
       - "8080:8080"
 
-  # Scrapes metrics-exporter every 15 s and stores time-series data.
+  # Scrapes shortener:8080/metrics every 5 s; stores and evaluates rules.
   prometheus:
     image: prom/prometheus
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./rules.yml:/etc/prometheus/rules.yml:ro
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/rules.yml:/etc/prometheus/rules.yml:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.enable-lifecycle"
     depends_on:
       - shortener
 
-  # Filterable JSON query layer on top of the raw metrics endpoint.
-  # Override METRICS_SOURCE to point at a different exporter.
+  # Filterable JSON query layer over the raw /metrics endpoint.
+  # Override METRICS_SOURCE to point at any Prometheus-format exporter.
   query-api:
     build:
-      context: .
-      dockerfile: Dockerfile.api
+      context: ./query-api
+      dockerfile: Dockerfile
     ports:
       - "8090:8090"
     environment:
@@ -36,19 +36,17 @@ services:
     depends_on:
       - shortener
 
-  # Polls Prometheus with PromQL queries every 5 s and logs results.
-  # Override the command to use a different Prometheus or add a custom query:
-  #   docker compose run go-worker -config http://other:9090 -query upf_total_bytes
+  # Polls Prometheus with PromQL every 5 s and logs results.
+  # Custom query: docker compose run go-worker -config http://... -query '<promql>'
   go-worker:
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      dockerfile: docker/Dockerfile.worker
     command: ["-config", "http://prometheus:9090"]
     depends_on:
       - prometheus
 
-  # Grafana — dashboards and alert rule viewer.
-  # UI: http://localhost:3001  (no login required)
+  # Grafana dashboards — http://localhost:3001 (no login required)
   grafana:
     image: grafana/grafana
     ports:
@@ -58,14 +56,19 @@ services:
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
 
-  # Static dashboard served by Nginx.
+  # Nginx frontend — http://localhost:3002
+  # /            → shortener UI  (proxies /api/* to shortener:8080)
+  # /metrics.html → Prometheus metrics explorer
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "3002:80"
+    depends_on:
+      - shortener
+      - query-api

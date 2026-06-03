@@ -12,10 +12,10 @@ import (
 )
 
 var defaultQueries = map[string]string{
-	"Port Bytes Count":    `port_bytes_count`,
-	"Port Dropped Count":  `port_dropped_count`,
-	"Port Packets Count":  `port_packets_count`,
-	"PFCP Messages Total": `pfcp_messages_total`,
+	"HTTP Request Rate":    `sum by (path) (rate(http_requests_total[1m]))`,
+	"URLs Created Total":   `shortener_urls_created_total`,
+	"Analytics Queue":      `analytics_queue_depth`,
+	"Tasks Processed":      `sum by (status) (analytics_tasks_processed_total)`,
 }
 
 func query(api v1.API, q string) {

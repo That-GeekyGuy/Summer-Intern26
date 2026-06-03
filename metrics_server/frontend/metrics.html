@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>UPF Metrics Dashboard</title>
+  <title>URL Shortener — Metrics Explorer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
@@ -445,8 +445,8 @@
         </svg>
       </div>
       <div class="brand-copy">
-        <div class="brand-name">UPF Metrics Dashboard</div>
-        <div class="brand-sub">5G User Plane Function · Prometheus</div>
+        <div class="brand-name">Metrics Explorer</div>
+        <div class="brand-sub">URL Shortener · Prometheus</div>
       </div>
     </div>
     <div class="header-controls">
@@ -455,6 +455,7 @@
         <div class="dot" id="dot"></div>
         <span id="status-txt">OFFLINE</span>
       </div>
+      <a href="/" class="btn">SHORTENER ↗</a>
       <button class="btn" onclick="doFetch()">⟳ REFRESH</button>
     </div>
   </div>
@@ -465,12 +466,12 @@
 <div id="stats-strip">
   <div class="stat-cell"><div class="stat-lbl">Families</div><div class="stat-val" id="s-fam">—</div></div>
   <div class="stat-cell"><div class="stat-lbl">Series</div><div class="stat-val" id="s-ser">—</div></div>
-  <div class="stat-cell"><div class="stat-lbl">Port Bytes N3 RX</div><div class="stat-val" id="s-n3rx">—</div></div>
-  <div class="stat-cell"><div class="stat-lbl">Port Bytes N6 RX</div><div class="stat-val" id="s-n6rx">—</div></div>
-  <div class="stat-cell"><div class="stat-lbl">Dropped N3 RX</div><div class="stat-val" id="s-drop3">—</div></div>
-  <div class="stat-cell"><div class="stat-lbl">PFCP Sessions</div><div class="stat-val" id="s-sess">—</div></div>
-  <div class="stat-cell"><div class="stat-lbl">PFCP Messages</div><div class="stat-val" id="s-pfcp">—</div></div>
-  <div class="stat-cell"><div class="stat-lbl">Datapath Errors</div><div class="stat-val" id="s-dp">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">HTTP Requests</div><div class="stat-val" id="s-reqs">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">URLs Created</div><div class="stat-val" id="s-urls">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Total Redirects</div><div class="stat-val" id="s-redir">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Queue Depth</div><div class="stat-val" id="s-queue">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Tasks OK</div><div class="stat-val" id="s-ok">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Tasks Dropped</div><div class="stat-val" id="s-drop">—</div></div>
 </div>
 
 <!-- ── CONTROLS ────────────────────────────────────────────────── -->
@@ -665,12 +666,13 @@ function togglePanel(id) {
 
 // Metrics we want to surface first
 const PRIORITY = [
-  'port_bytes_count','port_packets_count','port_dropped_count',
-  'pfcp_messages_total','pfcp_sessions_total',
-  'datapath_down',
-  'upf_total_bytes','upf_total_packets',
-  'upf_latency_ns','upf_jitter_ns',
-  'pfcp_messages_duration_seconds',
+  'http_requests_total',
+  'http_request_duration_seconds',
+  'shortener_urls_created_total',
+  'shortener_redirects_total',
+  'analytics_queue_depth',
+  'analytics_tasks_processed_total',
+  'analytics_task_duration_seconds',
 ];
 
 function render() {
@@ -718,33 +720,31 @@ function refreshStats(families) {
   document.getElementById('s-fam').textContent = families.length;
   document.getElementById('s-ser').textContent = families.reduce((a, f) => a + f.series.length, 0);
 
-  const pb = state['port_bytes_count'];
-  if (pb) {
-    const n3rx = pb.series.find(s => s.labels.dir === 'rx' && s.labels.iface === 'N3');
-    const n6rx = pb.series.find(s => s.labels.dir === 'rx' && s.labels.iface === 'N6');
-    if (n3rx) document.getElementById('s-n3rx').textContent = fmt(n3rx.value);
-    if (n6rx) document.getElementById('s-n6rx').textContent = fmt(n6rx.value);
+  const reqs = state['http_requests_total'];
+  if (reqs)
+    document.getElementById('s-reqs').textContent =
+      fmt(reqs.series.reduce((a, s) => a + parseFloat(s.value || 0), 0));
+
+  const urls = state['shortener_urls_created_total'];
+  if (urls && urls.series.length > 0)
+    document.getElementById('s-urls').textContent = fmt(urls.series[0].value);
+
+  const redir = state['shortener_redirects_total'];
+  if (redir)
+    document.getElementById('s-redir').textContent =
+      fmt(redir.series.reduce((a, s) => a + parseFloat(s.value || 0), 0));
+
+  const queue = state['analytics_queue_depth'];
+  if (queue && queue.series.length > 0)
+    document.getElementById('s-queue').textContent = queue.series[0].value;
+
+  const tasks = state['analytics_tasks_processed_total'];
+  if (tasks) {
+    const ok      = tasks.series.find(s => s.labels.status === 'ok');
+    const dropped = tasks.series.find(s => s.labels.status === 'dropped');
+    if (ok)      document.getElementById('s-ok').textContent   = fmt(ok.value);
+    if (dropped) document.getElementById('s-drop').textContent = fmt(dropped.value);
   }
-
-  const pd = state['port_dropped_count'];
-  if (pd) {
-    const d = pd.series.find(s => s.labels.dir === 'rx' && s.labels.iface === 'N3');
-    if (d) document.getElementById('s-drop3').textContent = fmt(d.value);
-  }
-
-  const sess = state['pfcp_sessions_total'];
-  if (sess && sess.series.length > 0)
-    document.getElementById('s-sess').textContent = sess.series[0].value;
-
-  const pfcp = state['pfcp_messages_total'];
-  if (pfcp)
-    document.getElementById('s-pfcp').textContent =
-      pfcp.series.reduce((a, s) => a + parseFloat(s.value || 0), 0).toFixed(0);
-
-  const dp = state['datapath_down'];
-  if (dp)
-    document.getElementById('s-dp').textContent =
-      dp.series.reduce((a, s) => a + parseFloat(s.value || 0), 0).toFixed(0);
 }
 
 // ───────────────────────────────────────────────────────────────

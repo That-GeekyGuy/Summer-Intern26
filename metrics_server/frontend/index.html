@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>URL Shortener</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:          #070b10;
+      --bg2:         #0c1420;
+      --bg3:         #111c2a;
+      --accent:      #00d4ff;
+      --accent-lo:   rgba(0,212,255,0.12);
+      --accent-glow: rgba(0,212,255,0.35);
+      --green:       #00ffaa;
+      --green-lo:    rgba(0,255,170,0.12);
+      --red:         #ff4060;
+      --yellow:      #ffe055;
+      --text:        #b8ccda;
+      --text-hi:     #e8f4ff;
+      --text-lo:     #3d5568;
+      --border:      #14202e;
+      --border2:     #1d3045;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0,212,255,0.06) 0%, transparent 70%),
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 100% 100%, 48px 48px, 48px 48px;
+    }
+
+    /* ── HEADER ─────────────────────────────────────── */
+    #header {
+      position: sticky; top: 0; z-index: 200;
+      background: rgba(7,11,16,0.94);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border2);
+    }
+    .header-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1.75rem; height: 60px;
+    }
+    .brand { display: flex; align-items: center; gap: 0.9rem; }
+    .brand-icon {
+      position: relative; width: 34px; height: 34px;
+      border: 1.5px solid var(--accent);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .brand-icon::after {
+      content: ''; position: absolute; inset: -5px;
+      border: 1px solid rgba(0,212,255,0.18);
+    }
+    .brand-icon svg {
+      width: 18px; height: 18px; fill: none;
+      stroke: var(--accent); stroke-width: 1.8;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .brand-copy { line-height: 1.2; }
+    .brand-name {
+      font-family: 'Rajdhani', sans-serif; font-size: 1.05rem; font-weight: 700;
+      letter-spacing: 0.12em; color: var(--text-hi); text-transform: uppercase;
+    }
+    .brand-sub {
+      font-family: 'Share Tech Mono', monospace; font-size: 0.6rem;
+      letter-spacing: 0.18em; color: var(--accent); text-transform: uppercase;
+    }
+    .header-controls { display: flex; align-items: center; gap: 1.5rem; }
+    .status-pill {
+      display: flex; align-items: center; gap: 0.45rem;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.7rem; color: var(--text-lo);
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-lo); }
+    .dot.live  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 2.4s ease-in-out infinite; }
+    .dot.error { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+    #ts { font-family: 'Share Tech Mono', monospace; font-size: 0.68rem; color: var(--text-lo); }
+
+    .btn {
+      font-family: 'Rajdhani', sans-serif; font-size: 0.7rem; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 0.38rem 0.9rem; cursor: pointer;
+      border: 1px solid var(--border2); background: transparent; color: var(--accent);
+      transition: background 0.15s, border-color 0.15s;
+      text-decoration: none; display: inline-flex; align-items: center;
+    }
+    .btn:hover { background: var(--accent-lo); border-color: var(--accent); }
+    .btn.primary {
+      background: var(--accent-lo); border-color: var(--accent);
+      color: var(--text-hi); font-size: 0.8rem; padding: 0.6rem 1.6rem;
+    }
+    .btn.primary:hover { background: rgba(0,212,255,0.25); }
+    .btn.danger { color: var(--red); border-color: var(--red); }
+    .btn.danger:hover { background: rgba(255,64,96,0.1); }
+
+    /* ── STATS STRIP ─────────────────────────────────── */
+    #stats-strip {
+      display: flex; border-bottom: 1px solid var(--border);
+      background: var(--bg2); overflow-x: auto; scrollbar-width: none;
+    }
+    #stats-strip::-webkit-scrollbar { display: none; }
+    .stat-cell {
+      flex: 1; min-width: 140px;
+      padding: 0.75rem 1.4rem;
+      border-right: 1px solid var(--border);
+    }
+    .stat-cell:last-child { border-right: none; }
+    .stat-lbl {
+      font-family: 'Share Tech Mono', monospace; font-size: 0.58rem;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-lo);
+      margin-bottom: 0.25rem;
+    }
+    .stat-val {
+      font-family: 'Share Tech Mono', monospace; font-size: 1.05rem;
+      color: var(--accent); white-space: nowrap;
+    }
+
+    /* ── FORM ───────────────────────────────────────── */
+    #shorten-section {
+      padding: 2rem 1.75rem 1.25rem;
+      max-width: 900px; margin: 0 auto;
+    }
+    .section-title {
+      font-family: 'Rajdhani', sans-serif; font-size: 0.72rem; font-weight: 600;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-lo);
+      margin-bottom: 0.75rem;
+    }
+    .shorten-form {
+      background: var(--bg2); border: 1px solid var(--border); padding: 1.25rem 1.5rem;
+    }
+    .shorten-row { display: flex; gap: 0.75rem; align-items: stretch; }
+    #url-input {
+      flex: 1; background: var(--bg);
+      border: 1px solid var(--border2); color: var(--text-hi);
+      font-family: 'Share Tech Mono', monospace; font-size: 0.85rem;
+      padding: 0.65rem 1rem; outline: none;
+      transition: border-color 0.15s; min-width: 0;
+    }
+    #url-input:focus { border-color: var(--accent); }
+    #url-input::placeholder { color: var(--text-lo); }
+    #err-msg {
+      margin-top: 0.65rem;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.7rem;
+      color: var(--red); display: none;
+    }
+
+    /* ── RESULTS ────────────────────────────────────── */
+    #results-section {
+      padding: 0 1.75rem 2.5rem;
+      max-width: 900px; margin: 0 auto;
+    }
+    .results-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+    .panel { background: var(--bg2); border: 1px solid var(--border); overflow: hidden; }
+    .panel-empty {
+      padding: 3rem 2rem; text-align: center;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.75rem; color: var(--text-lo);
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: var(--bg3); border-bottom: 1px solid var(--border2); }
+    th {
+      font-family: 'Rajdhani', sans-serif; font-size: 0.62rem; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-lo);
+      padding: 0.55rem 1rem; text-align: left; white-space: nowrap;
+    }
+    .th-r { text-align: right; }
+    tbody tr { border-bottom: 1px solid rgba(20,32,46,0.7); transition: background 0.1s; }
+    tbody tr:nth-child(even) { background: rgba(0,0,0,0.1); }
+    tbody tr:hover { background: rgba(0,212,255,0.04); }
+    td {
+      font-family: 'Share Tech Mono', monospace; font-size: 0.72rem;
+      padding: 0.55rem 1rem; color: var(--text); white-space: nowrap;
+    }
+    .td-code  { color: var(--accent); font-weight: 600; letter-spacing: 0.08em; }
+    .td-orig  { color: var(--text-lo); max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+    .td-short { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    .td-clicks { color: var(--green); font-size: 0.85rem; text-align: right; }
+    .td-actions { text-align: right; }
+    .short-link {
+      color: var(--yellow); text-decoration: none; font-size: 0.68rem;
+    }
+    .short-link:hover { color: var(--text-hi); text-decoration: underline; }
+
+    .copy-btn {
+      font-family: 'Share Tech Mono', monospace; font-size: 0.6rem;
+      padding: 0.22rem 0.55rem; border: 1px solid var(--border2);
+      background: transparent; color: var(--text-lo); cursor: pointer;
+      transition: all 0.15s;
+    }
+    .copy-btn:hover   { border-color: var(--accent); color: var(--accent); }
+    .copy-btn.copied  { border-color: var(--green); color: var(--green); }
+
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ─────────────────────────────────────────────── -->
+<div id="header">
+  <div class="header-row">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+        </svg>
+      </div>
+      <div class="brand-copy">
+        <div class="brand-name">URL Shortener</div>
+        <div class="brand-sub">Go · Prometheus · Analytics Queue</div>
+      </div>
+    </div>
+    <div class="header-controls">
+      <div id="ts">—</div>
+      <div class="status-pill">
+        <div class="dot" id="dot"></div>
+        <span id="status-txt">OFFLINE</span>
+      </div>
+      <a href="metrics.html" class="btn">METRICS ↗</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── STATS STRIP ─────────────────────────────────────────── -->
+<div id="stats-strip">
+  <div class="stat-cell"><div class="stat-lbl">URLs Shortened</div><div class="stat-val" id="s-urls">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Total Clicks</div><div class="stat-val" id="s-clicks">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Entries This Session</div><div class="stat-val" id="s-session">0</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Queue Depth</div><div class="stat-val" id="s-queue">—</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Tasks Processed</div><div class="stat-val" id="s-tasks">—</div></div>
+</div>
+
+<!-- ── SHORTEN FORM ────────────────────────────────────────── -->
+<div id="shorten-section">
+  <div class="section-title">Shorten a URL</div>
+  <div class="shorten-form">
+    <div class="shorten-row">
+      <input id="url-input" type="url"
+             placeholder="https://example.com/very/long/url/that/needs/shortening"
+             autocomplete="off"/>
+      <button class="btn primary" onclick="doShorten()">SHORTEN</button>
+    </div>
+    <div id="err-msg"></div>
+  </div>
+</div>
+
+<!-- ── RESULTS ─────────────────────────────────────────────── -->
+<div id="results-section">
+  <div class="results-header">
+    <div class="section-title" style="margin:0">Created Short URLs</div>
+    <button class="btn danger" id="clear-btn" onclick="clearAll()" style="display:none">CLEAR ALL</button>
+  </div>
+  <div class="panel">
+    <div class="panel-empty" id="empty-msg">
+      No URLs shortened yet — paste a URL above and click SHORTEN.
+    </div>
+    <table id="results-table" style="display:none">
+      <thead>
+        <tr>
+          <th>CODE</th>
+          <th>ORIGINAL URL</th>
+          <th>SHORT URL</th>
+          <th class="th-r">CLICKS</th>
+          <th class="th-r">COPY</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ── Storage ────────────────────────────────────────────────────
+const STORAGE_KEY = 'shortener_entries_v1';
+let entries = [];
+try { entries = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '[]'); } catch (_) {}
+
+function save() {
+  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); } catch (_) {}
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Status indicator ───────────────────────────────────────────
+function setStatus(ok) {
+  document.getElementById('dot').className = 'dot ' + (ok ? 'live' : 'error');
+  const txt = document.getElementById('status-txt');
+  txt.textContent = ok ? 'LIVE' : 'ERROR';
+  txt.style.color = ok ? 'var(--green)' : 'var(--red)';
+  document.getElementById('ts').textContent = new Date().toLocaleTimeString();
+}
+
+// ── Shorten ────────────────────────────────────────────────────
+async function doShorten() {
+  const input = document.getElementById('url-input');
+  const errEl = document.getElementById('err-msg');
+  const url   = input.value.trim();
+
+  errEl.style.display = 'none';
+  if (!url) { showErr('Enter a URL first.'); return; }
+
+  try {
+    const res  = await fetch('/api/shorten', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({url}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showErr(data.error || `HTTP ${res.status}`); return; }
+
+    const shortUrl = window.location.origin + '/api/' + data.code;
+    entries.unshift({ code: data.code, originalUrl: url, shortUrl, clicks: 0 });
+    save();
+    input.value = '';
+    setStatus(true);
+    render();
+  } catch (e) {
+    setStatus(false);
+    showErr('Cannot reach shortener: ' + e.message);
+  }
+}
+
+function showErr(msg) {
+  const el = document.getElementById('err-msg');
+  el.textContent = '✕  ' + msg;
+  el.style.display = 'block';
+}
+
+// ── Stats refresh ──────────────────────────────────────────────
+async function refreshStats() {
+  let anyOk = false;
+  for (const entry of entries) {
+    try {
+      const res  = await fetch('/api/stats/' + entry.code);
+      if (!res.ok) continue;
+      const data = await res.json();
+      entry.clicks = data.clicks;
+      anyOk = true;
+    } catch (_) {}
+  }
+  save();
+  render();
+
+  // Also pull live counters from the Prometheus metrics via the query-api proxy
+  try {
+    const res = await fetch('http://localhost:8090/query?metric=shortener_urls_created_total');
+    const data = await res.json();
+    if (data.results && data.results.length > 0)
+      document.getElementById('s-urls').textContent = data.results[0].value;
+    anyOk = true;
+  } catch (_) {}
+
+  try {
+    const res = await fetch('http://localhost:8090/query?metric=analytics_queue_depth');
+    const data = await res.json();
+    if (data.results && data.results.length > 0)
+      document.getElementById('s-queue').textContent = data.results[0].value;
+  } catch (_) {}
+
+  try {
+    const res = await fetch('http://localhost:8090/query?metric=analytics_tasks_processed_total&status=ok');
+    const data = await res.json();
+    if (data.results && data.results.length > 0)
+      document.getElementById('s-tasks').textContent = data.results[0].value;
+  } catch (_) {}
+
+  if (anyOk) setStatus(true);
+}
+
+// ── Render ─────────────────────────────────────────────────────
+function render() {
+  const emptyEl   = document.getElementById('empty-msg');
+  const tableEl   = document.getElementById('results-table');
+  const clearBtn  = document.getElementById('clear-btn');
+  const tbody     = document.getElementById('tbody');
+
+  document.getElementById('s-session').textContent = entries.length;
+
+  // Total clicks across all session entries
+  const totalClicks = entries.reduce((a, e) => a + (e.clicks || 0), 0);
+  document.getElementById('s-clicks').textContent = totalClicks;
+
+  if (entries.length === 0) {
+    emptyEl.style.display = 'block';
+    tableEl.style.display = 'none';
+    clearBtn.style.display = 'none';
+    return;
+  }
+
+  emptyEl.style.display  = 'none';
+  tableEl.style.display  = 'table';
+  clearBtn.style.display = '';
+
+  tbody.innerHTML = entries.map((e, i) => `
+    <tr>
+      <td class="td-code">${esc(e.code)}</td>
+      <td class="td-orig" title="${esc(e.originalUrl)}">${esc(e.originalUrl)}</td>
+      <td class="td-short">
+        <a class="short-link" href="${esc(e.shortUrl)}" target="_blank" rel="noopener"
+        >${esc(e.shortUrl)}</a>
+      </td>
+      <td class="td-clicks">${e.clicks ?? '—'}</td>
+      <td class="td-actions">
+        <button class="copy-btn" id="cb-${i}" onclick="copyUrl(${i})">COPY</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function copyUrl(i) {
+  navigator.clipboard.writeText(entries[i].shortUrl).then(() => {
+    const btn = document.getElementById('cb-' + i);
+    btn.textContent = 'COPIED!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+function clearAll() {
+  if (!confirm('Clear all session URLs?')) return;
+  entries = [];
+  save();
+  render();
+}
+
+// ── Init ───────────────────────────────────────────────────────
+document.getElementById('url-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doShorten();
+});
+
+render();
+refreshStats();
+setInterval(refreshStats, 5000);
+</script>
+</body>
+</html>

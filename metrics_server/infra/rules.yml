@@ -1,0 +1,44 @@
+groups:
+  - name: shortener_recording
+    rules:
+      # Pre-compute error rate so the alert expression stays simple.
+      - record: shortener:http_error_rate:rate1m
+        expr: >
+          sum(rate(http_requests_total{status=~"5.."}[1m]))
+          /
+          sum(rate(http_requests_total[1m]))
+
+  - name: shortener_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: shortener:http_error_rate:rate1m > 0.05
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate"
+          description: >
+            {{ $value | humanizePercentage }} of requests are returning 5xx.
+            Check shortener logs.
+
+      - alert: QueueNearCapacity
+        expr: analytics_queue_depth > 80
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Analytics queue near capacity ({{ $value }}/100)"
+          description: >
+            Queue depth has exceeded 80. Tasks will start dropping
+            if it reaches 100.
+
+      - alert: TasksBeingDropped
+        expr: rate(analytics_tasks_processed_total{status="dropped"}[1m]) > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Analytics tasks are being dropped"
+          description: >
+            Drop rate: {{ $value | humanize }} tasks/s.
+            Increase -workers or -queue flags on the shortener.

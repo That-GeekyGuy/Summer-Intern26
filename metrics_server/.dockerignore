@@ -1,5 +1,6 @@
 .git
 *.exe
 *.test
-docs/
-grafana/provisioning/dashboards/*.json
+frontend/
+query-api/
+infra/
