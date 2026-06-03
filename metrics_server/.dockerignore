@@ -1,0 +1,5 @@
+.git
+*.exe
+*.test
+docs/
+grafana/provisioning/dashboards/*.json
