@@ -30,12 +30,14 @@ func TestQueue_EnqueueAndProcess(t *testing.T) {
 		t.Fatal("expected enqueue to succeed on non-full channel")
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	clicks, _ := s.Clicks(code)
-	if clicks != 1 {
-		t.Fatalf("expected 1 click after worker processed task, got %d", clicks)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if clicks, _ := s.Clicks(code); clicks == 1 {
+			return
+		}
+		time.Sleep(time.Millisecond)
 	}
+	t.Fatal("worker did not process task within 2 seconds")
 }
 
 func TestQueue_ReturnsFalseWhenFull(t *testing.T) {

@@ -32,7 +32,7 @@ func NewQueue(capacity int, m *Metrics, s *Store) *Queue {
 func (q *Queue) Enqueue(t Task) bool {
 	select {
 	case q.ch <- t:
-		q.metrics.AnalyticsQueueDepth.Inc()
+		q.metrics.AnalyticsQueueDepth.Set(float64(len(q.ch)))
 		return true
 	default:
 		q.metrics.TasksProcessedTotal.WithLabelValues("dropped").Inc()
@@ -53,7 +53,7 @@ func (q *Queue) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case t := <-q.ch:
-			q.metrics.AnalyticsQueueDepth.Dec()
+			q.metrics.AnalyticsQueueDepth.Set(float64(len(q.ch)))
 			q.process(t)
 		}
 	}
