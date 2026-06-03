@@ -47,6 +47,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+func (rw *responseWriter) Unwrap() http.ResponseWriter { return rw.ResponseWriter }
+
 // instrument wraps every request with Prometheus timing and counting.
 // Path labels use the mux pattern (e.g. "/{code}") not the actual URL,
 // preventing high cardinality from unique short codes.
