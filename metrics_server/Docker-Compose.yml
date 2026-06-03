@@ -1,10 +1,10 @@
 services:
 
-  # Simulates the real UPF metrics exporter – do not modify.
-  metrics-exporter:
+  # URL shortener service – exposes /metrics on :8080 for Prometheus scraping.
+  shortener:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.shortener
     ports:
       - "8080:8080"
 
@@ -20,7 +20,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.enable-lifecycle"
     depends_on:
-      - metrics-exporter
+      - shortener
 
   # Filterable JSON query layer on top of the raw metrics endpoint.
   # Override METRICS_SOURCE to point at a different exporter.
@@ -31,10 +31,10 @@ services:
     ports:
       - "8090:8090"
     environment:
-      - METRICS_SOURCE=http://metrics-exporter:8080/metrics
+      - METRICS_SOURCE=http://shortener:8080/metrics
       - PORT=8090
     depends_on:
-      - metrics-exporter
+      - shortener
 
   # Polls Prometheus with PromQL queries every 5 s and logs results.
   # Override the command to use a different Prometheus or add a custom query:
