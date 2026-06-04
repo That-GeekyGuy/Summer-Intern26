@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tcp-listener
+  namespace: default
+spec:
+  selector:
+    app: tcp-listener
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
