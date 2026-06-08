@@ -15,9 +15,13 @@ spec:
     spec:
       containers:
         - name: listener
-          image: xtremevoid/tcp-listener:v2
+          image: xtremevoid/tcp-listener:v3   # rebuilt with /metrics endpoint on :2112
+          imagePullPolicy: IfNotPresent        # use local image if present (minikube build)
           ports:
-            - containerPort: 8080
+            - name: tcp
+              containerPort: 8080
+            - name: metrics
+              containerPort: 2112
           resources:
             requests:
               cpu: "100m"

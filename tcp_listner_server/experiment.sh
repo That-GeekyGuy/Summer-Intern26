@@ -30,7 +30,7 @@ echo "========================================"
 # ensure configmap exists before anything else
 # apply is idempotent — safe to run even if it already exists
 echo "[SETUP] Applying configmap..."
-kubectl apply -f configmap.yaml
+kubectl apply -f k8s/configmap.yaml
 
 # give the API server a moment to register the configmap
 sleep 2
@@ -100,7 +100,7 @@ for ROUND in "${ROUNDS[@]}"; do
   START=$(date +%s)
 
   # create the new job — kubernetes pulls config from the configmap at pod start
-  kubectl apply -f generator-job.yaml
+  kubectl apply -f k8s/generator-job.yaml
   echo "[ROUND $ROUND_NUM] Job created — waiting for completion..."
 
   # wait for job to reach Complete condition
