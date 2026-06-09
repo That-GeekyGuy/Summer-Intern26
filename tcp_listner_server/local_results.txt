@@ -1,8 +1,0 @@
-POOL   | QUEUE   | LAST_CLEAN  | FIRST_DROP  | NOTES
-────── | ─────── | ─────────── | ─────────── | ──────────────────────
-1      | 10      | 11          | 12          | first drop at 12, max clean=11 pkt
-2      | 10      | 12          | 13          | first drop at 13, max clean=12 pkt
-3      | 10      | 13          | 14          | first drop at 14, max clean=13 pkt
-4      | 10      | 14          | 15          | first drop at 15, max clean=14 pkt
-5      | 10      | 15          | 16          | first drop at 16, max clean=15 pkt
-is 
