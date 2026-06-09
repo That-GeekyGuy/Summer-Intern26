@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -117,6 +118,55 @@ func writeMetric(w http.ResponseWriter, help, metricType, name, valueStr string)
 		name, help, name, metricType, name, valueStr)
 }
 
+// makeRunHandler returns an HTTP handler that fires N packets at the listener
+// using W parallel workers. Useful for quick curl-based load generation:
+//
+//	curl "http://localhost:2112/run?count=1000&workers=8"
+func makeRunHandler(listenAddr string) http.HandlerFunc {
+	selfAddr := listenAddr
+	if strings.HasPrefix(selfAddr, ":") {
+		selfAddr = "127.0.0.1" + selfAddr
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		count := 100
+		workers := 4
+		if v := r.URL.Query().Get("count"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				count = n
+			}
+		}
+		if v := r.URL.Query().Get("workers"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				workers = n
+			}
+		}
+		go func() {
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, workers)
+			for i := 0; i < count; i++ {
+				sem <- struct{}{}
+				wg.Add(1)
+				go func(n int) {
+					defer func() { <-sem; wg.Done() }()
+					conn, err := net.DialTimeout("tcp", selfAddr, 5*time.Second)
+					if err != nil {
+						return
+					}
+					defer conn.Close()
+					fmt.Fprintf(conn, "PING %d\n", n)
+					buf := make([]byte, 256)
+					conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+					conn.Read(buf) //nolint:errcheck
+				}(i)
+			}
+			wg.Wait()
+			log.Printf("[run] done: count=%d workers=%d", count, workers)
+		}()
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "started: count=%d workers=%d target=%s\n", count, workers, selfAddr)
+	}
+}
+
 // metricsHandler serves Prometheus text-format metrics on /metrics.
 func metricsHandler(w http.ResponseWriter, _ *http.Request) {
 	var mem runtime.MemStats
@@ -209,12 +259,14 @@ func main() {
 	listenAddr := envString("LISTEN_ADDR", ":8080")
 	metricsAddr := envString("METRICS_ADDR", ":2112")
 
-	// ── Prometheus /metrics endpoint ──────────────────────────────────────────
+	// ── Admin HTTP server: /metrics + /run ───────────────────────────────────
 	go func() {
-		http.HandleFunc("/metrics", metricsHandler)
-		log.Printf("Metrics endpoint: http://0.0.0.0%s/metrics", metricsAddr)
-		if err := http.ListenAndServe(metricsAddr, nil); err != nil {
-			log.Fatalf("metrics server: %v", err)
+		mux := http.NewServeMux()
+		mux.HandleFunc("/metrics", metricsHandler)
+		mux.HandleFunc("/run", makeRunHandler(listenAddr))
+		log.Printf("Admin: http://0.0.0.0%s/metrics  |  /run?count=N&workers=W", metricsAddr)
+		if err := http.ListenAndServe(metricsAddr, mux); err != nil {
+			log.Fatalf("admin server: %v", err)
 		}
 	}()
 

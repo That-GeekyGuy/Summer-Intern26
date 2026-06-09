@@ -1,0 +1,774 @@
+{
+  "uid": "tcp-udp-comparison",
+  "title": "TCP vs UDP — Live Comparison",
+  "description": "Side-by-side throughput, CPU, RAM, and rejection rates for TCP and UDP listeners",
+  "schemaVersion": 38,
+  "version": 2,
+  "refresh": "5s",
+  "time": { "from": "now-10m", "to": "now" },
+  "timezone": "browser",
+  "tags": ["tcp", "udp", "comparison"],
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "links": [],
+
+  "panels": [
+
+    { "id": 1, "type": "stat", "title": "TCP — CPU %",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "rate(tcp_process_cpu_seconds_total[30s]) * 100",
+        "legendFormat": "TCP CPU %",
+        "instant": false
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue", "value": null },
+            { "color": "yellow", "value": 50 },
+            { "color": "red", "value": 80 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 2, "type": "stat", "title": "UDP — CPU %",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "rate(udp_process_cpu_seconds_total[30s]) * 100",
+        "legendFormat": "UDP CPU %",
+        "instant": false
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "orange", "value": null },
+            { "color": "yellow", "value": 50 },
+            { "color": "red", "value": 80 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 3, "type": "stat", "title": "TCP — RAM",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "tcp_process_rss_bytes",
+        "legendFormat": "TCP RSS",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue", "value": null },
+            { "color": "yellow", "value": 52428800 },
+            { "color": "red", "value": 104857600 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 4, "type": "stat", "title": "UDP — RAM",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "udp_process_rss_bytes",
+        "legendFormat": "UDP RSS",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "orange", "value": null },
+            { "color": "yellow", "value": 52428800 },
+            { "color": "red", "value": 104857600 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 5, "type": "stat", "title": "TCP — Goroutines",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "tcp_process_goroutines",
+        "legendFormat": "TCP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue", "value": null },
+            { "color": "yellow", "value": 100 },
+            { "color": "red", "value": 500 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 6, "type": "stat", "title": "UDP — Goroutines",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "udp_process_goroutines",
+        "legendFormat": "UDP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "orange", "value": null },
+            { "color": "yellow", "value": 100 },
+            { "color": "red", "value": 500 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 7, "type": "stat", "title": "TCP — Total Handled",
+      "gridPos": { "x": 0, "y": 3, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "tcp_connections_total",
+        "legendFormat": "TCP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 8, "type": "stat", "title": "UDP — Total Handled",
+      "gridPos": { "x": 4, "y": 3, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "udp_packets_total",
+        "legendFormat": "UDP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 9, "type": "stat", "title": "TCP — Rejected",
+      "gridPos": { "x": 8, "y": 3, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "tcp_connections_rejected_total",
+        "legendFormat": "TCP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 },
+            { "color": "red", "value": 10 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 10, "type": "stat", "title": "UDP — Rejected",
+      "gridPos": { "x": 12, "y": 3, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "udp_packets_rejected_total",
+        "legendFormat": "UDP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 },
+            { "color": "red", "value": 10 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 11, "type": "stat", "title": "TCP — Active Conns",
+      "gridPos": { "x": 16, "y": 3, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "tcp_connections_active",
+        "legendFormat": "TCP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue", "value": null },
+            { "color": "yellow", "value": 5 },
+            { "color": "red", "value": 20 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 12, "type": "stat", "title": "UDP — Active Workers",
+      "gridPos": { "x": 20, "y": 3, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "udp_workers_active",
+        "legendFormat": "UDP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "orange", "value": null },
+            { "color": "yellow", "value": 5 },
+            { "color": "red", "value": 20 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 13, "type": "timeseries",
+      "title": "Throughput — TCP vs UDP  (handled/s · rejected/s)",
+      "description": "UDP handled/s significantly exceeds TCP due to no per-packet handshake. Dashed lines = rejected (queue full).",
+      "gridPos": { "x": 0, "y": 6, "w": 14, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(tcp_connections_total[30s])",
+          "legendFormat": "TCP handled/s" },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(udp_packets_total[30s])",
+          "legendFormat": "UDP handled/s" },
+        { "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(tcp_connections_rejected_total[30s])",
+          "legendFormat": "TCP rejected/s" },
+        { "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(udp_packets_rejected_total[30s])",
+          "legendFormat": "UDP rejected/s" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TCP handled/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP handled/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "TCP rejected/s" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "dark-blue", "mode": "fixed" } },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } }
+            ]},
+          { "matcher": { "id": "byName", "options": "UDP rejected/s" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } }
+            ]}
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      }
+    },
+
+    { "id": 14, "type": "timeseries",
+      "title": "CPU % — TCP vs UDP",
+      "description": "TCP spends CPU on kernel handshake work; UDP spends it on syscall volume.",
+      "gridPos": { "x": 14, "y": 6, "w": 10, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(tcp_process_cpu_seconds_total[30s]) * 100",
+          "legendFormat": "TCP CPU %" },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(udp_process_cpu_seconds_total[30s]) * 100",
+          "legendFormat": "UDP CPU %" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TCP CPU %" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP CPU %" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      }
+    },
+
+    { "id": 15, "type": "timeseries",
+      "title": "RAM — TCP vs UDP",
+      "description": "TCP holds kernel connection state per active connection; UDP has one shared socket.",
+      "gridPos": { "x": 0, "y": 15, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "tcp_process_rss_bytes",
+          "legendFormat": "TCP RSS" },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "tcp_process_heap_alloc_bytes",
+          "legendFormat": "TCP Heap" },
+        { "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "udp_process_rss_bytes",
+          "legendFormat": "UDP RSS" },
+        { "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "udp_process_heap_alloc_bytes",
+          "legendFormat": "UDP Heap" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TCP RSS" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "TCP Heap" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "light-blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP RSS" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP Heap" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      }
+    },
+
+    { "id": 16, "type": "timeseries",
+      "title": "Network Bytes/s — TCP vs UDP",
+      "gridPos": { "x": 8, "y": 15, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(tcp_process_bytes_sent_total[30s])",
+          "legendFormat": "TCP sent/s" },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(tcp_process_bytes_received_total[30s])",
+          "legendFormat": "TCP recv/s" },
+        { "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(udp_process_bytes_sent_total[30s])",
+          "legendFormat": "UDP sent/s" },
+        { "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(udp_process_bytes_received_total[30s])",
+          "legendFormat": "UDP recv/s" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TCP sent/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "TCP recv/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "light-blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP sent/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP recv/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      }
+    },
+
+    { "id": 17, "type": "timeseries",
+      "title": "Goroutines — TCP vs UDP",
+      "description": "TCP spawns goroutines per open connection; UDP uses a fixed pool. Watch TCP spike under load.",
+      "gridPos": { "x": 16, "y": 15, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "tcp_process_goroutines",
+          "legendFormat": "TCP goroutines" },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "udp_process_goroutines",
+          "legendFormat": "UDP goroutines" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TCP goroutines" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP goroutines" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      }
+    },
+
+    { "id": 18, "type": "timeseries",
+      "title": "Active Connections / Workers — TCP vs UDP",
+      "description": "TCP stays elevated for the full handler duration. UDP is near-zero with DELAY_MS=0 (handlers finish in microseconds).",
+      "gridPos": { "x": 0, "y": 23, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "tcp_connections_active",
+          "legendFormat": "TCP active conns" },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "udp_workers_active",
+          "legendFormat": "UDP active workers" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TCP active conns" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP active workers" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      }
+    },
+
+    { "id": 19, "type": "timeseries",
+      "title": "Handler Duration Sum/s — TCP vs UDP",
+      "description": "Near-zero with DELAY_MS=0. Set HANDLER_DELAY_MS>0 in docker-compose to see it climb linearly with load.",
+      "gridPos": { "x": 12, "y": 23, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(tcp_request_duration_ms_sum[30s])",
+          "legendFormat": "TCP handler ms/s" },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(udp_request_duration_ms_sum[30s])",
+          "legendFormat": "UDP handler ms/s" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TCP handler ms/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "UDP handler ms/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      }
+    },
+
+    { "id": 20, "type": "row",
+      "title": "Stress Test Results  (run ./stress_test.sh to populate)",
+      "gridPos": { "x": 0, "y": 31, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+
+    { "id": 21, "type": "stat", "title": "Best TCP Ceiling",
+      "description": "Highest TCP throughput ceiling seen across all N_WORKERS values.",
+      "gridPos": { "x": 0, "y": 32, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "max(stress_ceiling_pps{proto=\"tcp\"})",
+        "legendFormat": "TCP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps", "min": 0,
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 22, "type": "stat", "title": "Best UDP Ceiling",
+      "description": "Highest UDP throughput ceiling seen across all N_WORKERS values.",
+      "gridPos": { "x": 6, "y": 32, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "max(stress_ceiling_pps{proto=\"udp\"})",
+        "legendFormat": "UDP",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps", "min": 0,
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 23, "type": "stat", "title": "Best UDP Speedup over TCP",
+      "description": "UDP ceiling / TCP ceiling at the pool size with the highest speedup.",
+      "gridPos": { "x": 12, "y": 32, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "max(stress_speedup_factor)",
+        "legendFormat": "Speedup",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "x",  "min": 0, "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 5 },
+            { "color": "orange", "value": 20 },
+            { "color": "red",    "value": 50 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 24, "type": "stat", "title": "Last Run",
+      "description": "When stress_test.sh last completed.",
+      "gridPos": { "x": 18, "y": 32, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "stress_test_timestamp_seconds",
+        "legendFormat": "timestamp",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal", "min": 0,
+          "color": { "mode": "fixed", "fixedColor": "text" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto",
+        "colorMode": "value", "graphMode": "none", "justifyMode": "auto"
+      }
+    },
+
+    { "id": 25, "type": "barchart",
+      "title": "TCP vs UDP Ceiling per Pool Size  (pkt/s)",
+      "description": "Bars show the throughput ceiling discovered by stress_test.sh for each listener pool size. Run ./stress_test.sh to update.",
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "stress_ceiling_pps{proto=\"tcp\"}",
+          "legendFormat": "TCP  (N={{workers}})",
+          "instant": true },
+        { "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "stress_ceiling_pps{proto=\"udp\"}",
+          "legendFormat": "UDP  (N={{workers}})",
+          "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps", "min": 0,
+          "custom": { "fillOpacity": 80, "lineWidth": 0, "gradientMode": "none" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "A" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100,
+        "barRadius": 0.05,
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "stacking": "none",
+        "fillOpacity": 80,
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "orientation": "auto"
+      }
+    }
+
+  ]
+}

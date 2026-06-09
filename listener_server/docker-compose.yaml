@@ -1,0 +1,79 @@
+services:
+
+  # ── TCP Listener ──────────────────────────────────────────────────────────────
+  tcp-listener:
+    build: ./tcp/listener
+    ports:
+      - "8080:8080"   # TCP traffic
+      - "2112:2112"   # Prometheus /metrics
+    environment:
+      WORKER_POOL_SIZE: "0"      # 0 = unbounded; set >0 for pool mode
+      HANDLER_DELAY_MS: "0"      # 0 = raw throughput; set >0 for controlled saturation
+    restart: unless-stopped
+
+  # ── UDP Listener ──────────────────────────────────────────────────────────────
+  udp-listener:
+    build: ./udp/listener
+    ports:
+      - "8082:8082/udp"   # UDP datagram traffic
+      - "2114:2114"       # Prometheus /metrics
+    environment:
+      WORKER_POOL_SIZE: "0"
+      HANDLER_DELAY_MS: "0"
+      QUEUE_SIZE: "100"
+    restart: unless-stopped
+
+  # ── System metrics ────────────────────────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      # stress_test.sh writes stress-metrics/stress_test.prom here after each run;
+      # node-exporter picks it up automatically (textfile collector).
+      # Run `mkdir -p stress-metrics` once before `docker compose up` if needed.
+      - ./stress-metrics:/var/lib/node-exporter/textfiles:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|run)($|/)
+      - --collector.textfile.directory=/var/lib/node-exporter/textfiles
+    restart: unless-stopped
+
+  # ── Prometheus ────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=1h
+    restart: unless-stopped
+    depends_on: [node-exporter, tcp-listener, udp-listener]
+
+  # ── Grafana ───────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+    depends_on: [prometheus]
+
+volumes:
+  prometheus-data:
+  grafana-data:

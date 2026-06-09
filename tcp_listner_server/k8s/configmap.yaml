@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sender-config
-  namespace: default
-data:
-  TARGET_ADDR: "tcp-listener:8080"
-  NUM_WORKERS: "5"
-  PKT_COUNT: "20"

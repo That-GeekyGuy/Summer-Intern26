@@ -1,0 +1,13 @@
+# compiled binaries (built into /tmp by stress_test.sh)
+/tmp/ls-tcp-listener
+/tmp/ls-tcp-gen
+/tmp/ls-udp-listener
+/tmp/ls-udp-gen
+
+# stress test runtime output (regenerated each run)
+results.txt
+listener.log
+stress-metrics/
+
+# local secrets
+.env

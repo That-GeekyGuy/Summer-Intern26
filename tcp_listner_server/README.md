@@ -322,7 +322,7 @@ Open http://localhost:3000 — rejected/s spikes the moment the send rate exceed
   [15:08:27]  rate=186   /s  ✓ clean   success=1488  loss=0.00%
 
   ┌──────────────────────────────────────────────────────────────┐
-  │  N=2   Theory = 2 × 100 = 200 pkts/sec                      │
+  │  N=2   Theory = 2 × 100 = 200 pkts/sec                       │
   │        Last clean rate : 186 pkts/sec                        │
   │        First drop rate : 187 pkts/sec                        │
   │        ✓ ~186/s  (theory=200/s, delta=-14)                   │

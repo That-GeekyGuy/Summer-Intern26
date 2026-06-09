@@ -1,15 +1,16 @@
 global:
-  scrape_interval: 1s      # pull metrics every 1 second
+  scrape_interval: 1s
   evaluation_interval: 1s
 
 scrape_configs:
-
-  # Application metrics: connections, rejections, latency, CPU, RAM, network
   - job_name: tcp-listener
     static_configs:
       - targets: ["tcp-listener:2112"]
 
-  # System metrics: CPU, RAM, disk, network (host-wide)
+  - job_name: udp-listener
+    static_configs:
+      - targets: ["udp-listener:2114"]
+
   - job_name: node
     static_configs:
       - targets: ["node-exporter:9100"]
