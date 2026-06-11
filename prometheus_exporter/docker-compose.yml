@@ -1,0 +1,39 @@
+services:
+
+  # ── InfluxDB 2.x ─────────────────────────────────────────────────────────
+  # Native time series DB. UI at http://localhost:8086
+  # Credentials match the defaults in influx_target.py
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_ORG: upf
+      DOCKER_INFLUXDB_INIT_BUCKET: upf_metrics
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: my-token
+    volumes:
+      - influx_data:/var/lib/influxdb2
+    restart: unless-stopped
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  # Switch image to timescale/timescaledb:latest-pg16 for time-series
+  # hypertables (faster time-range queries for large ML training windows).
+  # Credentials match the defaults in postgres_target.py
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: upf
+      POSTGRES_PASSWORD: upf
+      POSTGRES_DB: upf_metrics
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  influx_data:
+  pg_data:

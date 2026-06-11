@@ -49,8 +49,8 @@ import pandas as pd
 
 PROM_CONTAINER  = "prom"         # docker container name (docker ps)
 PROM_DATA_DIR   = "/prometheus"  # --storage.tsdb.path inside container
-METRIC_PREFIXES = ("upf_", "pfcp_")
-EXCLUDED_LABELS = {"instance", "job"}
+METRIC_PREFIXES = ()
+EXCLUDED_LABELS = {}
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
