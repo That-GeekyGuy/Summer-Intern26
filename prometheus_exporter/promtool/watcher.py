@@ -244,7 +244,7 @@ def last_ts_ms(path: Path) -> int:
         return 0
     try:
         df = pd.read_csv(path, index_col=0, usecols=[0])
-        if df.empty:
+        if df.index.empty:
             return 0
         # parse_dates=True no longer auto-parses index in pandas 2.x;
         # explicit conversion handles both tz-aware and tz-naive strings.
