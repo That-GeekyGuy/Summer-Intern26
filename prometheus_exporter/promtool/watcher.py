@@ -167,7 +167,7 @@ def parse_dump(output: str, min_ts_ms: int) -> list[dict]:
         labels = dict(re.findall(r'(\w+)="([^"]*)"', labels_str))
         name   = labels.get("__name__", "")
 
-        if not any(name.startswith(p) for p in METRIC_PREFIXES):
+        if METRIC_PREFIXES and not any(name.startswith(p) for p in METRIC_PREFIXES):
             continue
         if name.endswith("_bucket"):
             continue
