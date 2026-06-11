@@ -28,6 +28,33 @@ Sandbox    : no (promtool <3.x, ...)           ← promtool 2.x
 
 ---
 
+## Flow
+
+```mermaid
+flowchart TD
+    A([Start]) --> B[Detect promtool version\nvia --help output]
+    B --> C{sandbox\nsupported?}
+    C -->|3.x| D[Mode: --sandbox-dir-root\ninside data_dir]
+    C -->|2.x| E[Mode: cp -r snapshot\nto /tmp]
+    D & E --> F
+
+    F([Poll loop]) --> G[stat WAL segment mtime]
+    G --> H{mtime\nchanged?}
+    H -->|No| I[sleep interval] --> G
+    H -->|Yes| J[read last_ts_ms\nfrom CSV tail]
+    J --> K{CSV\nexists?}
+    K -->|No| L[seed: now − --hours]
+    K -->|Yes| M[use last timestamp]
+    L & M --> N[promtool tsdb dump\n--min-time last_ts_ms]
+    N --> O[parse lines\nfilter by METRIC_PREFIXES\ndrop EXCLUDED_LABELS]
+    O --> P{new\nsamples?}
+    P -->|No| Q[print: no new rows] --> I
+    P -->|Yes| R[pivot long → wide\nDataFrame]
+    R --> S[append to CSV] --> I
+```
+
+---
+
 ## How change detection works
 
 Prometheus writes new scrape data to its WAL (Write-Ahead Log) every ~15s.
@@ -54,6 +81,56 @@ torn reads and WAL errors.  The watcher handles this differently per version:
 
 The correct path is auto-detected at startup by inspecting `promtool tsdb dump --help`.
 No manual configuration needed.
+
+---
+
+## Configuration
+
+Edit the constants at the top of `watcher.py`:
+
+| Constant | Type | Default | Effect |
+|---|---|---|---|
+| `PROM_CONTAINER` | `str` | `"upf-prom"` | Docker container name (`docker ps`) |
+| `PROM_DATA_DIR` | `str` | `"/prometheus"` | TSDB path inside the container |
+| `METRIC_PREFIXES` | `tuple[str, ...]` | `()` | **Include** metrics whose name *starts with* any entry — empty = no filter |
+| `METRIC_CONTAINS` | `tuple[str, ...]` | `()` | **Include** metrics whose name *contains* any entry (substring) — empty = no filter |
+| `EXCLUDE_PREFIXES` | `tuple[str, ...]` | `()` | **Exclude** metrics whose name *starts with* any entry — applied after include, takes precedence |
+| `EXCLUDED_LABELS` | `set[str]` | `set()` | Label keys stripped from column names |
+
+Include filters use **OR** logic — a metric passes if it matches `METRIC_PREFIXES` **or** `METRIC_CONTAINS`.  
+If both are empty, all metrics pass.  `EXCLUDE_PREFIXES` is then applied on top and always wins.
+
+**Filter examples:**
+```python
+# Keep only UPF/PFCP metrics
+METRIC_PREFIXES  = ("pfcp_", "upf_")
+METRIC_CONTAINS  = ()
+EXCLUDE_PREFIXES = ()
+
+# Keep any metric with "session" or "drop" anywhere in the name
+METRIC_PREFIXES  = ()
+METRIC_CONTAINS  = ("session", "drop", "throughput")
+EXCLUDE_PREFIXES = ()
+
+# Keep all UPF metrics but strip Prometheus internal go_/process_ noise
+METRIC_PREFIXES  = ()
+METRIC_CONTAINS  = ()
+EXCLUDE_PREFIXES = ("go_", "process_", "promhttp_")
+
+# Combine: keep pfcp_* OR anything with "error", but never scrape_ internals
+METRIC_PREFIXES  = ("pfcp_",)
+METRIC_CONTAINS  = ("error",)
+EXCLUDE_PREFIXES = ("scrape_",)
+```
+
+**EXCLUDED_LABELS examples:**
+```python
+EXCLUDED_LABELS = set()                      # keep all label dimensions
+EXCLUDED_LABELS = {"instance", "job"}        # drop constant labels → shorter column names
+```
+
+Dropping `instance` and `job` when they're the same for every metric keeps
+column names short: `pfcp_sessions` instead of `pfcp_sessions{instance=localhost:8080_job=upf}`.
 
 ---
 

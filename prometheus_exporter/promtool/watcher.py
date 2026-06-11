@@ -49,10 +49,32 @@ import pandas as pd
 
 # ── Defaults ───────────────────────────────────────────────────────────────────
 
-PROM_CONTAINER  = "prom"         # docker container name (docker ps)
-PROM_DATA_DIR   = "/prometheus"  # --storage.tsdb.path inside container
-METRIC_PREFIXES = ()
-EXCLUDED_LABELS = {}
+PROM_CONTAINER  = "upf-prom"    # docker container name  (docker ps)
+PROM_DATA_DIR   = "/prometheus" # --storage.tsdb.path inside container
+
+# ── Include filters (OR logic — a metric passes if ANY include filter matches) ──
+#
+# Keep metrics whose __name__ STARTS WITH any of these.  Empty = no prefix filter.
+#   METRIC_PREFIXES = ("pfcp_", "upf_", "bess_")
+METRIC_PREFIXES: tuple = ()
+
+# Keep metrics whose __name__ CONTAINS any of these words (substring match).
+# Empty = no word filter.
+#   METRIC_CONTAINS = ("sessions", "drop", "throughput")
+METRIC_CONTAINS: tuple = ()
+
+# ── Exclude filter (applied AFTER include — takes precedence) ────────────────
+#
+# Drop metrics whose __name__ STARTS WITH any of these, even if an include
+# filter matched.  Empty = drop nothing.
+#   EXCLUDE_PREFIXES = ("go_", "process_", "promhttp_")
+EXCLUDE_PREFIXES: tuple = ()
+
+# ── Label filter ─────────────────────────────────────────────────────────────
+#
+# Strip these label keys from column names to reduce cardinality.
+#   EXCLUDED_LABELS = {"instance", "job", "pod"}
+EXCLUDED_LABELS: set = set()
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
@@ -167,8 +189,17 @@ def parse_dump(output: str, min_ts_ms: int) -> list[dict]:
         labels = dict(re.findall(r'(\w+)="([^"]*)"', labels_str))
         name   = labels.get("__name__", "")
 
-        if METRIC_PREFIXES and not any(name.startswith(p) for p in METRIC_PREFIXES):
+        # Include check: pass only when at least one include filter matches.
+        # If both are empty the metric passes unconditionally.
+        if METRIC_PREFIXES or METRIC_CONTAINS:
+            if not (any(name.startswith(p) for p in METRIC_PREFIXES) or
+                    any(w in name            for w in METRIC_CONTAINS)):
+                continue
+
+        # Exclude check: drop regardless of what the include filter said.
+        if EXCLUDE_PREFIXES and any(name.startswith(p) for p in EXCLUDE_PREFIXES):
             continue
+
         if name.endswith("_bucket"):
             continue
 
@@ -206,8 +237,13 @@ def last_ts_ms(path: Path) -> int:
     if not path.exists() or path.stat().st_size == 0:
         return 0
     try:
-        df = pd.read_csv(path, index_col=0, parse_dates=True, usecols=[0])
-        return 0 if df.empty else int(df.index.max().timestamp() * 1000)
+        df = pd.read_csv(path, index_col=0, usecols=[0])
+        if df.empty:
+            return 0
+        # parse_dates=True no longer auto-parses index in pandas 2.x;
+        # explicit conversion handles both tz-aware and tz-naive strings.
+        ts = pd.to_datetime(df.index, utc=True).max()
+        return int(ts.timestamp() * 1000)
     except Exception:
         return 0
 
