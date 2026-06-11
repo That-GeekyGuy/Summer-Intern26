@@ -35,6 +35,8 @@ Usage
   python promtool/watcher.py --out live.csv        # named output
 """
 
+from __future__ import annotations
+
 import argparse
 import re
 import subprocess
