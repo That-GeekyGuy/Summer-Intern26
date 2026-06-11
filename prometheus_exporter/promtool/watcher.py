@@ -94,17 +94,58 @@ def get_wal_mtime(container: str, data_dir: str) -> float:
 
 # ── Data extraction ────────────────────────────────────────────────────────────
 
-def run_dump(container: str, data_dir: str, min_ts_ms: int) -> str:
-    result = subprocess.run(
-        ["docker", "exec", container,
-         "promtool", "tsdb", "dump",
-         "--min-time", str(min_ts_ms),
-         data_dir],
-        capture_output=True, text=True, timeout=120,
+def _supports_sandbox_flag(container: str) -> bool:
+    """Return True if this promtool build understands --sandbox-dir-root (3.x+)."""
+    r = subprocess.run(
+        ["docker", "exec", container, "promtool", "tsdb", "dump", "--help"],
+        capture_output=True, text=True, timeout=10,
     )
+    return "--sandbox-dir-root" in (r.stdout + r.stderr)
+
+
+def run_dump(container: str, data_dir: str, min_ts_ms: int,
+             use_sandbox: bool = True) -> str:
+    if use_sandbox:
+        # promtool 3.x: native sandbox handles live WAL safely
+        result = subprocess.run(
+            ["docker", "exec", container, "promtool", "tsdb", "dump",
+             "--sandbox-dir-root", "/tmp",
+             "--min-time", str(min_ts_ms), data_dir],
+            capture_output=True, text=True, timeout=120,
+        )
+    else:
+        # promtool 2.x: manually copy TSDB to /tmp before reading.
+        # Replaying the live WAL in-place is unsafe while Prometheus writes to it;
+        # reading from a snapshot avoids torn reads and WAL errors.
+        sandbox = f"/tmp/prom_snap_{int(time.time())}"
+        try:
+            cp = subprocess.run(
+                ["docker", "exec", container, "cp", "-r", data_dir, sandbox],
+                capture_output=True, text=True, timeout=120,
+            )
+            if cp.returncode != 0:
+                print(f"  [WARN] snapshot copy failed: {cp.stderr.strip()[:200]}")
+                # Best-effort fallback: read live (may emit WAL warnings)
+                result = subprocess.run(
+                    ["docker", "exec", container, "promtool", "tsdb", "dump",
+                     "--min-time", str(min_ts_ms), data_dir],
+                    capture_output=True, text=True, timeout=120,
+                )
+            else:
+                result = subprocess.run(
+                    ["docker", "exec", container, "promtool", "tsdb", "dump",
+                     "--min-time", str(min_ts_ms), sandbox],
+                    capture_output=True, text=True, timeout=120,
+                )
+        finally:
+            subprocess.run(
+                ["docker", "exec", container, "rm", "-rf", sandbox],
+                capture_output=True, text=True, timeout=30,
+            )
+
     if result.returncode != 0:
         print(f"  [WARN] promtool exit {result.returncode}: "
-              f"{result.stderr.strip()[:200]}")
+              f"{result.stderr.strip()[:300]}")
     return result.stdout
 
 
@@ -205,6 +246,8 @@ def main():
         print(f"       Running containers: {running}")
         sys.exit(1)
 
+    use_sandbox = _supports_sandbox_flag(args.container)
+
     DATA_DIR.mkdir(exist_ok=True)
     ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
     out = Path(args.out) if args.out else DATA_DIR / f"promtool_live_{ts}.csv"
@@ -212,6 +255,7 @@ def main():
     print(f"Container  : {args.container}  ({args.data_dir})")
     print(f"Output     : {out}")
     print(f"Interval   : {args.interval}s (WAL-mtime triggered)")
+    print(f"Sandbox    : {'yes (--sandbox-dir-root)' if use_sandbox else 'no (promtool <3.x, stop Prometheus first if TSDB is locked)'}")
     print("Press Ctrl-C to stop.\n")
 
     last_wal = 0.0
@@ -239,7 +283,7 @@ def main():
                 ts_dt = datetime.fromtimestamp(l_ms / 1000, tz=timezone.utc)
                 print(f"  [{now_str}] #{poll}: WAL updated, dumping since {ts_dt:%H:%M:%S UTC}")
 
-            raw     = run_dump(args.container, args.data_dir, l_ms)
+            raw     = run_dump(args.container, args.data_dir, l_ms, use_sandbox)
             samples = parse_dump(raw, l_ms)
 
             if not samples:
