@@ -63,12 +63,16 @@ METRIC_PREFIXES: tuple = ()
 #   METRIC_CONTAINS = ("sessions", "drop", "throughput")
 METRIC_CONTAINS: tuple = ()
 
-# ── Exclude filter (applied AFTER include — takes precedence) ────────────────
+# ── Exclude filters (applied AFTER include — take precedence) ────────────────
 #
-# Drop metrics whose __name__ STARTS WITH any of these, even if an include
-# filter matched.  Empty = drop nothing.
+# Drop metrics whose __name__ STARTS WITH any of these.  Empty = drop nothing.
 #   EXCLUDE_PREFIXES = ("go_", "process_", "promhttp_")
 EXCLUDE_PREFIXES: tuple = ()
+
+# Drop metrics whose __name__ CONTAINS any of these words (substring match).
+# Empty = drop nothing.
+#   EXCLUDE_CONTAINS = ("debug", "internal", "test")
+EXCLUDE_CONTAINS: tuple = ()
 
 # ── Label filter ─────────────────────────────────────────────────────────────
 #
@@ -198,6 +202,8 @@ def parse_dump(output: str, min_ts_ms: int) -> list[dict]:
 
         # Exclude check: drop regardless of what the include filter said.
         if EXCLUDE_PREFIXES and any(name.startswith(p) for p in EXCLUDE_PREFIXES):
+            continue
+        if EXCLUDE_CONTAINS and any(w in name for w in EXCLUDE_CONTAINS):
             continue
 
         if name.endswith("_bucket"):

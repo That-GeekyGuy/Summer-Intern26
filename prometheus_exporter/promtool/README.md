@@ -95,10 +95,11 @@ Edit the constants at the top of `watcher.py`:
 | `METRIC_PREFIXES` | `tuple[str, ...]` | `()` | **Include** metrics whose name *starts with* any entry — empty = no filter |
 | `METRIC_CONTAINS` | `tuple[str, ...]` | `()` | **Include** metrics whose name *contains* any entry (substring) — empty = no filter |
 | `EXCLUDE_PREFIXES` | `tuple[str, ...]` | `()` | **Exclude** metrics whose name *starts with* any entry — applied after include, takes precedence |
+| `EXCLUDE_CONTAINS` | `tuple[str, ...]` | `()` | **Exclude** metrics whose name *contains* any entry (substring) — applied after include, takes precedence |
 | `EXCLUDED_LABELS` | `set[str]` | `set()` | Label keys stripped from column names |
 
 Include filters use **OR** logic — a metric passes if it matches `METRIC_PREFIXES` **or** `METRIC_CONTAINS`.  
-If both are empty, all metrics pass.  `EXCLUDE_PREFIXES` is then applied on top and always wins.
+If both are empty, all metrics pass.  Exclude filters (`EXCLUDE_PREFIXES`, `EXCLUDE_CONTAINS`) are applied on top and always win.
 
 **Filter examples:**
 ```python
@@ -117,10 +118,17 @@ METRIC_PREFIXES  = ()
 METRIC_CONTAINS  = ()
 EXCLUDE_PREFIXES = ("go_", "process_", "promhttp_")
 
-# Combine: keep pfcp_* OR anything with "error", but never scrape_ internals
+# Exclude anything with "debug" or "internal" anywhere in the name
+METRIC_PREFIXES  = ()
+METRIC_CONTAINS  = ()
+EXCLUDE_PREFIXES = ()
+EXCLUDE_CONTAINS = ("debug", "internal", "test")
+
+# Combine: keep pfcp_* OR anything with "error", but never scrape_ or _bucket
 METRIC_PREFIXES  = ("pfcp_",)
 METRIC_CONTAINS  = ("error",)
 EXCLUDE_PREFIXES = ("scrape_",)
+EXCLUDE_CONTAINS = ("bucket",)
 ```
 
 **EXCLUDED_LABELS examples:**
