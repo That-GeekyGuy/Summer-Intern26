@@ -49,7 +49,7 @@ torn reads and WAL errors.  The watcher handles this differently per version:
 
 | Prometheus | Strategy |
 |---|---|
-| **3.x** | `promtool tsdb dump --sandbox-dir-root /tmp` — native snapshot built into the binary |
+| **3.x** | `promtool tsdb dump --sandbox-dir-root <data_dir>` — sandbox is created inside the TSDB mount so hardlinks work across the same device |
 | **2.x (e.g. 2.54)** | `cp -r /prometheus /tmp/prom_snap_<ts>` → dump from copy → `rm -rf` copy |
 
 The correct path is auto-detected at startup by inspecting `promtool tsdb dump --help`.

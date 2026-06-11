@@ -106,10 +106,12 @@ def _supports_sandbox_flag(container: str) -> bool:
 def run_dump(container: str, data_dir: str, min_ts_ms: int,
              use_sandbox: bool = True) -> str:
     if use_sandbox:
-        # promtool 3.x: native sandbox handles live WAL safely
+        # promtool 3.x: sandbox must be on the same filesystem as data_dir so
+        # promtool can hardlink chunk files instead of copying them.
+        # Using data_dir itself as the root keeps everything on one device.
         result = subprocess.run(
             ["docker", "exec", container, "promtool", "tsdb", "dump",
-             "--sandbox-dir-root", "/tmp",
+             "--sandbox-dir-root", data_dir,
              "--min-time", str(min_ts_ms), data_dir],
             capture_output=True, text=True, timeout=120,
         )
