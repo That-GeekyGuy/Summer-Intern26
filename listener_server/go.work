@@ -5,4 +5,6 @@ use (
 	./tcp/listener
 	./udp/generator
 	./udp/listener
+	./quic/listener
+	./quic/generator
 )

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -14,49 +15,81 @@ import (
 	"time"
 )
 
-// ── per-process counters (atomic — safe across goroutines) ──────────────────
+// ── per-process counters ─────────────────────────────────────────────────────
 var (
-	totalPackets           atomic.Int64 // datagrams queued and handled
-	rejected               atomic.Int64 // datagrams turned away (UDP_BUSY)
-	activeWorkers          atomic.Int64 // workers currently processing a datagram
-	requestDurationMsTotal atomic.Int64 // cumulative handler time (ms)
-	bytesSent              atomic.Int64 // total bytes written back to clients
-	bytesReceived          atomic.Int64 // total bytes read from clients
+	totalPackets  atomic.Int64
+	rejected      atomic.Int64
+	activeWorkers atomic.Int64
+	bytesSent     atomic.Int64
+	bytesRecv     atomic.Int64
 )
 
 var processStart = time.Now()
 
-// datagram is a received UDP payload plus the sender's address.
 type datagram struct {
 	data []byte
 	addr *net.UDPAddr
 }
 
-// handleDatagram processes one UDP datagram: applies the simulated delay and
-// writes an ACK back to the sender. conn.WriteToUDP is goroutine-safe so
-// multiple workers can write concurrently on the shared socket.
+// ── latency histogram ────────────────────────────────────────────────────────
+var histBounds = []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000}
+var histCounts [13]atomic.Int64
+var histSum    atomic.Int64
+var histTotal  atomic.Int64
+
+func recordDuration(elapsed time.Duration) {
+	ms := float64(elapsed.Microseconds()) / 1000.0
+	for i, b := range histBounds {
+		if ms <= b {
+			histCounts[i].Add(1)
+		}
+	}
+	histCounts[len(histBounds)].Add(1)
+	histSum.Add(elapsed.Milliseconds())
+	histTotal.Add(1)
+}
+
+// ── chaos state ──────────────────────────────────────────────────────────────
+var (
+	chaosLossPct  atomic.Int64
+	chaosJitterMs atomic.Int64
+	chaosDrops    atomic.Int64
+)
+
+// ── datagram handler ─────────────────────────────────────────────────────────
 func handleDatagram(conn *net.UDPConn, dg datagram, delayMs int) {
 	start := time.Now()
 	activeWorkers.Add(1)
 	defer activeWorkers.Add(-1)
 
+	// chaos: probabilistic loss — just don't reply (UDP has no connection to close)
+	if loss := chaosLossPct.Load(); loss > 0 {
+		if rand.Int63n(100) < loss {
+			chaosDrops.Add(1)
+			return
+		}
+	}
+
 	id := totalPackets.Add(1)
-	bytesReceived.Add(int64(len(dg.data)))
+	bytesRecv.Add(int64(len(dg.data)))
 	log.Printf("[pkt %d] from %s: %s", id, dg.addr, strings.TrimRight(string(dg.data), "\n"))
 
 	if delayMs > 0 {
 		time.Sleep(time.Duration(delayMs) * time.Millisecond)
 	}
 
+	if jitter := chaosJitterMs.Load(); jitter > 0 {
+		time.Sleep(time.Duration(rand.Int63n(jitter)) * time.Millisecond)
+	}
+
 	ack := fmt.Sprintf("ACK %d: Got your message\n", id)
 	n, _ := conn.WriteToUDP([]byte(ack), dg.addr)
 	bytesSent.Add(int64(n))
-	requestDurationMsTotal.Add(time.Since(start).Milliseconds())
-	log.Printf("[pkt %d] done (%dms)", id, time.Since(start).Milliseconds())
+	recordDuration(time.Since(start))
+	log.Printf("[pkt %d] done (%s)", id, time.Since(start))
 }
 
-// getCPUSeconds reads total CPU time (user + kernel) for this process from
-// /proc/self/stat. Returns seconds.
+// ── /proc helpers ────────────────────────────────────────────────────────────
 func getCPUSeconds() float64 {
 	data, err := os.ReadFile("/proc/self/stat")
 	if err != nil {
@@ -76,7 +109,6 @@ func getCPUSeconds() float64 {
 	return float64(utime+stime) / 100.0
 }
 
-// getRSSBytes reads the process Resident Set Size from /proc/self/status.
 func getRSSBytes() uint64 {
 	data, err := os.ReadFile("/proc/self/status")
 	if err != nil {
@@ -94,10 +126,75 @@ func getRSSBytes() uint64 {
 	return 0
 }
 
-// makeRunHandler returns an HTTP handler that fires N UDP datagrams at the
-// listener using W parallel workers. Useful for curl-based load generation:
-//
-//	curl "http://localhost:2114/run?count=5000&workers=16"
+// ── metrics ──────────────────────────────────────────────────────────────────
+func writeMetric(w http.ResponseWriter, help, metricType, name, valueStr string) {
+	fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n%s %s\n\n",
+		name, help, name, metricType, name, valueStr)
+}
+
+func metricsHandler(w http.ResponseWriter, _ *http.Request) {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+
+	writeMetric(w, "Total CPU seconds", "counter", "udp_process_cpu_seconds_total",
+		fmt.Sprintf("%.6f", getCPUSeconds()))
+	writeMetric(w, "Process RSS bytes", "gauge", "udp_process_rss_bytes",
+		fmt.Sprintf("%d", getRSSBytes()))
+	writeMetric(w, "Go heap bytes allocated", "gauge", "udp_process_heap_alloc_bytes",
+		fmt.Sprintf("%d", mem.HeapAlloc))
+	writeMetric(w, "Live goroutines", "gauge", "udp_process_goroutines",
+		fmt.Sprintf("%d", runtime.NumGoroutine()))
+	writeMetric(w, "Process uptime seconds", "gauge", "udp_process_uptime_seconds",
+		fmt.Sprintf("%.3f", time.Since(processStart).Seconds()))
+	writeMetric(w, "Total bytes sent to clients", "counter", "udp_process_bytes_sent_total",
+		fmt.Sprintf("%d", bytesSent.Load()))
+	writeMetric(w, "Total bytes received from clients", "counter", "udp_process_bytes_received_total",
+		fmt.Sprintf("%d", bytesRecv.Load()))
+	writeMetric(w, "Total UDP datagrams handled", "counter", "udp_packets_total",
+		fmt.Sprintf("%d", totalPackets.Load()))
+	writeMetric(w, "Datagrams rejected UDP_BUSY", "counter", "udp_packets_rejected_total",
+		fmt.Sprintf("%d", rejected.Load()))
+	writeMetric(w, "Workers currently processing", "gauge", "udp_workers_active",
+		fmt.Sprintf("%d", activeWorkers.Load()))
+
+	// ── latency histogram ────────────────────────────────────────────────────
+	fmt.Fprintf(w, "# HELP udp_request_duration_ms Handler latency histogram in milliseconds\n")
+	fmt.Fprintf(w, "# TYPE udp_request_duration_ms histogram\n")
+	for i, b := range histBounds {
+		fmt.Fprintf(w, "udp_request_duration_ms_bucket{le=\"%g\"} %d\n", b, histCounts[i].Load())
+	}
+	fmt.Fprintf(w, "udp_request_duration_ms_bucket{le=\"+Inf\"} %d\n", histCounts[len(histBounds)].Load())
+	fmt.Fprintf(w, "udp_request_duration_ms_count %d\n", histTotal.Load())
+	fmt.Fprintf(w, "udp_request_duration_ms_sum %d\n\n", histSum.Load())
+
+	// ── chaos state ──────────────────────────────────────────────────────────
+	writeMetric(w, "Chaos loss percentage (0-100)", "gauge", "udp_chaos_loss_pct",
+		fmt.Sprintf("%d", chaosLossPct.Load()))
+	writeMetric(w, "Chaos max jitter milliseconds", "gauge", "udp_chaos_jitter_ms",
+		fmt.Sprintf("%d", chaosJitterMs.Load()))
+	writeMetric(w, "Total datagrams dropped by chaos", "counter", "udp_chaos_drops_total",
+		fmt.Sprintf("%d", chaosDrops.Load()))
+}
+
+// ── /chaos handler ───────────────────────────────────────────────────────────
+func chaosHandler(w http.ResponseWriter, r *http.Request) {
+	if v := r.URL.Query().Get("loss"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 && n <= 100 {
+			chaosLossPct.Store(n)
+		}
+	}
+	if v := r.URL.Query().Get("jitter_ms"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			chaosJitterMs.Store(n)
+		}
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "udp chaos: loss=%d%% jitter_max=%dms drops_total=%d\n",
+		chaosLossPct.Load(), chaosJitterMs.Load(), chaosDrops.Load())
+}
+
+// ── /run handler ─────────────────────────────────────────────────────────────
 func makeRunHandler(listenAddr string) http.HandlerFunc {
 	selfAddr := listenAddr
 	if strings.HasPrefix(selfAddr, ":") {
@@ -143,72 +240,15 @@ func makeRunHandler(listenAddr string) http.HandlerFunc {
 	}
 }
 
-func writeMetric(w http.ResponseWriter, help, metricType, name, valueStr string) {
-	fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n%s %s\n\n",
-		name, help, name, metricType, name, valueStr)
-}
-
-func metricsHandler(w http.ResponseWriter, _ *http.Request) {
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-
-	writeMetric(w, "Total CPU seconds used by this process", "counter",
-		"udp_process_cpu_seconds_total",
-		fmt.Sprintf("%.6f", getCPUSeconds()))
-
-	writeMetric(w, "Process resident set size (physical RAM) in bytes", "gauge",
-		"udp_process_rss_bytes",
-		fmt.Sprintf("%d", getRSSBytes()))
-
-	writeMetric(w, "Go heap bytes currently allocated by this process", "gauge",
-		"udp_process_heap_alloc_bytes",
-		fmt.Sprintf("%d", mem.HeapAlloc))
-
-	writeMetric(w, "Number of goroutines currently running in this process", "gauge",
-		"udp_process_goroutines",
-		fmt.Sprintf("%d", runtime.NumGoroutine()))
-
-	writeMetric(w, "Seconds since this process started", "gauge",
-		"udp_process_uptime_seconds",
-		fmt.Sprintf("%.3f", time.Since(processStart).Seconds()))
-
-	writeMetric(w, "Total bytes sent back to clients by this process", "counter",
-		"udp_process_bytes_sent_total",
-		fmt.Sprintf("%d", bytesSent.Load()))
-
-	writeMetric(w, "Total bytes received from clients by this process", "counter",
-		"udp_process_bytes_received_total",
-		fmt.Sprintf("%d", bytesReceived.Load()))
-
-	writeMetric(w, "Total UDP datagrams accepted and handled", "counter",
-		"udp_packets_total",
-		fmt.Sprintf("%d", totalPackets.Load()))
-
-	writeMetric(w, "Datagrams rejected with UDP_BUSY (queue full)", "counter",
-		"udp_packets_rejected_total",
-		fmt.Sprintf("%d", rejected.Load()))
-
-	writeMetric(w, "Workers currently processing a datagram", "gauge",
-		"udp_workers_active",
-		fmt.Sprintf("%d", activeWorkers.Load()))
-
-	writeMetric(w, "Sum of all datagram handling durations (ms)", "counter",
-		"udp_request_duration_ms_sum",
-		fmt.Sprintf("%d", requestDurationMsTotal.Load()))
-}
-
 func statsLoop() {
 	t := time.NewTicker(2 * time.Second)
 	for range t.C {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		log.Printf("[STATS] total=%d active=%d rejected=%d goroutines=%d rssKB=%d heapMB=%.1f sent=%d recv=%d",
-			totalPackets.Load(), activeWorkers.Load(), rejected.Load(),
+		log.Printf("[STATS] total=%d active=%d rejected=%d chaos_drops=%d goroutines=%d rssKB=%d heapMB=%.1f",
+			totalPackets.Load(), activeWorkers.Load(), rejected.Load(), chaosDrops.Load(),
 			runtime.NumGoroutine(), getRSSBytes()/1024,
-			float64(m.HeapAlloc)/1024/1024,
-			bytesSent.Load(), bytesReceived.Load())
+			float64(m.HeapAlloc)/1024/1024)
 	}
 }
 
@@ -229,18 +269,19 @@ func envString(key, def string) string {
 }
 
 func main() {
-	poolSize := envInt("WORKER_POOL_SIZE", 0)
-	queueSize := envInt("QUEUE_SIZE", poolSize*2)
-	delayMs := envInt("HANDLER_DELAY_MS", 0)
-	listenAddr := envString("LISTEN_ADDR", ":8082")
+	poolSize   := envInt("WORKER_POOL_SIZE", 0)
+	queueSize  := envInt("QUEUE_SIZE", poolSize*2)
+	delayMs    := envInt("HANDLER_DELAY_MS", 0)
+	listenAddr  := envString("LISTEN_ADDR", ":8082")
 	metricsAddr := envString("METRICS_ADDR", ":2114")
 
-	// ── Admin HTTP server: /metrics + /run ───────────────────────────────────
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/metrics", metricsHandler)
 		mux.HandleFunc("/run", makeRunHandler(listenAddr))
-		log.Printf("Admin: http://0.0.0.0%s/metrics  |  /run?count=N&workers=W", metricsAddr)
+		mux.HandleFunc("/chaos", chaosHandler)
+		log.Printf("Admin: http://0.0.0.0%s/metrics  |  /run?count=N&workers=W  |  /chaos?loss=N&jitter_ms=M",
+			metricsAddr)
 		if err := http.ListenAndServe(metricsAddr, mux); err != nil {
 			log.Fatalf("admin server: %v", err)
 		}
@@ -248,7 +289,6 @@ func main() {
 
 	go statsLoop()
 
-	// ── UDP socket ────────────────────────────────────────────────────────────
 	addr, err := net.ResolveUDPAddr("udp", listenAddr)
 	if err != nil {
 		log.Fatalf("resolve addr: %v", err)
@@ -258,19 +298,12 @@ func main() {
 		log.Fatalf("listen error: %v", err)
 	}
 	defer conn.Close()
+	conn.SetReadBuffer(4 * 1024 * 1024)
 
-	// Large OS receive buffer to absorb bursts before the app reads them.
-	// Without this the kernel drops datagrams silently at high rates.
-	conn.SetReadBuffer(4 * 1024 * 1024) // 4 MB
-
-	log.Printf("UDP listener on %s | pool=%d queue=%d delay=%dms",
-		listenAddr, poolSize, queueSize, delayMs)
+	log.Printf("UDP listener on %s | pool=%d queue=%d delay=%dms", listenAddr, poolSize, queueSize, delayMs)
 
 	if poolSize > 0 {
-		// Bounded pool: buffered channel is the work queue.
-		// When the queue is full the datagram is immediately rejected.
 		queue := make(chan datagram, queueSize)
-
 		for i := 0; i < poolSize; i++ {
 			go func() {
 				for dg := range queue {
@@ -278,7 +311,6 @@ func main() {
 				}
 			}()
 		}
-
 		buf := make([]byte, 65535)
 		for {
 			n, senderAddr, err := conn.ReadFromUDP(buf)
@@ -288,20 +320,16 @@ func main() {
 			}
 			payload := make([]byte, n)
 			copy(payload, buf[:n])
-
 			dg := datagram{data: payload, addr: senderAddr}
 			select {
 			case queue <- dg:
-				// queued for a pool worker
 			default:
-				// queue full — reject immediately with a UDP_BUSY datagram
 				r := rejected.Add(1)
 				log.Printf("[BUSY] rejected from %s (total=%d)", senderAddr, r)
-				conn.WriteToUDP([]byte("UDP_BUSY\n"), senderAddr)
+				conn.WriteToUDP([]byte("UDP_BUSY\n"), senderAddr) //nolint:errcheck
 			}
 		}
 	} else {
-		// Unbounded: every datagram gets its own goroutine.
 		buf := make([]byte, 65535)
 		for {
 			n, senderAddr, err := conn.ReadFromUDP(buf)
