@@ -1,0 +1,222 @@
+﻿{
+  "title": "BESS-UPF Observability",
+  "uid": "bess-upf-obs",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["bess-upf", "5g", "upf"],
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "UPF Sessions & Traffic",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Active Sessions",
+      "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "upf_active_sessions{job=\"upf\"}",
+        "legendFormat": "{{upf_id}} {{interface}}"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Throughput (bytes/s)",
+      "gridPos": { "x": 12, "y": 1, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "rate(upf_bytes_total{job=\"upf\"}[2m])",
+        "legendFormat": "{{upf_id}} {{interface}} {{direction}}"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Packet Drop Rate",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "rate(upf_packets_dropped_total{job=\"upf\"}[2m]) / rate(upf_packets_total{job=\"upf\"}[2m])",
+        "legendFormat": "{{upf_id}} {{interface}}"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "color": { "mode": "palette-classic" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "value": null, "color": "green" },
+            { "value": 0.01, "color": "yellow" },
+            { "value": 0.05, "color": "red" }
+          ]}
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Packets/s",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "sum(rate(upf_packets_total{job=\"upf\"}[2m]))",
+        "legendFormat": "Total pps"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "pps", "color": { "mode": "thresholds" } }
+      }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Anomaly Detection Service",
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Anomalies Detected (rate)",
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "rate(detection_anomalies_total[5m])",
+        "legendFormat": "{{rule}} / {{severity}}"
+      }]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Stored Events (total)",
+      "gridPos": { "x": 12, "y": 18, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "detection_sqlite_stored_events",
+        "legendFormat": "Events in SQLite"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "thresholds" } }
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Poll Errors (total)",
+      "gridPos": { "x": 18, "y": 18, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "detection_poll_errors_total",
+        "legendFormat": "Poll errors"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "value": null, "color": "green" },
+            { "value": 1, "color": "red" }
+          ]}
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "heatmap",
+      "title": "Rule Eval Latency (p50/p95)",
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(detection_rule_eval_duration_seconds_bucket[5m])) by (le, rule))",
+        "legendFormat": "p95 {{rule}}"
+      }, {
+        "expr": "histogram_quantile(0.50, sum(rate(detection_rule_eval_duration_seconds_bucket[5m])) by (le, rule))",
+        "legendFormat": "p50 {{rule}}"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Analysis Service (LLM + Validator)",
+      "gridPos": { "x": 0, "y": 34, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Chat Request Latency (p50 / p95 / p99)",
+      "gridPos": { "x": 0, "y": 35, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.99, rate(analysis_chat_duration_seconds_bucket[5m]))", "legendFormat": "p99" },
+        { "expr": "histogram_quantile(0.95, rate(analysis_chat_duration_seconds_bucket[5m]))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.50, rate(analysis_chat_duration_seconds_bucket[5m]))", "legendFormat": "p50" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Active Chat Sessions",
+      "gridPos": { "x": 12, "y": 35, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "analysis_active_sessions",
+        "legendFormat": "Sessions"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "thresholds" } }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Tool Calls by Name (rate)",
+      "gridPos": { "x": 18, "y": 35, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "rate(analysis_tool_calls_total[5m])",
+        "legendFormat": "{{tool}}"
+      }]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Validator Rejections by Reason (rate)",
+      "gridPos": { "x": 0, "y": 43, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_VICTORIAMETRICS}" },
+      "targets": [{
+        "expr": "rate(analysis_validator_rejections_total[5m])",
+        "legendFormat": "{{reason}}"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+      }
+    }
+  ],
+
+  "templating": {
+    "list": [{
+      "name": "DS_VICTORIAMETRICS",
+      "type": "datasource",
+      "query": "prometheus",
+      "current": { "text": "VictoriaMetrics", "value": "VictoriaMetrics" },
+      "hide": 0
+    }]
+  }
+}

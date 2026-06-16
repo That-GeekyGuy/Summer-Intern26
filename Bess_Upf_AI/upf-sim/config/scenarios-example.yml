@@ -1,0 +1,59 @@
+﻿# Example scenario sequence for overnight detection-rule testing.
+# Mount this file and set SEQUENCE_FILE=/config/scenarios.yml in the
+# docker-compose service to enable automated cycling.
+#
+# The scheduler loops infinitely through these steps.
+# Manual POST /scenario overrides the scheduler for the specified duration.
+#
+# To test specific detection rules:
+#   session_spike  → triggers zscore/trend on pfcp_sessions_total
+#   session_drop   → triggers threshold.min on pfcp_sessions_total
+#   packet_drop_surge → triggers zscore/threshold on port_dropped_count
+#   asymmetric_traffic → triggers trend on port_bytes_count (rx/N3 imbalance)
+#   flatline       → detection gap (scrape succeeds but counters stop; no
+#                    z-score/trend trigger — tests the "stuck UPF" blind spot)
+
+sequence:
+  # Normal baseline — gives detection service a stable window to learn from.
+  - mode: normal
+    duration: 10m
+
+  # Traffic surge: 4× sessions over 2-minute ramp, holds for 5 minutes.
+  # Expected detections: zscore on pfcp_sessions_total, trend on port_bytes_count.
+  - mode: session_spike
+    duration: 7m
+
+  - mode: normal
+    duration: 5m
+
+  # UPF failure / handover storm: sessions fall to ~500.
+  # Expected detections: threshold.min (if configured) on pfcp_sessions_total.
+  - mode: session_drop
+    duration: 5m
+
+  - mode: normal
+    duration: 5m
+
+  # Buffer exhaustion on N3 rx: drop rate jumps to 5 % of packets.
+  # Expected detections: zscore on port_dropped_count.
+  - mode: packet_drop_surge
+    duration: 5m
+
+  - mode: normal
+    duration: 5m
+
+  # One-sided traffic anomaly: N3 rx 5×, N6 tx 10 %.
+  # Expected detections: trend on port_bytes_count (asymmetry).
+  - mode: asymmetric_traffic
+    duration: 5m
+
+  - mode: normal
+    duration: 5m
+
+  # Flatline: counters stop, gauge freezes.
+  # NO automatic detection expected — tests blind spot coverage.
+  - mode: flatline
+    duration: 5m
+
+  - mode: normal
+    duration: 10m

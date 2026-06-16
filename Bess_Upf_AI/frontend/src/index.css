@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-base:        #0A0E14;
+  --bg-surface:     #111720;
+  --bg-elevated:    #1A2232;
+  --bg-subtle:      #1E2A3A;
+  --border:         #2A3A4A;
+  --border-focus:   #3D7FE8;
+
+  --text-primary:   #E8EEF4;
+  --text-secondary: #8A9BB0;
+  --text-muted:     #4A5A6A;
+
+  --signal-critical: #FF4D4D;
+  --signal-warning:  #FF9A3C;
+  --signal-ok:       #2ECC8A;
+  --signal-info:     #3D7FE8;
+  --signal-neutral:  #8A9BB0;
+
+  --accent:          #3D7FE8;
+  --accent-glow:     rgba(61,127,232,0.15);
+
+  --text-2xs: 10px;
+  --text-xs:  11px;
+  --text-sm:  13px;
+  --text-base: 15px;
+  --text-lg:  18px;
+  --text-xl:  24px;
+  --text-2xl: 32px;
+
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'Inter', sans-serif;
+  --radius: 6px;
+}
+
+html, body, #root { height: 100%; background: var(--bg-base); }
+body { font-family: var(--font-body); color: var(--text-primary); font-size: var(--text-base); }
+
+/* Pulse strip animation */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+
+/* New anomaly row fade-in */
+@keyframes fade-in-row {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.row-fade-in { animation: fade-in-row 0.15s ease-out; }
+
+/* Loading dots */
+@keyframes blink { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }
+.loading-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: blink 1.2s infinite; display: inline-block; }
+.loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Focus rings */
+*:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

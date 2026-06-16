@@ -1,0 +1,104 @@
+﻿openapi: "3.0.3"
+info:
+  title: BESS-UPF Analysis API
+  version: "1.0.0"
+  description: |
+    LLM-powered analysis interface for UPF metrics.
+    Proxied through Caddy at /api/v1/*.
+
+servers:
+  - url: https://{hostname}/api/v1
+    variables:
+      hostname:
+        default: localhost
+
+security:
+  - basicAuth: []
+
+paths:
+  /chat:
+    post:
+      summary: Ask the UPF analysis assistant a question
+      description: |
+        Sends a user message to the LLM-backed analysis assistant.
+        The assistant may call internal tools (PromQL queries, anomaly lookup)
+        before returning a final answer. Session history is maintained in-memory
+        for 30 minutes of inactivity.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            example:
+              message: "What happened to UPF PDU sessions in the last hour?"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        "400":
+          description: Bad request (missing or invalid fields)
+        "401":
+          description: Unauthorized — provide valid Basic credentials
+        "429":
+          description: Rate limit exceeded (10 requests/minute per IP)
+        "500":
+          description: Internal server error (LLM unreachable, etc.)
+
+  /health:
+    get:
+      summary: Health check (no authentication required)
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+
+  schemas:
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        session_id:
+          type: string
+          description: |
+            Optional session UUID for conversation continuity.
+            If omitted a new session is created and its ID is returned.
+        message:
+          type: string
+          description: The user question or request.
+          example: "Show me the UPF drop rate for the last 30 minutes"
+
+    ChatResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: Session ID to pass in subsequent requests for conversation continuity.
+        answer:
+          type: string
+          description: The assistant final answer text.
+        queries_used:
+          type: array
+          items:
+            type: string
+          description: PromQL expressions executed during this turn (for audit/transparency).
+        anomaly_count:
+          type: integer
+          description: Number of anomaly events retrieved from the detection service this turn.

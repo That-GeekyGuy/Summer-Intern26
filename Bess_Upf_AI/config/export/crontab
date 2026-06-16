@@ -1,0 +1,9 @@
+# Export-job schedule — parsed by supercronic inside the export-job container.
+# Default: run daily at 02:00 UTC, exporting the previous 24 h of metrics.
+# Supercronic uses the same cron syntax as standard Unix cron.
+#
+# To change the schedule, edit this file and restart the export-job container:
+#   docker compose restart export-job
+#
+# Format: min hour day month weekday command
+0 2 * * * /usr/local/bin/upf-exporter

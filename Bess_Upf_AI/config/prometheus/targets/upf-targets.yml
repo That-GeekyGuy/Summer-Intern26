@@ -1,0 +1,28 @@
+# UPF scrape targets — file_sd format.
+#
+# Prometheus reloads this file every 30 s (refresh_interval in prometheus.yml).
+# Add or remove entries here; no Prometheus restart required.
+#
+# Label guidelines:
+#   - 'upf_id'   : logical UPF identifier (e.g. upf-east-1). Do NOT use IMSI/SUPI.
+#   - 'site'     : data-centre or region tag for routing rules and dashboards.
+#   - 'vendor'   : equipment vendor — useful for vendor-specific alert tuning.
+#
+# PII reminder: these labels are sent to VictoriaMetrics. Do not add any label
+# that could identify a subscriber (IMSI, MSISDN, SUPI, UE IP address, etc.).
+# See write_relabel_configs in prometheus.yml for the scrubbing rules.
+
+- targets:
+    - "10.0.1.10:9090"   # replace with real UPF management-plane address
+    - "10.0.1.11:9090"
+  labels:
+    upf_id: upf-east-1
+    site:   east
+    vendor: example-vendor
+
+- targets:
+    - "10.0.2.10:9090"
+  labels:
+    upf_id: upf-west-1
+    site:   west
+    vendor: example-vendor

@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BESS-UPF Diagnostic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-base:        #0A0E14;
+  --bg-surface:     #111720;
+  --bg-elevated:    #1A2232;
+  --bg-subtle:      #1E2A3A;
+  --border:         #2A3A4A;
+  --text-primary:   #E8EEF4;
+  --text-secondary: #8A9BB0;
+  --text-muted:     #4A5A6A;
+  --signal-critical: #FF4D4D;
+  --signal-warning:  #FF9A3C;
+  --signal-ok:       #2ECC8A;
+  --signal-info:     #3D7FE8;
+  --signal-neutral:  #8A9BB0;
+  --accent:          #3D7FE8;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'Inter', sans-serif;
+  --r: 5px;
+}
+
+html, body { height: 100%; background: var(--bg-base); color: var(--text-primary); font-family: var(--font-body); font-size: 13px; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.shell { display: flex; flex-direction: column; height: 100%; }
+
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 20px; height: 44px; flex-shrink: 0;
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+}
+.topbar-title { font-family: var(--font-mono); font-weight: 700; font-size: 13px; letter-spacing: -0.2px; }
+.topbar-sub   { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+.conn-badge {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 3px;
+  border: 1px solid var(--border); color: var(--text-muted);
+  background: none; cursor: default;
+  transition: color .15s, border-color .15s;
+}
+.conn-badge.ok     { color: var(--signal-ok);       border-color: rgba(46,204,138,.35); }
+.conn-badge.error  { color: var(--signal-critical);  border-color: rgba(255,77,77,.35); }
+.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.body { display: flex; flex: 1; overflow: hidden; }
+
+/* Left panel */
+.left { flex: 0 0 62%; display: flex; flex-direction: column; overflow-y: auto; border-right: 1px solid var(--border); }
+
+/* Right panel */
+.right { flex: 0 0 38%; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Section chrome */
+.section { border-bottom: 1px solid var(--border); }
+.section-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px;
+  border-bottom: 1px solid var(--border); background: var(--bg-surface);
+}
+.section-body { padding: 14px 16px; }
+
+/* ── Auth form ──────────────────────────────────────────────────────────── */
+.auth-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .5px; }
+.field input, .field select {
+  background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--r);
+  color: var(--text-primary); padding: 7px 10px; font-size: 13px;
+  font-family: var(--font-body); outline: none;
+  transition: border-color .12s;
+}
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.auth-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: end; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  padding: 7px 16px; border-radius: var(--r); border: 1px solid var(--border);
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  cursor: pointer; background: none; color: var(--text-secondary);
+  transition: all .12s; white-space: nowrap;
+}
+.btn:hover        { border-color: var(--accent); color: var(--text-primary); }
+.btn.primary      { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover{ background: #2d6fd0; border-color: #2d6fd0; }
+.btn.danger       { border-color: rgba(255,77,77,.4); color: var(--signal-critical); }
+.btn.danger:hover { background: rgba(255,77,77,.1); }
+.btn.sm           { padding: 4px 10px; font-size: 11px; }
+.btn:disabled     { opacity: .4; cursor: not-allowed; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ── System checks table ────────────────────────────────────────────────── */
+.checks-table { width: 100%; border-collapse: collapse; }
+.checks-table th {
+  text-align: left; padding: 6px 10px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+  border-bottom: 1px solid var(--border);
+}
+.checks-table td { padding: 7px 10px; border-bottom: 1px solid rgba(42,58,74,.5); }
+.checks-table tr:last-child td { border-bottom: none; }
+.check-name { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+.check-endpoint { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); display: block; margin-top: 1px; }
+.check-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 3px;
+  border: 1px solid transparent;
+}
+.check-status.pending  { color: var(--text-muted);     border-color: var(--border); }
+.check-status.running  { color: var(--signal-info);    border-color: rgba(61,127,232,.35); animation: pulse-check .8s infinite; }
+.check-status.pass     { color: var(--signal-ok);      border-color: rgba(46,204,138,.35); }
+.check-status.fail     { color: var(--signal-critical); border-color: rgba(255,77,77,.35); }
+.check-status.warn     { color: var(--signal-warning); border-color: rgba(255,154,60,.35); }
+.check-detail { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
+.check-latency { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-align: right; }
+@keyframes pulse-check { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
+
+/* ── Scenario grid ──────────────────────────────────────────────────────── */
+.scenario-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.scenario-btn {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 10px 12px;
+  cursor: pointer; text-align: left;
+  transition: border-color .12s, background .12s;
+  color: var(--text-primary);
+}
+.scenario-btn:hover  { border-color: var(--signal-info); }
+.scenario-btn.active { border-color: var(--signal-warning); background: rgba(255,154,60,.07); }
+.scenario-btn .s-name { font-family: var(--font-mono); font-size: 11px; font-weight: 700; margin-bottom: 3px; }
+.scenario-btn .s-desc { font-size: 10px; color: var(--text-muted); line-height: 1.4; }
+.scenario-btn .s-badge {
+  display: inline-block; margin-top: 5px;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  padding: 1px 5px; border-radius: 2px;
+  background: rgba(255,154,60,.15); color: var(--signal-warning);
+  border: 1px solid rgba(255,154,60,.3);
+}
+
+/* ── Chat probes ────────────────────────────────────────────────────────── */
+.probe-list { display: flex; flex-direction: column; gap: 6px; }
+.probe-item {
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r);
+  overflow: hidden;
+}
+.probe-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: border-color .1s;
+}
+.probe-header.done { border-bottom-color: var(--border); }
+.probe-q { font-size: 12px; color: var(--text-secondary); flex: 1; }
+.probe-q.done { color: var(--text-primary); }
+.probe-body { padding: 10px 12px; }
+.probe-response {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+  line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  max-height: 80px; overflow-y: auto;
+}
+.probe-meta { display: flex; gap: 12px; margin-top: 6px; }
+.probe-meta span { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.probe-meta .ok   { color: var(--signal-ok); }
+.probe-meta .err  { color: var(--signal-critical); }
+
+/* ── Right panel: anomaly monitor ──────────────────────────────────────── */
+.anon-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  background: var(--bg-surface); flex-shrink: 0;
+}
+.anon-title { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; flex: 1; }
+.anon-count { font-family: var(--font-mono); font-size: 20px; font-weight: 700; }
+.anon-list { flex: 1; overflow-y: auto; }
+.anon-row {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 14px; border-bottom: 1px solid rgba(42,58,74,.5);
+  border-left: 2px solid transparent;
+  transition: background .1s;
+  animation: fade-in-row .15s ease-out;
+}
+.anon-row:hover { background: var(--bg-surface); }
+.anon-row.critical { border-left-color: var(--signal-critical); }
+.anon-row.high, .anon-row.warning, .anon-row.medium { border-left-color: var(--signal-warning); }
+.anon-row.low { border-left-color: var(--signal-neutral); }
+.anon-row.predictive { border-left-color: var(--signal-info); }
+.anon-metric { font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.anon-detail { font-size: 10px; color: var(--text-muted); }
+.anon-type {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  padding: 1px 5px; border-radius: 2px; margin-right: 4px;
+}
+.anon-type.live     { background: rgba(255,77,77,.12); color: var(--signal-critical); border: 1px solid rgba(255,77,77,.25); }
+.anon-type.forecast { background: rgba(61,127,232,.12); color: var(--signal-info);    border: 1px solid rgba(61,127,232,.25); }
+.anon-empty { padding: 24px 14px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+/* ── Activity log ───────────────────────────────────────────────────────── */
+.log-wrap { flex: 0 0 200px; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.log-head {
+  display: flex; align-items: center; gap: 8px; padding: 6px 14px;
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; flex-shrink: 0;
+}
+.log-entries { flex: 1; overflow-y: auto; padding: 4px 0; }
+.log-entry {
+  display: flex; gap: 8px; padding: 3px 14px;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.5;
+}
+.log-ts   { color: var(--text-muted); flex-shrink: 0; }
+.log-msg  { color: var(--text-secondary); flex: 1; word-break: break-all; }
+.log-msg.info  { color: var(--signal-info); }
+.log-msg.ok    { color: var(--signal-ok); }
+.log-msg.error { color: var(--signal-critical); }
+.log-msg.warn  { color: var(--signal-warning); }
+
+/* ── Misc utils ─────────────────────────────────────────────────────────── */
+.gap-8  { gap: 8px; }
+.mt-10  { margin-top: 10px; }
+.tag {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  padding: 2px 6px; border-radius: 3px;
+  background: var(--bg-subtle); color: var(--text-muted); border: 1px solid var(--border);
+}
+@keyframes fade-in-row { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ── Topbar ───────────────────────────────────────────────────────────── -->
+<header class="topbar">
+  <span class="topbar-title">BESS-UPF</span>
+  <span class="topbar-sub">Diagnostic &amp; Generator</span>
+  <span id="conn-badge" class="conn-badge">
+    <span class="conn-dot"></span>
+    <span id="conn-label">disconnected</span>
+  </span>
+</header>
+
+<div class="body">
+
+<!-- ═══════════════ LEFT PANEL ═══════════════ -->
+<div class="left">
+
+  <!-- Auth -->
+  <div class="section">
+    <div class="section-head">⬡ Connection</div>
+    <div class="section-body">
+      <div class="auth-row">
+        <div class="field">
+          <label>Base URL</label>
+          <input id="base-url" type="url" value="" placeholder="https://localhost" />
+        </div>
+        <div class="field">
+          <label>Username</label>
+          <input id="auth-user" type="text" value="" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input id="auth-pass" type="password" value="" autocomplete="current-password" />
+        </div>
+        <div class="field" style="justify-content:flex-end">
+          <button class="btn primary" id="btn-connect" onclick="connect()">Connect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- System checks -->
+  <div class="section">
+    <div class="section-head">
+      ⬡ System Checks
+      <button class="btn sm" id="btn-run-all" style="margin-left:auto" onclick="runAllChecks()" disabled>Run All</button>
+    </div>
+    <div class="section-body" style="padding:0">
+      <table class="checks-table">
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Status</th>
+            <th>Detail</th>
+            <th style="text-align:right">ms</th>
+          </tr>
+        </thead>
+        <tbody id="checks-tbody">
+          <!-- filled by JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Scenario generator -->
+  <div class="section">
+    <div class="section-head">
+      ⬡ Scenario Generator
+      <div class="field" style="margin-left:auto; flex-direction:row; align-items:center; gap:6px">
+        <label style="font-size:10px; color:var(--text-muted); white-space:nowrap">Duration</label>
+        <select id="scenario-dur" class="field" style="padding:3px 8px; font-size:11px">
+          <option value="2m">2 min</option>
+          <option value="5m" selected>5 min</option>
+          <option value="10m">10 min</option>
+          <option value="30m">30 min</option>
+        </select>
+      </div>
+      <button class="btn sm danger" id="btn-stop" style="margin-left:8px" onclick="stopScenario()" disabled>Stop</button>
+    </div>
+    <div class="section-body">
+      <div class="scenario-grid" id="scenario-grid">
+        <!-- filled by JS -->
+      </div>
+      <div class="mt-10" style="display:flex; gap:8px; align-items:center">
+        <span id="scenario-status" style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted)">No scenario active</span>
+        <span id="scenario-timer" style="font-family:var(--font-mono); font-size:11px; color:var(--signal-warning); display:none"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat probes -->
+  <div class="section">
+    <div class="section-head">
+      ⬡ Chat Probes
+      <button class="btn sm" id="btn-run-probes" style="margin-left:auto" onclick="runAllProbes()" disabled>Run All</button>
+    </div>
+    <div class="section-body">
+      <div class="probe-list" id="probe-list">
+        <!-- filled by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- VM query sandbox -->
+  <div class="section" style="border-bottom:none">
+    <div class="section-head">⬡ PromQL Sandbox</div>
+    <div class="section-body">
+      <div style="display:flex; gap:8px">
+        <div class="field" style="flex:1">
+          <label>PromQL expression</label>
+          <input id="promql-input" type="text" value="pfcp_sessions_total" placeholder="pfcp_sessions_total" />
+        </div>
+        <div class="field" style="justify-content:flex-end">
+          <button class="btn" id="btn-promql" onclick="runPromql()" disabled>Query</button>
+        </div>
+      </div>
+      <div id="promql-result" class="mt-10" style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); display:none;
+            background:var(--bg-subtle); border:1px solid var(--border); border-radius:var(--r); padding:10px 12px; white-space:pre; overflow-x:auto; max-height:120px; overflow-y:auto">
+      </div>
+    </div>
+  </div>
+
+</div><!-- /left -->
+
+<!-- ═══════════════ RIGHT PANEL ═══════════════ -->
+<div class="right">
+  <div style="display:flex; flex-direction:column; flex:1; overflow:hidden; border-bottom:1px solid var(--border)">
+
+    <!-- Anomaly monitor header -->
+    <div class="anon-header">
+      <span class="anon-title">Live Anomaly Feed</span>
+      <span id="anon-count" class="anon-count" style="color:var(--text-muted)">—</span>
+      <span id="anon-poll-badge" class="tag">paused</span>
+      <button class="btn sm" id="btn-anon-refresh" onclick="pollAnomalies()" disabled style="margin-left:4px">↺</button>
+    </div>
+
+    <!-- Anomaly list -->
+    <div class="anon-list" id="anon-list">
+      <div class="anon-empty">Connect to start monitoring</div>
+    </div>
+  </div>
+
+  <!-- Activity log -->
+  <div class="log-wrap">
+    <div class="log-head">
+      Activity Log
+      <button class="btn sm" style="margin-left:auto; padding:2px 8px; font-size:10px" onclick="clearLog()">Clear</button>
+    </div>
+    <div class="log-entries" id="log-entries"></div>
+  </div>
+</div><!-- /right -->
+
+</div><!-- /body -->
+</div><!-- /shell -->
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────
+const S = {
+  base: '',
+  user: '',
+  pass: '',
+  connected: false,
+  activeScenario: null,
+  scenarioStarted: null,
+  scenarioTimerID: null,
+  anomalyPollID: null,
+  chatSessionId: null,
+};
+
+// ── Checks definition ───────────────────────────────────────────────────
+const CHECKS = [
+  {
+    id: 'health',
+    name: 'Analysis Service',
+    sub: 'GET /health',
+    run: async () => {
+      const r = await apiFetch('/health', { noAuth: true });
+      if (r.status !== 'ok') throw new Error('status ' + r.status);
+      return 'ok';
+    },
+  },
+  {
+    id: 'vm',
+    name: 'VictoriaMetrics Proxy',
+    sub: 'GET /api/v1/query?q=up',
+    run: async () => {
+      const r = await apiFetch('/api/v1/query?q=up');
+      const n = (r.samples || []).length;
+      if (!n) return { text: '0 series — VM may be empty', cls: 'warn' };
+      return `${n} series`;
+    },
+  },
+  {
+    id: 'anomalies',
+    name: 'Detection Service',
+    sub: 'GET /api/v1/anomalies',
+    run: async () => {
+      const r = await apiFetch('/api/v1/anomalies');
+      const n = (r.anomalies || []).length;
+      return `${n} event${n !== 1 ? 's' : ''} in last hour`;
+    },
+  },
+  {
+    id: 'scenario',
+    name: 'Simulator API',
+    sub: 'GET /api/v1/scenario',
+    run: async () => {
+      const r = await apiFetch('/api/v1/scenario');
+      return `mode: ${r.mode || 'normal'}`;
+    },
+  },
+  {
+    id: 'chat',
+    name: 'LLM Backend',
+    sub: 'POST /api/v1/chat (hi)',
+    run: async () => {
+      const r = await apiFetch('/api/v1/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: 'hi', session_id: S.chatSessionId || undefined }),
+      });
+      if (r.session_id) S.chatSessionId = r.session_id;
+      if (!r.answer) throw new Error('empty answer');
+      return `"${r.answer.slice(0, 55).replace(/\n/g,' ')}${r.answer.length > 55 ? '…' : ''}"`;
+    },
+  },
+];
+
+// ── Chat probes ─────────────────────────────────────────────────────────
+const PROBES = [
+  { id: 'p1', q: 'What metrics are currently being collected?' },
+  { id: 'p2', q: 'Are there any active anomalies right now?' },
+  { id: 'p3', q: 'What is the current pfcp_sessions_total value?' },
+  { id: 'p4', q: 'What does the N3 throughput look like in the last 15 minutes?' },
+  { id: 'p5', q: 'Will any metrics breach configured thresholds in the next hour?' },
+];
+
+// ── Scenarios ───────────────────────────────────────────────────────────
+const SCENARIOS = [
+  { id: 'normal',          name: 'Normal',          desc: 'Steady-state baseline — nominal session load' },
+  { id: 'session_spike',   name: 'Session Spike',   desc: 'Sudden surge in PFCP sessions (4× baseline)' },
+  { id: 'packet_drop',     name: 'Packet Drop',     desc: 'Elevated drop rate on N3 interface' },
+  { id: 'throughput_ramp', name: 'Throughput Ramp', desc: 'Gradual N6 throughput increase toward capacity' },
+  { id: 'low_traffic',     name: 'Low Traffic',     desc: 'Reduced load — useful for baseline calibration' },
+  { id: 'mixed_anomaly',   name: 'Mixed Anomaly',   desc: 'Concurrent session spike + elevated drop rate' },
+];
+
+// ── Utility: authenticated fetch ────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const { noAuth = false, ...fetchOpts } = opts;
+  const url = S.base + path;
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(noAuth ? {} : { Authorization: 'Basic ' + btoa(S.user + ':' + S.pass) }),
+    ...(fetchOpts.headers || {}),
+  };
+  const res = await fetch(url, { ...fetchOpts, headers });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => res.statusText);
+    throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
+  }
+  return res.json();
+}
+
+// ── Activity log ────────────────────────────────────────────────────────
+function log(msg, level = '') {
+  const el = document.getElementById('log-entries');
+  const ts = new Date().toTimeString().slice(0, 8);
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-ts">${ts}</span><span class="log-msg ${level}">${escHtml(msg)}</span>`;
+  el.appendChild(entry);
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog() { document.getElementById('log-entries').innerHTML = ''; }
+
+// ── HTML escaping ───────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Connection badge ────────────────────────────────────────────────────
+function setConnBadge(state) {
+  const badge = document.getElementById('conn-badge');
+  const label = document.getElementById('conn-label');
+  badge.className = 'conn-badge ' + (state === 'ok' ? 'ok' : state === 'error' ? 'error' : '');
+  label.textContent = state === 'ok' ? 'connected' : state === 'error' ? 'error' : 'disconnected';
+}
+
+// ── Connect ──────────────────────────────────────────────────────────────
+async function connect() {
+  const base = document.getElementById('base-url').value.trim().replace(/\/$/, '') || window.location.origin;
+  S.base = base;
+  S.user = document.getElementById('auth-user').value.trim();
+  S.pass = document.getElementById('auth-pass').value;
+
+  log(`Connecting to ${S.base} as '${S.user}'...`);
+  setConnBadge('');
+  document.getElementById('btn-connect').disabled = true;
+
+  try {
+    await apiFetch('/health', { noAuth: true });
+    S.connected = true;
+    setConnBadge('ok');
+    log(`Connected to ${S.base}`, 'ok');
+
+    // Unlock UI
+    document.getElementById('btn-run-all').disabled = false;
+    document.getElementById('btn-run-probes').disabled = false;
+    document.getElementById('btn-promql').disabled = false;
+    document.getElementById('btn-anon-refresh').disabled = false;
+
+    // Init checks table + probe list + scenario grid
+    initCheckTable();
+    initProbeList();
+    initScenarioGrid();
+
+    // Start anomaly poll
+    pollAnomalies();
+    clearInterval(S.anomalyPollID);
+    S.anomalyPollID = setInterval(pollAnomalies, 15000);
+    document.getElementById('anon-poll-badge').textContent = '15s';
+
+    // Fetch current scenario state
+    syncScenarioState();
+  } catch (err) {
+    setConnBadge('error');
+    log(`Connection failed: ${err.message}`, 'error');
+  } finally {
+    document.getElementById('btn-connect').disabled = false;
+  }
+}
+
+// ── Checks table ─────────────────────────────────────────────────────────
+function initCheckTable() {
+  const tbody = document.getElementById('checks-tbody');
+  tbody.innerHTML = CHECKS.map(c => `
+    <tr id="check-row-${c.id}">
+      <td>
+        <span class="check-name">${escHtml(c.name)}</span>
+        <span class="check-endpoint">${escHtml(c.sub)}</span>
+      </td>
+      <td><span class="check-status pending" id="check-status-${c.id}">PENDING</span></td>
+      <td class="check-detail" id="check-detail-${c.id}">—</td>
+      <td class="check-latency" id="check-lat-${c.id}">—</td>
+    </tr>`).join('');
+}
+
+async function runCheck(c) {
+  const statusEl = document.getElementById(`check-status-${c.id}`);
+  const detailEl = document.getElementById(`check-detail-${c.id}`);
+  const latEl    = document.getElementById(`check-lat-${c.id}`);
+
+  statusEl.className = 'check-status running';
+  statusEl.textContent = 'RUNNING';
+  detailEl.textContent = '…';
+  latEl.textContent = '…';
+
+  const t0 = Date.now();
+  try {
+    const result = await c.run();
+    const ms = Date.now() - t0;
+    const isMeta = typeof result === 'object' && result !== null;
+    const cls  = isMeta ? (result.cls || 'pass') : 'pass';
+    const text = isMeta ? result.text : String(result);
+    statusEl.className = `check-status ${cls}`;
+    statusEl.textContent = cls.toUpperCase();
+    detailEl.textContent = text;
+    latEl.textContent = ms + 'ms';
+    log(`[${c.name}] ${cls.toUpperCase()} — ${text} (${ms}ms)`, cls === 'pass' ? 'ok' : 'warn');
+  } catch (err) {
+    const ms = Date.now() - t0;
+    statusEl.className = 'check-status fail';
+    statusEl.textContent = 'FAIL';
+    detailEl.textContent = err.message.slice(0, 80);
+    latEl.textContent = ms + 'ms';
+    log(`[${c.name}] FAIL — ${err.message}`, 'error');
+  }
+}
+
+async function runAllChecks() {
+  log('Running all system checks…', 'info');
+  document.getElementById('btn-run-all').disabled = true;
+  for (const c of CHECKS) await runCheck(c);
+  document.getElementById('btn-run-all').disabled = false;
+  log('All checks complete.', 'ok');
+}
+
+// ── Probe list ───────────────────────────────────────────────────────────
+function initProbeList() {
+  const el = document.getElementById('probe-list');
+  el.innerHTML = PROBES.map(p => `
+    <div class="probe-item" id="probe-${p.id}">
+      <div class="probe-header" id="probe-hdr-${p.id}">
+        <span class="check-status pending" id="probe-status-${p.id}">PENDING</span>
+        <span class="probe-q" id="probe-q-${p.id}">${escHtml(p.q)}</span>
+        <button class="btn sm" onclick="runProbe('${p.id}')">Run</button>
+      </div>
+    </div>`).join('');
+}
+
+async function runProbe(id) {
+  const p = PROBES.find(x => x.id === id);
+  if (!p) return;
+
+  const statusEl = document.getElementById(`probe-status-${id}`);
+  const hdrEl    = document.getElementById(`probe-hdr-${id}`);
+  const qEl      = document.getElementById(`probe-q-${id}`);
+  const item     = document.getElementById(`probe-${id}`);
+
+  // Remove existing body if re-running
+  const existing = item.querySelector('.probe-body');
+  if (existing) existing.remove();
+
+  statusEl.className = 'check-status running';
+  statusEl.textContent = 'ASKING';
+  qEl.className = 'probe-q';
+
+  log(`Chat probe: "${p.q.slice(0, 60)}…"`, 'info');
+  const t0 = Date.now();
+
+  try {
+    const r = await apiFetch('/api/v1/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: p.q, session_id: S.chatSessionId || undefined }),
+    });
+    if (r.session_id) S.chatSessionId = r.session_id;
+    const ms = Date.now() - t0;
+
+    statusEl.className = 'check-status pass';
+    statusEl.textContent = 'OK';
+    qEl.className = 'probe-q done';
+    hdrEl.className = 'probe-header done';
+
+    const body = document.createElement('div');
+    body.className = 'probe-body';
+    body.innerHTML = `
+      <div class="probe-response">${escHtml(r.answer)}</div>
+      <div class="probe-meta">
+        <span class="ok">● ${ms}ms</span>
+        <span>${(r.queries_used || []).length} PromQL quer${r.queries_used?.length === 1 ? 'y' : 'ies'}</span>
+        <span>${r.anomaly_count || 0} events referenced</span>
+      </div>`;
+    item.appendChild(body);
+    log(`Probe OK (${ms}ms) — queries: ${(r.queries_used||[]).length}`, 'ok');
+  } catch (err) {
+    const ms = Date.now() - t0;
+    statusEl.className = 'check-status fail';
+    statusEl.textContent = 'FAIL';
+
+    const body = document.createElement('div');
+    body.className = 'probe-body';
+    body.innerHTML = `<div class="probe-response" style="color:var(--signal-critical)">${escHtml(err.message)}</div>
+      <div class="probe-meta"><span class="err">● ${ms}ms</span></div>`;
+    item.appendChild(body);
+    log(`Probe FAIL: ${err.message}`, 'error');
+  }
+}
+
+async function runAllProbes() {
+  log('Running all chat probes…', 'info');
+  document.getElementById('btn-run-probes').disabled = true;
+  for (const p of PROBES) {
+    await runProbe(p.id);
+    await new Promise(r => setTimeout(r, 600)); // brief gap between LLM calls
+  }
+  document.getElementById('btn-run-probes').disabled = false;
+  log('All probes complete.', 'ok');
+}
+
+// ── Scenario grid ─────────────────────────────────────────────────────────
+function initScenarioGrid() {
+  const el = document.getElementById('scenario-grid');
+  el.innerHTML = SCENARIOS.map(s => `
+    <button class="scenario-btn" id="sbtn-${s.id}" onclick="startScenario('${s.id}')">
+      <div class="s-name">${escHtml(s.name)}</div>
+      <div class="s-desc">${escHtml(s.desc)}</div>
+    </button>`).join('');
+}
+
+async function startScenario(mode) {
+  if (!S.connected) return;
+  const dur = document.getElementById('scenario-dur').value;
+  log(`Starting scenario '${mode}' for ${dur}…`, 'info');
+  try {
+    await apiFetch('/api/v1/scenario', {
+      method: 'POST',
+      body: JSON.stringify({ mode, duration: dur }),
+    });
+    S.activeScenario = mode;
+    S.scenarioStarted = Date.now();
+    updateScenarioBtns();
+    document.getElementById('btn-stop').disabled = false;
+    startScenarioTimer();
+    log(`Scenario '${mode}' started — auto-reverts in ${dur}`, 'ok');
+  } catch (err) {
+    log(`Scenario start failed: ${err.message}`, 'error');
+  }
+}
+
+async function stopScenario() {
+  log('Stopping scenario…', 'info');
+  try {
+    await apiFetch('/api/v1/scenario', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'normal' }),
+    });
+    S.activeScenario = null;
+    clearInterval(S.scenarioTimerID);
+    document.getElementById('scenario-timer').style.display = 'none';
+    document.getElementById('scenario-status').textContent = 'No scenario active';
+    document.getElementById('btn-stop').disabled = true;
+    updateScenarioBtns();
+    log('Scenario stopped — returned to normal mode', 'ok');
+  } catch (err) {
+    log(`Scenario stop failed: ${err.message}`, 'error');
+  }
+}
+
+function updateScenarioBtns() {
+  SCENARIOS.forEach(s => {
+    const btn = document.getElementById(`sbtn-${s.id}`);
+    if (!btn) return;
+    if (s.id === S.activeScenario) {
+      btn.classList.add('active');
+      // inject running badge if not present
+      if (!btn.querySelector('.s-badge')) {
+        const b = document.createElement('span');
+        b.className = 's-badge';
+        b.textContent = '● RUNNING';
+        btn.appendChild(b);
+      }
+    } else {
+      btn.classList.remove('active');
+      const badge = btn.querySelector('.s-badge');
+      if (badge) badge.remove();
+    }
+  });
+}
+
+function startScenarioTimer() {
+  const timerEl  = document.getElementById('scenario-timer');
+  const statusEl = document.getElementById('scenario-status');
+  timerEl.style.display = 'inline';
+  clearInterval(S.scenarioTimerID);
+  S.scenarioTimerID = setInterval(() => {
+    const sec = Math.floor((Date.now() - S.scenarioStarted) / 1000);
+    const m = Math.floor(sec / 60), s = sec % 60;
+    timerEl.textContent = `running ${m}m ${s}s`;
+    statusEl.textContent = `Active: ${S.activeScenario}`;
+  }, 1000);
+}
+
+async function syncScenarioState() {
+  try {
+    const r = await apiFetch('/api/v1/scenario');
+    if (r.mode && r.mode !== 'normal') {
+      S.activeScenario = r.mode;
+      S.scenarioStarted = Date.now() - (r.uptime_seconds || 0) * 1000;
+      updateScenarioBtns();
+      document.getElementById('btn-stop').disabled = false;
+      startScenarioTimer();
+      log(`Simulator is running scenario '${r.mode}'`, 'warn');
+    }
+  } catch { /* scenario API optional */ }
+}
+
+// ── Anomaly monitor ──────────────────────────────────────────────────────
+const SEVERITY_ORDER = { critical: 0, high: 1, warning: 2, medium: 3, low: 4 };
+const METRIC_NAMES = {
+  pfcp_sessions_total: 'Active Sessions',
+  upf_pdu_sessions_total: 'PDU Sessions',
+  port_bytes_count: 'Interface Throughput',
+  port_dropped_count: 'Packet Drops',
+  port_packets_count: 'Packet Count',
+};
+
+function displayName(raw) {
+  const base = raw.split('{')[0];
+  return METRIC_NAMES[base] || base.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function fmtRelative(iso) {
+  const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (d < 60)  return `${Math.round(d)}s ago`;
+  if (d < 3600) return `${Math.round(d/60)}m ago`;
+  return `${Math.round(d/3600)}h ago`;
+}
+
+function fmtEta(unix) {
+  const d = (unix * 1000 - Date.now()) / 1000;
+  if (d <= 0) return 'now';
+  if (d < 3600) return `~${Math.round(d/60)}min`;
+  return `~${(d/3600).toFixed(1)}h`;
+}
+
+async function pollAnomalies() {
+  if (!S.connected) return;
+  try {
+    const r = await apiFetch('/api/v1/anomalies');
+    const events = (r.anomalies || []).sort((a, b) =>
+      (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5)
+    );
+
+    const countEl = document.getElementById('anon-count');
+    const listEl  = document.getElementById('anon-list');
+
+    countEl.textContent = events.length;
+    countEl.style.color = events.length === 0 ? 'var(--signal-ok)'
+      : events.some(e => e.severity === 'critical') ? 'var(--signal-critical)'
+      : 'var(--signal-warning)';
+
+    if (events.length === 0) {
+      listEl.innerHTML = '<div class="anon-empty">No active events — all metrics within expected ranges</div>';
+    } else {
+      listEl.innerHTML = events.map(e => {
+        const isPredict = e.event_type === 'predictive';
+        const sevClass  = isPredict ? 'predictive' : (e.severity || 'low').toLowerCase();
+        const badge     = isPredict ? 'forecast' : 'live';
+        const badgeTxt  = isPredict ? 'FORECAST' : 'LIVE';
+        const timeInfo  = isPredict && e.predicted_crossing_time
+          ? `ETA: ${fmtEta(e.predicted_crossing_time)}`
+          : fmtRelative(e.timestamp);
+        let labels = '';
+        try {
+          const lj = JSON.parse(e.labels || '{}');
+          labels = [lj.iface, lj.dir].filter(Boolean).join(' ');
+        } catch { labels = ''; }
+        return `<div class="anon-row ${sevClass}">
+          <div class="anon-metric">
+            <span class="anon-type ${badge}">${badgeTxt}</span>
+            ${escHtml(displayName(e.metric_name))}${labels ? ` · ${escHtml(labels)}` : ''}
+          </div>
+          <div class="anon-detail">
+            ${escHtml(e.severity?.toUpperCase() || '')} · obs ${e.observed_value?.toFixed(1) ?? '?'}
+            ${e.expected_value != null ? ` · exp ${e.expected_value.toFixed(1)}` : ''}
+            · ${escHtml(timeInfo)}
+          </div>
+        </div>`;
+      }).join('');
+    }
+  } catch (err) {
+    log(`Anomaly poll error: ${err.message}`, 'error');
+  }
+}
+
+// ── PromQL sandbox ───────────────────────────────────────────────────────
+async function runPromql() {
+  const expr = document.getElementById('promql-input').value.trim();
+  if (!expr || !S.connected) return;
+  log(`PromQL: ${expr}`, 'info');
+  const resultEl = document.getElementById('promql-result');
+  resultEl.style.display = 'block';
+  resultEl.textContent = 'Querying…';
+  try {
+    const r = await apiFetch('/api/v1/query?q=' + encodeURIComponent(expr));
+    if (!r.samples || r.samples.length === 0) {
+      resultEl.textContent = '(no data returned)';
+      log('PromQL: 0 samples', 'warn');
+    } else {
+      resultEl.textContent = r.samples.map(s => {
+        const labels = Object.entries(s.labels || {})
+          .filter(([k]) => k !== '__name__')
+          .map(([k,v]) => `${k}="${v}"`).join(', ');
+        return `${r.query}${labels ? `{${labels}}` : ''} = ${s.value}`;
+      }).join('\n');
+      log(`PromQL: ${r.samples.length} series`, 'ok');
+    }
+  } catch (err) {
+    resultEl.textContent = 'Error: ' + err.message;
+    log(`PromQL error: ${err.message}`, 'error');
+  }
+}
+
+// ── Allow Enter key on inputs ────────────────────────────────────────────
+document.getElementById('auth-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') connect();
+});
+document.getElementById('promql-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') runPromql();
+});
+
+// ── Pre-fill base URL from current origin ────────────────────────────────
+document.getElementById('base-url').value = window.location.origin;
+
+// ── Pre-fill saved creds if present ─────────────────────────────────────
+(function() {
+  try {
+    const raw = localStorage.getItem('upf_monitor_creds');
+    if (!raw) return;
+    const c = JSON.parse(raw);
+    if (c.username) document.getElementById('auth-user').value = c.username;
+    if (c.password) document.getElementById('auth-pass').value = c.password;
+    log('Credentials pre-filled from main app localStorage', 'info');
+  } catch { /* ignore */ }
+})();
+</script>
+</body>
+</html>
