@@ -105,12 +105,12 @@ export const COPY = {
       return `Running for ${m}m ${sec}s`;
     },
     descriptions: {
-      normal:           "Steady-state baseline — nominal session load",
-      session_spike:    "Sudden surge in PFCP sessions (4× baseline)",
-      packet_drop:      "Elevated packet drop rate on N3 interface",
-      throughput_ramp:  "Gradual N6 throughput increase toward capacity",
-      low_traffic:      "Reduced traffic — useful for baseline calibration",
-      mixed_anomaly:    "Concurrent session spike + elevated drop rate",
+      normal:             "Steady-state baseline — nominal session load with diurnal variation",
+      session_spike:      "Sudden surge in PFCP sessions (4× baseline) — triggers z-score on pfcp_sessions_total",
+      session_drop:       "Reduced session load — useful for baseline calibration and recovery testing",
+      packet_drop_surge:  "Elevated drop rate on N3 interface — triggers z-score on port_dropped_count",
+      asymmetric_traffic: "Skewed N3/N6 traffic ratio — high inbound, reduced outbound throughput",
+      flatline:           "All counters drop to zero — simulates complete link or UPF failure",
     } as Record<string, string>,
     toastStart: (name: string) => `Scenario '${name}' started — auto-reverts in 10 minutes.`,
     toastStop:  "Scenario stopped — returning to normal mode.",

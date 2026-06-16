@@ -483,12 +483,12 @@ const PROBES = [
 
 // ── Scenarios ───────────────────────────────────────────────────────────
 const SCENARIOS = [
-  { id: 'normal',          name: 'Normal',          desc: 'Steady-state baseline — nominal session load' },
-  { id: 'session_spike',   name: 'Session Spike',   desc: 'Sudden surge in PFCP sessions (4× baseline)' },
-  { id: 'packet_drop',     name: 'Packet Drop',     desc: 'Elevated drop rate on N3 interface' },
-  { id: 'throughput_ramp', name: 'Throughput Ramp', desc: 'Gradual N6 throughput increase toward capacity' },
-  { id: 'low_traffic',     name: 'Low Traffic',     desc: 'Reduced load — useful for baseline calibration' },
-  { id: 'mixed_anomaly',   name: 'Mixed Anomaly',   desc: 'Concurrent session spike + elevated drop rate' },
+  { id: 'normal',             name: 'Normal',          desc: 'Steady-state baseline — nominal session load with diurnal variation' },
+  { id: 'session_spike',      name: 'Session Spike',   desc: 'Sudden surge in PFCP sessions (4× baseline) — triggers z-score' },
+  { id: 'session_drop',       name: 'Session Drop',    desc: 'Reduced session load — useful for baseline calibration' },
+  { id: 'packet_drop_surge',  name: 'Packet Drop',     desc: 'Elevated drop rate on N3 interface — triggers z-score on drops' },
+  { id: 'asymmetric_traffic', name: 'Asymmetric',      desc: 'Skewed N3/N6 traffic ratio — high inbound, reduced outbound' },
+  { id: 'flatline',           name: 'Flatline',        desc: 'All counters drop to zero — simulates link or UPF failure' },
 ];
 
 // ── Utility: authenticated fetch ────────────────────────────────────────
