@@ -1,0 +1,27 @@
+# VictoriaMetrics promscrape fallback config.
+#
+# Federates all UPF and internal-service metrics directly from Prometheus.
+# This is a pull-based fallback for when Prometheus remote_write is unavailable
+# (e.g. older Prometheus build, network partition, or misconfiguration).
+#
+# When remote_write IS working, both paths run concurrently. VM deduplicates
+# samples with identical timestamps, so there is no double-counting.
+#
+# honor_labels: true is required for federation — it preserves the original
+# job/instance labels scraped by Prometheus rather than overwriting them with
+# the federate job's own labels.
+
+scrape_configs:
+  - job_name: prometheus_federate
+    honor_labels: true
+    metrics_path: /federate
+    params:
+      'match[]':
+        - '{job=~"upf.*"}'
+        - '{job="detection"}'
+        - '{job="analysis"}'
+        - '{job="prometheus"}'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['%{PROM_SCRAPE_TARGET}']

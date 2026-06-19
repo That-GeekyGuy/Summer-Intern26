@@ -1,3 +1,13 @@
+import { fmtBytes, fmtDrops, fmtSessions } from "./formatters";
+
+// Format a numeric value using the appropriate unit for a given metric name.
+// Predictive events store values in rate units (bytes/s, drops/s, sessions).
+export function fmtMetricVal(metricName: string, value: number): string {
+  if (metricName.includes("bytes")) return fmtBytes(value);
+  if (metricName.includes("dropped")) return fmtDrops(value);
+  return fmtSessions(value);
+}
+
 // Human-readable display names for raw metric identifiers.
 // Engineers see the raw name only in the reasoning trail.
 // Everyone else sees these display names.
@@ -60,11 +70,11 @@ export function severityColor(severity: string): string {
   }
 }
 
-// Capacity ceilings — used by KPI cards and forecast view
-// To change these: update this map. No component code needs to change.
+// Capacity ceilings — used by KPI cards and forecast view.
+// Must stay in sync with the forecast.targets[*].capacity values in rules.yml.
 export const CAPACITY_THRESHOLDS: Record<string, number> = {
-  pfcp_sessions_total: 20000,        // max 20k PFCP sessions
-  "port_bytes_count_N3_rx": 1e9,     // 1 Gbps N3 inbound
-  "port_bytes_count_N6_tx": 1e9,     // 1 Gbps N6 outbound
+  pfcp_sessions_total: 2_000_000,    // 20 lakhs per node (sim base 10 lakhs, peak 13 lakhs)
+  "port_bytes_count_N3_rx": 10e9,    // 10 GB/s N3 inbound (80 Gbps link)
+  "port_bytes_count_N6_tx": 10e9,    // 10 GB/s N6 outbound
   port_dropped_count: 1000,          // 1000 drops/s = warning
 };

@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"crypto/rand"
@@ -14,6 +14,7 @@ import (
 	"bess.internal/upf-analysis/internal/llm"
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/simclient"
+	"bess.internal/upf-analysis/internal/temporal"
 	"bess.internal/upf-analysis/internal/vmclient"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -38,16 +39,18 @@ type ChatResponse struct {
 // Handler wires all HTTP routes.
 type Handler struct {
 	orch *llm.Orchestrator
+	rca  *llm.RCAEngine
 	det  *detclient.Client
 	sim  *simclient.Client
 	vm   *vmclient.Client
-	m    *metrics.M // nil-safe
+	temp *temporal.Client // nil-safe — optional STL sidecar
+	m    *metrics.M       // nil-safe
 	reg  prometheus.Gatherer
 	log  *slog.Logger
 }
 
-func NewHandler(orch *llm.Orchestrator, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger) *Handler {
-	return &Handler{orch: orch, det: det, sim: sim, vm: vm, m: m, reg: reg, log: log}
+func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger) *Handler {
+	return &Handler{orch: orch, rca: rca, det: det, sim: sim, vm: vm, temp: temp, m: m, reg: reg, log: log}
 }
 
 // Register mounts all routes onto mux.
@@ -64,6 +67,14 @@ func (h *Handler) Register(mux *http.ServeMux, authUser, authPass string, rl *Ra
 	mux.Handle("GET /api/v1/anomalies", auth(http.HandlerFunc(h.handleAnomalies)))
 	mux.Handle("GET /api/v1/scenario", auth(http.HandlerFunc(h.handleScenarioGet)))
 	mux.Handle("POST /api/v1/scenario", auth(http.HandlerFunc(h.handleScenarioPost)))
+
+	// Temporal intelligence endpoints — routed through Caddy, require auth.
+	mux.Handle("GET /api/v1/temporal/analysis", auth(http.HandlerFunc(h.handleTemporalAnalysis)))
+	mux.Handle("GET /api/v1/temporal/hotzone", auth(http.HandlerFunc(h.handleTemporalHotzone)))
+
+	// Internal endpoint: called by detection service only, not routed through Caddy.
+	// No auth — this path is only reachable on the internal Docker network.
+	mux.HandleFunc("POST /internal/analyze_anomaly", h.handleAnalyzeAnomaly)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -211,3 +222,64 @@ func newSessionID() string {
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
+
+// handleTemporalAnalysis proxies to the STL sidecar's /analysis endpoint (60s cache in client).
+// Returns the full temporal context: calendar, current regime, peak/trough hours.
+func (h *Handler) handleTemporalAnalysis(w http.ResponseWriter, r *http.Request) {
+	if h.temp == nil {
+		http.Error(w, `{"error":"temporal sidecar not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	analysis, err := h.temp.GetAnalysis(r.Context())
+	if err != nil {
+		h.log.Warn("temporal analysis unavailable", "err", err)
+		http.Error(w, `{"error":"temporal sidecar unavailable"}`, http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(analysis) //nolint:errcheck
+}
+
+// handleTemporalHotzone proxies to the STL sidecar's /hotzone endpoint (1h cache in client).
+// Returns the 24-hour expected regime forecast for capacity planning.
+func (h *Handler) handleTemporalHotzone(w http.ResponseWriter, r *http.Request) {
+	if h.temp == nil {
+		http.Error(w, `{"error":"temporal sidecar not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	hotzone, err := h.temp.GetHotzone(r.Context())
+	if err != nil {
+		h.log.Warn("temporal hotzone unavailable", "err", err)
+		http.Error(w, `{"error":"temporal sidecar unavailable"}`, http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(hotzone) //nolint:errcheck
+}
+
+// handleAnalyzeAnomaly is an INTERNAL endpoint — not routed through Caddy or exposed to the internet.
+// It is called by the detection service after a MOMENT anomaly event to request LLM-generated RCA.
+// POST /internal/analyze_anomaly
+func (h *Handler) handleAnalyzeAnomaly(w http.ResponseWriter, r *http.Request) {
+	if h.rca == nil {
+		http.Error(w, `{"error":"RCA engine not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	var req llm.RCARequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
+	}
+
+	report, err := h.rca.Analyze(r.Context(), req)
+	if err != nil {
+		h.log.Error("RCA analysis failed", "err", err)
+		http.Error(w, `{"error":"RCA analysis failed"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"rca_report": report}) //nolint:errcheck
+}
+

@@ -45,8 +45,10 @@ export const COPY = {
     colBaseline: "Baseline",
     colTime:     "Time",
     colStatus:   "Status",
-    liveBadge:   "LIVE",
+    liveBadge:     "LIVE",
     forecastBadge: "FORECAST",
+    mlBadge:       "ML",
+    aiBadge:       "AI",
   },
   chat: {
     title:         "Analysis",
@@ -83,6 +85,15 @@ export const COPY = {
         questions: [
           "Will we hit capacity in the next 6 hours at current growth?",
           "Which interface is most likely to degrade first?",
+        ],
+      },
+      {
+        label: "Temporal intelligence",
+        questions: [
+          "Is the current traffic regime expected for this time of day?",
+          "Which hours today are forecast to be peak load periods?",
+          "How does today's session count compare to the historical seasonal baseline?",
+          "Are there any upcoming holiday periods that could affect traffic patterns?",
         ],
       },
     ],

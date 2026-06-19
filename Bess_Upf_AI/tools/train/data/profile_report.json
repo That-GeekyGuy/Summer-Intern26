@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-06-17T11:04:45.599239+00:00",
+  "source": "local",
+  "raw_rows": 9830,
+  "resampled_rows": 9830,
+  "resample_cadence_s": 15,
+  "uoi_threshold_q75": 1.0,
+  "uoi_anomaly_fraction": 0.1172,
+  "n_normal_rows": 8678,
+  "n_anomaly_rows": 1152,
+  "moment": {
+    "n_windows": 73,
+    "n_train_windows": 58,
+    "n_eval_windows": 15,
+    "n_anomaly_windows": 32,
+    "seq_len": 512,
+    "stride": 128,
+    "n_channels": 16,
+    "channel_names": [
+      "port_bytes_N3_rx_rate",
+      "port_bytes_N6_tx_rate",
+      "port_pkts_N3_rx_rate",
+      "port_dropped_N3_rx_rate",
+      "port_dropped_N6_rx_rate",
+      "pfcp_sessions_total",
+      "pfcp_session_setup_rate",
+      "dl_forwarding_efficiency",
+      "dl_throughput_efficiency",
+      "drop_rate_percentage",
+      "tsi_value",
+      "uoi_session_component",
+      "uoi_throughput_component",
+      "go_goroutines",
+      "go_heap_alloc_bytes",
+      "gc_pressure_rate"
+    ]
+  },
+  "chronos": {
+    "n_rows": 5168,
+    "context_len": 512,
+    "horizon": 20
+  },
+  "warnings": [
+    "DATA SUFFICIENCY WARNING: only 0 distinct overload episodes in eval set (< 3). MOMENT evaluation metrics may not be reliable."
+  ]
+}

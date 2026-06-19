@@ -1,4 +1,4 @@
-import { Credentials, fetchAnomalies, queryInstant, AnomalyEvent } from "../../api/client";
+import { Credentials, fetchAnomalies, queryInstant, AnomalyEvent, fetchTemporalAnalysis, Regime } from "../../api/client";
 import { useAppStore } from "../../store/useAppStore";
 import { COPY } from "../../lib/copy";
 import { displayName, formatLabels, severityColor } from "../../lib/metrics";
@@ -40,6 +40,14 @@ export function OverviewPage({ creds }: Props) {
   const n6tx     = useKpi(creds, 'sum(rate(port_bytes_count{dir="tx",iface="N6"}[1m]))');
   const drops    = useKpi(creds, "sum(rate(port_dropped_count[1m]))");
 
+  // ── Temporal regime (non-blocking — silently absent if sidecar is down) ──
+  const { data: temporalData } = useQuery({
+    queryKey: ["temporal-analysis"],
+    queryFn: () => fetchTemporalAnalysis(creds),
+    refetchInterval: 60_000,
+    retry: 0,
+  });
+
   // ── Anomaly feed ─────────────────────────────────────────────────────────
   const { data: anomData, error: anomError } = useQuery({
     queryKey: ["anomalies", "overview"],
@@ -58,6 +66,49 @@ export function OverviewPage({ creds }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+
+      {/* ── Temporal regime strip (visible only when STL sidecar is up) ── */}
+      {temporalData && (() => {
+        const REGIME_COLOR: Record<Regime, string> = {
+          low: "#4a90d9", normal: "#27ae60", peak: "#e67e22", surge: "#e74c3c",
+        };
+        const r = temporalData.current_regime.regime;
+        const color = REGIME_COLOR[r] ?? "var(--text-muted)";
+        const cal = temporalData.calendar;
+        return (
+          <div style={{
+            padding: "6px 20px",
+            display: "flex", alignItems: "center", gap: 14, flexShrink: 0,
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-surface)",
+            fontSize: "var(--text-xs)",
+          }}>
+            <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "var(--text-2xs)", textTransform: "uppercase" }}>
+              Regime
+            </span>
+            <span style={{
+              padding: "2px 9px", borderRadius: 10,
+              background: `${color}20`, border: `1px solid ${color}`, color,
+              fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "var(--text-2xs)", textTransform: "uppercase",
+            }}>
+              {r}
+            </span>
+            <span style={{ color: "var(--text-secondary)" }}>
+              {cal.day_of_week}, {String(cal.hour_of_day).padStart(2, "0")}:00 UTC
+              {cal.is_holiday && cal.holiday_name && ` · ${cal.holiday_name}`}
+              {cal.is_weekend && !cal.is_holiday && " · Weekend"}
+            </span>
+            {temporalData.minutes_to_next_peak != null && (
+              <span style={{ color: "#e67e22", fontSize: "var(--text-2xs)" }}>
+                Peak in {temporalData.minutes_to_next_peak} min
+              </span>
+            )}
+            {temporalData.warning && (
+              <span style={{ color: "#e74c3c", fontSize: "var(--text-2xs)" }}>⚠ thin baseline</span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── KPI row ──────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 12, padding: "16px 20px", flexShrink: 0, borderBottom: "1px solid var(--border)" }}>

@@ -15,6 +15,7 @@ import (
 	"bess.internal/upf-detector/internal/metrics"
 	"bess.internal/upf-detector/internal/notifier"
 	"bess.internal/upf-detector/internal/store"
+	"bess.internal/upf-detector/internal/tier2"
 	"bess.internal/upf-detector/internal/vmclient"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -86,6 +87,36 @@ func main() {
 		log.Info("tier-3 forecaster enabled",
 			"targets", len(cfg.Forecast.Targets),
 			"horizon", cfg.Forecast.Horizon,
+		)
+	}
+
+	// ── Tier 2 ML evaluator (optional — requires trained models) ─────────────
+	inferURL  := env("ML_INFER_URL", "http://ml-infer:8080")
+	modelsDir := env("MODELS_DIR", "/models")
+	ml2, err := tier2.NewEvaluator(vm, db, inferURL, modelsDir, log)
+	if err != nil {
+		log.Error("failed to initialise tier-2 evaluator", "err", err)
+		os.Exit(1)
+	}
+	if ml2 != nil {
+		log.Info("tier-2 ML evaluator enabled", "infer_url", inferURL)
+	}
+
+	// ── Tier 2 AI evaluator (MOMENT + Chronos-2) ─────────────────────────────
+	momentURL   := env("MOMENT_URL",   "http://moment-sidecar:8083")
+	chronosURL  := env("CHRONOS_URL",  "http://chronos-sidecar:8084")
+	analysisURL := env("ANALYSIS_URL", "http://analysis:8082")
+	aiEval, err := tier2.NewAIEvaluator(vm, db, momentURL, chronosURL, analysisURL, log)
+	if err != nil {
+		log.Error("failed to initialise AI evaluator", "err", err)
+		// Non-fatal: AI tier is optional
+		aiEval = nil
+	}
+	if aiEval != nil {
+		log.Info("tier-2 AI evaluator enabled (MOMENT + Chronos-2)",
+			"moment_url", momentURL,
+			"chronos_url", chronosURL,
+			"analysis_url", analysisURL,
 		)
 	}
 
@@ -166,8 +197,30 @@ func main() {
 				}
 			}
 
+			// ML anomaly detection (Tier 2 classic) — multivariate, degraded-graceful
+			var mlEvents []store.Event
+			if ml2 != nil {
+				mlEvents, err = ml2.Run(ctx)
+				if err != nil {
+					log.Error("tier-2 run failed", "err", err)
+				}
+			}
+
+			// AI anomaly detection (Tier 2 AI: MOMENT + Chronos-2) — push data then run
+			if aiEval != nil {
+				now := ticker.C // already fired; use time.Now()
+				_ = now // suppress unused variable
+				remaining := aiEval.Push(ctx, time.Now())
+				if remaining > 0 {
+					log.Debug("tier-2 AI: warming up", "steps_remaining", remaining)
+				} else {
+					aiEval.Run(ctx, time.Now())
+				}
+			}
+
 			// Dispatch all new events through the notification state machine.
 			all := append(reactive, predictive...)
+			all = append(all, mlEvents...)
 			if len(all) > 0 {
 				disp.Notify(ctx, all)
 			}

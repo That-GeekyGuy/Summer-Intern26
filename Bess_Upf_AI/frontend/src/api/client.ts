@@ -1,5 +1,10 @@
 // ---- Types ----------------------------------------------------------------
 
+export interface FeatureContribution {
+  name: string;
+  importance: number;
+}
+
 export interface AnomalyEvent {
   metric_name: string;
   labels: string; // JSON string of label map
@@ -9,12 +14,16 @@ export interface AnomalyEvent {
   deviation_magnitude: number;
   rule_name: string;
   severity: string;
-  // Predictive forecast fields — only present when event_type === "predictive"
-  event_type?: string;            // "reactive" | "predictive"
-  forecast_horizon?: string;      // e.g. "1h"
-  predicted_crossing_time?: number; // Unix seconds when trend crosses capacity
-  confidence?: number;            // R² [0,1]
-  threshold_config?: string;      // JSON: {"capacity": N, "metric": "..."}
+  event_type?: "reactive" | "predictive" | "ml";
+  // Predictive fields — only present when event_type === "predictive"
+  forecast_horizon?: string;
+  predicted_crossing_time?: number; // Unix seconds
+  threshold_config?: string;        // JSON: {"capacity": N, "metric": "..."}
+  // Shared: R² for predictive, RF probability for ml
+  confidence?: number;
+  // ML fields — only present when event_type === "ml"
+  feature_contributions?: string;   // JSON: [{name, importance}×3] for classic ML, or {channel: score} map for AI
+  rca_report?: string;              // JSON: RCAReport — populated async by Brain 2 after MOMENT detection
   created_at: string;
 }
 
@@ -132,6 +141,68 @@ export async function setScenario(
     method: "POST",
     body: JSON.stringify({ mode, duration: duration || undefined }),
   });
+}
+
+// ---- Temporal intelligence ------------------------------------------------
+
+export type Regime = "low" | "normal" | "peak" | "surge";
+
+export interface HourlyStat {
+  hour: number;
+  regime: Regime;
+  confidence: number;
+  expected_sessions_mean: number;
+  expected_sessions_p10: number;
+  expected_sessions_p90: number;
+  historical_anomaly_rate: number;
+  label: string;
+}
+
+export interface HotzoneResponse {
+  generated_at: string;
+  data_coverage_days: number;
+  hourly: HourlyStat[];
+  peak_hours: number[];
+  trough_hours: number[];
+  next_peak_in_minutes?: number;
+  next_trough_in_minutes?: number;
+  warning?: string;
+}
+
+export interface CalendarContext {
+  day_of_week: string;
+  hour_of_day: number;
+  is_weekend: boolean;
+  is_holiday: boolean;
+  holiday_name?: string;
+  is_day_before_holiday: boolean;
+  is_day_after_holiday: boolean;
+  week_of_month: number;
+}
+
+export interface CurrentRegime {
+  regime: Regime;
+  percentile: number;
+}
+
+export interface TemporalAnalysis {
+  generated_at: string;
+  data_coverage_days: number;
+  calendar: CalendarContext;
+  current_regime: CurrentRegime;
+  peak_hours: number[];
+  trough_hours: number[];
+  minutes_to_next_peak?: number;
+  minutes_to_next_trough?: number;
+  warning?: string;
+}
+
+export async function fetchTemporalAnalysis(creds: Credentials): Promise<TemporalAnalysis> {
+  return request<TemporalAnalysis>("/api/v1/temporal/analysis", creds);
+}
+
+export async function fetchHotzone(creds: Credentials): Promise<HotzoneResponse> {
+  return request<HotzoneResponse>("/api/v1/temporal/hotzone", creds);
 }
 
 // ---- VictoriaMetrics instant query ----------------------------------------

@@ -1,0 +1,8 @@
+# Model artifacts are populated at runtime by train.py (docker compose run ml-infer python train/train.py).
+# They are stored in the models-data Docker volume and must never be committed to git.
+*.joblib
+*.parquet
+scaler_params.json
+feature_columns.json
+metadata.json
+training_report.md

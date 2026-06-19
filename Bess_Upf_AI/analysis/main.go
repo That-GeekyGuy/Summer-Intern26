@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"bess.internal/upf-analysis/internal/rag"
 	"bess.internal/upf-analysis/internal/simclient"
 	"bess.internal/upf-analysis/internal/store"
+	"bess.internal/upf-analysis/internal/temporal"
 	"bess.internal/upf-analysis/internal/validator"
 	"bess.internal/upf-analysis/internal/vmclient"
 	"github.com/prometheus/client_golang/prometheus"
@@ -132,9 +133,26 @@ func main() {
 	})
 	orch.StartSessionCleanup(ctx)
 
+	// ── RCA Engine (Brain 2 structured root cause analysis) ──────────────────────────
+	// Wraps llmClient + vm + validator for anomaly-specific structured completion.
+	rcaEngine := llm.NewRCAEngine(llmClient, vm, val, log)
+	log.Info("RCA engine initialised")
+
+	// ── Temporal intelligence sidecar client (optional) ──────────────────────
+	// If STL_URL is not set, temporal endpoints return 503 — non-fatal.
+	var tempClient *temporal.Client
+	if stlURL := env("STL_URL", ""); stlURL != "" {
+		tempClient = temporal.New(stlURL)
+		log.Info("temporal sidecar client configured", "url", stlURL)
+		// Inject into RCA engine for calendar + correlation context in prompts.
+		rcaEngine.WithTemporalClient(tempClient)
+	} else {
+		log.Warn("STL_URL not set; /api/v1/temporal/* endpoints will return 503")
+	}
+
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	rl := api.NewRateLimiter(60, time.Minute)
-	h := api.NewHandler(orch, det, sim, vm, m, reg, log)
+	h := api.NewHandler(orch, rcaEngine, det, sim, vm, tempClient, m, reg, log)
 	mux := http.NewServeMux()
 	h.Register(mux, env("ANALYSIS_AUTH_USER", "admin"), env("ANALYSIS_AUTH_PASSWORD", ""), rl)
 

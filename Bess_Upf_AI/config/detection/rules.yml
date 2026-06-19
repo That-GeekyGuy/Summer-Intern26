@@ -1,6 +1,11 @@
 # Detection rule configuration for the upf-detector service.
 # Mounted read-only at /etc/detection/rules.yml inside the container.
 # Restart the detection service after changes: docker compose restart detection
+#
+# Simulator scale (set via .env) — carrier-grade UPF:
+#   SIM_BASE_SESSIONS=1000000   →  10 lakh baseline, diurnal ±30%: 700k–1.3M
+#   SIM_BYTES_PER_SESSION=5000  → N3 rx baseline ~6 GB/s, spike ~24 GB/s
+#   SIM_SPIKE_MULTIPLIER=4.0    → spike to 40 lakhs (4 million) sessions
 
 polling_interval: 60s
 window: 30m   # rolling window used by zscore and trend rules
@@ -8,7 +13,7 @@ window: 30m   # rolling window used by zscore and trend rules
 metrics:
 
   # PFCP session count — primary capacity metric.
-  # sim baseline: ~12k sessions (diurnal ±30%); session_spike scenario 4×: ~48k
+  # sim baseline: ~1M sessions (10 lakhs, diurnal ±30%); session_spike 4×: ~4M (40 lakhs)
   - name: pfcp_sessions_total
     selector: '{job="upf"}'
     rules:
@@ -21,11 +26,11 @@ metrics:
         deviation_threshold: 0.20
         severity: medium
       threshold:
-        max: 20000           # diurnal peak ~15.6k (12k × 1.3); spike hits ~48k
+        max: 2000000          # 20 lakhs per node; spike hits 40 lakhs → critical fires early
         severity: critical
 
-  # Per-interface byte throughput — gauge (bytes/s, not cumulative).
-  # sim: N3 rx ≈ 14.4 MB/s baseline; session_spike → 57.6 MB/s
+  # Per-interface byte throughput — counter (bytes/s rate via rate()).
+  # sim: N3 rx ≈ 6 GB/s baseline; session_spike → 24 GB/s
   - name: port_bytes_count
     selector: '{job="upf"}'
     rules:
@@ -38,7 +43,7 @@ metrics:
         deviation_threshold: 0.25
         severity: medium
 
-  # Per-interface packet drop rate — gauge (drops/s).
+  # Per-interface packet drop rate — counter (drops/s rate via rate()).
   # packet_drop_surge scenario drives N3 rx drops to 5% of packet rate.
   - name: port_dropped_count
     selector: '{job="upf"}'
@@ -52,10 +57,6 @@ metrics:
 # OLS linear-regression trend extrapolation. Fires BEFORE reactive rules trigger,
 # giving operators advance warning before a breach occurs.
 #
-# Timing advantage in session_spike scenario:
-#   Tier 3 (forecast_linear): fires within minutes of spike start
-#   Tier 1 (zscore/threshold): fires on the first spike sample
-#
 # Dedup window = horizon/2 = 30m: at most one predictive event per metric per 30m.
 forecast:
   enabled: true
@@ -63,23 +64,36 @@ forecast:
   horizon: 1h    # how far ahead to project; dedup suppresses re-fire for horizon/2
 
   targets:
-    # PDU session count vs capacity ceiling
-    # Normal peak ~15.6k; threshold at 18k fires as spike trend rises through it
+    # Per-node PDU session count vs per-node capacity ceiling.
+    # pfcp_sessions_total is a GAUGE (active sessions right now).
+    # Observed: diurnal 700k–1.3M (7–13 lakhs); spike 4M (40 lakhs).
+    # Capacity at 20 lakhs sits 54% above 1.3M normal peak.
     - metric: pfcp_sessions_total
       promql: 'pfcp_sessions_total{job="upf"}'
-      capacity: 18000
+      capacity: 2000000       # 20 lakhs per node; normal peak 1.3M; spike 4M
       severity: high
 
-    # N3 inbound throughput vs link capacity
-    # Normal ~14.4 MB/s; spike reaches ~57.6 MB/s; warn at 40 MB/s
+    # Cluster-wide session count — sum across all UPF nodes.
+    # Two-stage alerting: per-node (high) fires first, cluster (critical) fires mid-spike.
+    - metric: pfcp_sessions_total_cluster
+      promql: 'sum(pfcp_sessions_total{job="upf"})'
+      capacity: 4000000       # 40 lakhs; 2 nodes × 20 lakhs; scale with fleet
+      severity: critical
+
+    # N3 inbound throughput vs link capacity (80 Gbps = 10 GB/s).
+    # port_bytes_count is a COUNTER — rate() to get bytes/s.
+    # Observed rates: baseline 4.2–7.8 GB/s; spike 24 GB/s.
+    # Capacity at 10 GB/s sits between 7.8 GB/s normal peak and 24 GB/s spike.
     - metric: port_bytes_count
-      promql: 'sum(port_bytes_count{job="upf",iface="N3",dir="rx"})'
-      capacity: 40000000
+      promql: 'sum(rate(port_bytes_count{job="upf",iface="N3",dir="rx"}[5m]))'
+      capacity: 10000000000   # 10 GB/s (80 Gbps link); normal peak ~7.8 GB/s; spike 24 GB/s
       severity: high
 
-    # Packet drop rate acceleration — fire when drop rate is trending up
+    # Packet drop rate acceleration — fire when the drop rate has a positive OLS slope.
+    # port_dropped_count is a COUNTER — rate() converts it to drops/s.
+    # accel_only: any positive slope in the drop rate deserves early attention.
     - metric: port_dropped_count
-      promql: 'sum(port_dropped_count{job="upf"})'
+      promql: 'sum(rate(port_dropped_count{job="upf"}[2m]))'
       capacity: 0
-      accel_only: true      # positive slope = accelerating drops; fire regardless of threshold
+      accel_only: true
       severity: medium

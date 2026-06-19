@@ -14,6 +14,7 @@ import { OverviewPage } from "../../features/overview/OverviewPage";
 import { AnomalyFeedPage } from "../../features/anomalies/AnomalyFeedPage";
 import { ChatPage } from "../../features/chat/ChatPage";
 import { ForecastPage } from "../../features/forecast/ForecastPage";
+import { InsightsPage } from "../../features/insights/InsightsPage";
 
 const ScenarioPage = ENABLE_SCENARIO
   ? React.lazy(() => import("../../features/scenario/ScenarioPage").then(m => ({ default: m.ScenarioPage })))
@@ -42,6 +43,7 @@ export function AppShell({ creds, onLogout }: Props) {
       case "anomalies": return <AnomalyFeedPage creds={creds} />;
       case "chat":      return <ChatPage creds={creds} />;
       case "forecast":  return <ForecastPage creds={creds} />;
+      case "insights":  return <InsightsPage creds={creds} />;
       case "scenario":
         if (!ENABLE_SCENARIO || !ScenarioPage) return (
           <div style={{ padding: 24, color: "var(--text-muted)" }}>

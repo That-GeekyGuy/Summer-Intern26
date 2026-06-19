@@ -9,10 +9,11 @@ const NAV_ITEMS = [
   { id: "anomalies", label: COPY.nav.anomalies,  icon: "⚡" },
   { id: "chat",      label: COPY.nav.chat,       icon: "◎" },
   { id: "forecast",  label: COPY.nav.forecast,   icon: "⟁" },
+  { id: "insights",  label: "Insights",           icon: "◑" },
   ...(ENABLE_SCENARIO ? [{ id: "scenario", label: COPY.nav.scenario, icon: "◇" }] : []),
 ] as const;
 
-type NavId = "overview" | "anomalies" | "chat" | "forecast" | "scenario";
+type NavId = "overview" | "anomalies" | "chat" | "forecast" | "insights" | "scenario";
 
 interface Props { creds: Credentials; }
 

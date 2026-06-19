@@ -1,18 +1,66 @@
 import { useState, useMemo } from "react";
-import { Credentials, AnomalyEvent } from "../../api/client";
+import { useQuery } from "@tanstack/react-query";
+import { Credentials, AnomalyEvent, fetchHotzone, Regime, HourlyStat } from "../../api/client";
 import { useAnomalies } from "../../hooks/useAnomalies";
 import { useAppStore } from "../../store/useAppStore";
 import { COPY } from "../../lib/copy";
-import { displayName, formatLabels, severityColor } from "../../lib/metrics";
+import { displayName, formatLabels, severityColor, fmtMetricVal } from "../../lib/metrics";
 import { fmtTimestamp, fmtRelative, fmtEta } from "../../lib/formatters";
 import { Badge } from "../../components/primitives/Badge";
+
+const REGIME_COLOR: Record<Regime, string> = {
+  low:    "#4a90d9",
+  normal: "#27ae60",
+  peak:   "#e67e22",
+  surge:  "#e74c3c",
+};
+
+function RegimeBadge({ regime }: { regime: Regime | null }) {
+  if (!regime) return <span style={{ color: "var(--text-muted)", fontSize: "var(--text-2xs)" }}>—</span>;
+  const color = REGIME_COLOR[regime];
+  return (
+    <span style={{
+      padding: "1px 7px",
+      borderRadius: 10,
+      background: `${color}20`,
+      border: `1px solid ${color}`,
+      color,
+      fontSize: "var(--text-2xs)",
+      fontFamily: "var(--font-mono)",
+      fontWeight: 700,
+      textTransform: "uppercase",
+      whiteSpace: "nowrap",
+    }}>
+      {regime}
+    </span>
+  );
+}
+
+function getEventRegime(event: AnomalyEvent, hourly: HourlyStat[] | undefined): Regime | null {
+  if (!hourly || hourly.length === 0) return null;
+  try {
+    const ts = new Date(event.timestamp);
+    const hour = ts.getUTCHours();
+    const stat = hourly.find(h => h.hour === hour);
+    return stat?.regime ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface Props { creds: Credentials; }
 
 export function AnomalyFeedPage({ creds }: Props) {
   const { setContext } = useAppStore();
   const [severityFilter, setSeverityFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"" | "reactive" | "predictive">("");
+  const [typeFilter, setTypeFilter] = useState<"" | "reactive" | "predictive" | "ml">("");
+
+  const { data: hotzoneData } = useQuery({
+    queryKey: ["temporal-hotzone"],
+    queryFn: () => fetchHotzone(creds),
+    refetchInterval: 30 * 60_000,
+    retry: 1,
+  });
 
   const { data, isFetching, dataUpdatedAt, error } = useAnomalies(creds, {
     severity: severityFilter || undefined,
@@ -59,7 +107,7 @@ export function AnomalyFeedPage({ creds }: Props) {
           </button>
         ))}
         <div style={{ width: 1, height: 16, background: "var(--border)", margin: "0 4px" }} />
-        {(["", "reactive", "predictive"] as const).map(v => (
+        {(["", "reactive", "predictive", "ml"] as const).map(v => (
           <button
             key={v}
             onClick={() => setTypeFilter(v)}
@@ -74,7 +122,7 @@ export function AnomalyFeedPage({ creds }: Props) {
               cursor: "pointer",
             }}
           >
-            {v === "" ? "All types" : v === "reactive" ? "LIVE" : "FORECAST"}
+            {v === "" ? "All types" : v === "reactive" ? "LIVE" : v === "predictive" ? "FORECAST" : "ML"}
           </button>
         ))}
         <div style={{ flex: 1 }} />
@@ -112,7 +160,7 @@ export function AnomalyFeedPage({ creds }: Props) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                {["", "Type", "Metric", "Interface", "Value", "Baseline", "Time", "Status"].map(h => (
+                {["", "Type", "Metric", "Interface", "Value", "Baseline", "Time", "Regime", "Status"].map(h => (
                   <th key={h} style={{
                     padding: "8px 12px",
                     textAlign: "left",
@@ -151,9 +199,13 @@ export function AnomalyFeedPage({ creds }: Props) {
                     <div style={{ width: 8, height: 8, borderRadius: "50%", background: severityColor(e.severity) }} />
                   </td>
                   <td style={{ padding: "6px 12px" }}>
-                    <Badge variant={e.event_type === "predictive" ? "forecast" : "live"}>
-                      {e.event_type === "predictive" ? COPY.anomalies.forecastBadge : COPY.anomalies.liveBadge}
-                    </Badge>
+                    {e.event_type === "ml" ? (
+                      <Badge variant="ml">{e.rca_report ? COPY.anomalies.aiBadge : COPY.anomalies.mlBadge}</Badge>
+                    ) : e.event_type === "predictive" ? (
+                      <Badge variant="forecast">{COPY.anomalies.forecastBadge}</Badge>
+                    ) : (
+                      <Badge variant="live">{COPY.anomalies.liveBadge}</Badge>
+                    )}
                   </td>
                   <td style={{ padding: "6px 12px", fontSize: "var(--text-sm)", maxWidth: 200 }}>
                     {displayName(e.metric_name)}
@@ -162,15 +214,24 @@ export function AnomalyFeedPage({ creds }: Props) {
                     {formatLabels(e.labels)}
                   </td>
                   <td style={{ padding: "6px 12px", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
-                    {e.observed_value.toFixed(2)}
+                    {e.event_type === "predictive"
+                      ? fmtMetricVal(e.metric_name, e.observed_value)
+                      : e.observed_value.toFixed(2)}
                   </td>
                   <td style={{ padding: "6px 12px", fontSize: "var(--text-sm)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                    {e.expected_value !== undefined ? e.expected_value.toFixed(2) : "—"}
+                    {e.expected_value !== undefined
+                      ? (e.event_type === "predictive"
+                          ? fmtMetricVal(e.metric_name, e.expected_value)
+                          : e.expected_value.toFixed(2))
+                      : "—"}
                   </td>
                   <td style={{ padding: "6px 12px", fontSize: "var(--text-xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                     {e.event_type === "predictive" && e.predicted_crossing_time
                       ? `⏱ ${fmtEta(e.predicted_crossing_time)}`
                       : fmtRelative(e.timestamp)}
+                  </td>
+                  <td style={{ padding: "6px 12px" }}>
+                    <RegimeBadge regime={getEventRegime(e, hotzoneData?.hourly)} />
                   </td>
                   <td style={{ padding: "6px 12px" }}>
                     <span style={{ fontSize: "var(--text-xs)", color: "var(--signal-ok)", fontFamily: "var(--font-mono)" }}>

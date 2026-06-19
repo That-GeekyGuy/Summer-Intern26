@@ -214,10 +214,22 @@ func (o *Orchestrator) Chat(ctx context.Context, sessionID, userMessage string) 
 		choice := resp.Choices[0]
 		msg := choice.Message
 
+		// Fallback: Qwen3 sometimes emits tool calls inside <tool_call>…</tool_call>
+		// tags in the content field instead of the structured tool_calls array
+		// (typically when finish_reason is "length" due to thinking token overflow).
+		// Detect and normalise before storing the message so the loop can execute them.
+		if len(msg.ToolCalls) == 0 && msg.Content != nil {
+			if extracted := parseTextToolCalls(*msg.Content); len(extracted) > 0 {
+				o.log.Debug("text-format tool calls detected", "count", len(extracted))
+				msg.ToolCalls = extracted
+				msg.Content = nil // tool_calls messages must carry null content
+			}
+		}
+
 		// Persist assistant turn (may be a tool call or a final answer).
 		session.Messages = append(session.Messages, msg)
 
-		if choice.FinishReason != "tool_calls" || len(msg.ToolCalls) == 0 {
+		if len(msg.ToolCalls) == 0 {
 			// Reset session to [sys, user, answer] — keeps exactly one turn of
 			// context for follow-up questions without accumulating across turns.
 			// Store the original user text (not RAG-enriched) to avoid bloat.
@@ -462,6 +474,52 @@ func (o *Orchestrator) execGetMetricMetadata() (string, error) {
 		"note":    "Use these exact names in query_prometheus. Internal runtime metrics (go_*, prometheus_*, process_*) are omitted.",
 	})
 	return string(b), nil
+}
+
+// parseTextToolCalls extracts ToolCalls from Hermes-format text when the model
+// emits <tool_call>{"name":"…","arguments":{…}}</tool_call> in content instead
+// of the structured tool_calls field. Each extracted call gets a synthetic ID.
+func parseTextToolCalls(content string) []ToolCall {
+	const open, close = "<tool_call>", "</tool_call>"
+	var calls []ToolCall
+	s := content
+	for {
+		i := strings.Index(s, open)
+		if i < 0 {
+			break
+		}
+		s = s[i+len(open):]
+		j := strings.Index(s, close)
+		raw := s
+		if j >= 0 {
+			raw = s[:j]
+			s = s[j+len(close):]
+		}
+		raw = strings.TrimSpace(raw)
+		var parsed struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		if err := json.Unmarshal([]byte(raw), &parsed); err != nil || parsed.Name == "" {
+			if j < 0 {
+				break
+			}
+			continue
+		}
+		args := string(parsed.Arguments)
+		if args == "" || args == "null" {
+			args = "{}"
+		}
+		calls = append(calls, ToolCall{
+			ID:   fmt.Sprintf("fallback-%d", len(calls)),
+			Type: "function",
+			Function: FunctionCall{Name: parsed.Name, Arguments: args},
+		})
+		if j < 0 {
+			break
+		}
+	}
+	return calls
 }
 
 func jsonError(msg string) string {

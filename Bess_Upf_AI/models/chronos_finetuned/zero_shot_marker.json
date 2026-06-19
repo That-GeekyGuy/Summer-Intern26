@@ -1,0 +1,4 @@
+{
+  "base_model": "amazon/chronos-t5-small",
+  "note": "Zero-shot model used \u2014 fine-tuning did not improve WQL by >= 5%"
+}

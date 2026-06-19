@@ -1,7 +1,7 @@
 # BESS-UPF AI
 
 Intelligent monitoring and analysis platform for 5G User Plane Functions.
-Collects metrics from UPF nodes, runs real-time anomaly detection, generates capacity forecasts, and exposes a conversational LLM interface for operators and management.
+Collects metrics from UPF nodes, runs real-time anomaly detection (Tier 1 statistical · Tier 2 ML · Tier 3 OLS forecast), generates capacity forecasts, and exposes a conversational LLM interface for operators and management.
 
 ---
 
@@ -20,13 +20,16 @@ flowchart TD
     end
 
     subgraph backend["metrics-backend  ·  internal: true  ·  no outbound internet"]
-        vm[("VictoriaMetrics :8428\nlong-term TSDB · 12-month retention")]
+        vm[("VictoriaMetrics :8428\nlong-term TSDB · 12-month retention\nfederation scrape from Prometheus")]
 
         subgraph intel["Intelligence"]
             direction LR
             det["Detection :8081\nz-score · trend · threshold\nOLS capacity forecast\nSQLite anomaly store"]
             ana["Analysis :8082\nLLM orchestrator\nPromQL validator · RAG\nrate-limited chat API"]
             vllm["vLLM :8000\nQwen3-8B\nGPU inference"]
+            ml["ml-infer :8080\nsklearn classifiers\nCPU-only"]
+            moment["moment-sidecar :8083\nMOMENT-1-large\nCPU-only · ≤4 GB"]
+            chronos["chronos-sidecar :8084\nChronos-2\nCPU-only · ≤2 GB"]
         end
 
         subgraph storage["Storage"]
@@ -43,7 +46,8 @@ flowchart TD
     browser(["Operator browser"])
 
     upf & sim --> prom
-    prom -- "remote_write" --> vm
+    prom -- "remote_write (primary)" --> vm
+    prom -. "federation scrape (fallback)" .-> vm
 
     vm -- "poll every 60 s" --> det
     vm -- "query on demand" --> ana
@@ -52,6 +56,7 @@ flowchart TD
 
     det -- "anomaly context injected" --> ana
     ana <-- "tool-calling loop ≤ 4×" --> vllm
+    ana --> ml & moment & chronos
     exp -- "Parquet files" --> minio
 
     fe --> caddy
@@ -72,13 +77,16 @@ flowchart TD
 | Service | Image / source | Role |
 |---|---|---|
 | `prometheus` | `prom/prometheus:v2.52.0` | Scrapes UPF exporters, remote-writes to VM |
-| `victoriametrics` | `victoriametrics/victoria-metrics:v1.101.0` | Long-term TSDB |
+| `victoriametrics` | `victoriametrics/victoria-metrics:v1.101.0` | Long-term TSDB; federation-scrapes Prometheus as dual-ingest fallback |
 | `export-job` | `./export-job/` (Go) | Nightly VM → Parquet → MinIO export |
 | `minio` | `minio/minio` | Parquet object store (ML dataset output) |
-| `upf-sim` | `./upf-sim/` (Go) | Simulated UPF — realistic 5G metrics + scenario API |
-| `detection` | `./detection/` (Go) | Anomaly detection (z-score, trend, threshold, OLS forecast) |
+| `upf-sim` | `./upf-sim/` (Go) | Simulated UPF — carrier-grade 5G metrics + scenario API |
+| `detection` | `./detection/` (Go) | Anomaly detection (Tier 1 statistical + Tier 3 OLS forecast) |
 | `analysis` | `./analysis/` (Go) | LLM orchestrator, PromQL validator, chat API |
 | `vllm` | `vllm/vllm-openai:v0.7.3` | Qwen3-8B inference (GPU required) |
+| `ml-infer` | `./tools/infer/` (Python FastAPI) | Sklearn anomaly classifiers (CPU-only) |
+| `moment-sidecar` | `./tools/infer/` (Python FastAPI) | MOMENT-1-large multivariate anomaly detection (CPU, ≤ 4 GB RAM) |
+| `chronos-sidecar` | `./tools/infer/` (Python FastAPI) | Chronos-2 probabilistic UOI forecasting (CPU, ≤ 2 GB RAM) |
 | `frontend` | `./frontend/` (React 18 + Vite) | Dark-theme ops dashboard |
 | `grafana` | `grafana/grafana:11.0.0` | Pre-provisioned dashboards over VM |
 | `caddy` | `caddy:2.8-alpine` | TLS termination, reverse proxy, basic-auth |
@@ -96,6 +104,8 @@ flowchart TD
 │   ├── prometheus/
 │   │   ├── prometheus.yml            # scrape jobs + remote_write config + PII relabeling
 │   │   └── targets/upf-targets.yml  # file_sd targets (hot-reloaded every 30 s)
+│   ├── victoriametrics/
+│   │   └── scrape.yml               # VM federation scrape from Prometheus (dual-ingest fallback)
 │   ├── caddy/Caddyfile               # TLS termination + routing + security headers
 │   ├── detection/rules.yml           # anomaly detection rules (restart detection to reload)
 │   ├── export/crontab                # supercronic schedule (default: 02:00 UTC daily)
@@ -119,6 +129,7 @@ flowchart TD
 ├── detection/                        # Anomaly detection service (Go)
 │   └── internal/
 │       ├── detector/                 # z-score, trend, threshold, OLS forecaster
+│       ├── tier2/                    # Tier 2 ML client (calls ml-infer, moment-sidecar, chronos-sidecar)
 │       ├── store/                    # SQLite anomaly event store
 │       ├── notifier/                 # webhook dispatcher
 │       └── vmclient/                 # VM query client
@@ -126,7 +137,7 @@ flowchart TD
 ├── analysis/                         # LLM analysis service (Go)
 │   ├── internal/
 │   │   ├── api/                      # HTTP handler, rate limiter, basic-auth middleware
-│   │   ├── llm/                      # Orchestrator: tool-calling loop over vLLM
+│   │   ├── llm/                      # Orchestrator: tool-calling loop over vLLM + Hermes text fallback
 │   │   ├── validator/                # PromQL safety validator + metric allowlist
 │   │   ├── vmclient/                 # Instant + range query client
 │   │   ├── detector/                 # Detection service client (anomaly proxy)
@@ -143,6 +154,23 @@ flowchart TD
 │       ├── hooks/                    # Shared React Query hooks (useAnomalies …)
 │       ├── store/                    # Zustand global state
 │       └── lib/                      # Formatters, metric display names, constants
+│
+├── tools/                            # Tier 2 ML pipeline
+│   ├── train/
+│   │   ├── prepare_dataset.py        # VM Parquet → windowed NumPy/Parquet for MOMENT/Chronos-2
+│   │   ├── train_moment.py           # MOMENT linear-probe fine-tuning + threshold calibration
+│   │   └── train_chronos.py          # Chronos-2 zero-shot eval + optional fine-tune
+│   └── infer/
+│       ├── moment_server.py          # FastAPI sidecar: /predict → MOMENT anomaly score
+│       ├── chronos_server.py         # FastAPI sidecar: /forecast → Chronos-2 probabilistic forecast
+│       └── ml_infer_server.py        # FastAPI sidecar: /classify → sklearn classifiers
+│
+├── models/                           # Trained artifact store (gitignored)
+│   ├── moment_head.pt                # MOMENT anomaly detection head weights
+│   ├── moment_threshold.json         # calibrated detection threshold (from calibration set)
+│   ├── moment_channel_names.json
+│   ├── chronos_finetuned/            # fine-tuned Chronos-2 checkpoint (or zero_shot_marker.json)
+│   └── chronos_metadata.json
 │
 └── eval/                             # LLM chat quality eval harness (Go)
 ```
@@ -183,6 +211,8 @@ docker compose ps
 
 On first startup, vLLM downloads the model weights (~5 GB for Qwen3-8B INT4). Watch progress with `docker compose logs -f vllm`.
 
+The `moment-sidecar` and `chronos-sidecar` download their weights on first start into the shared `hf-cache` volume (MOMENT-1-large ≈ 4 GB, chronos-t5-small ≈ 2 GB).
+
 ### Verify the stack
 
 ```bash
@@ -219,8 +249,17 @@ docker compose exec export-job /usr/local/bin/upf-exporter
 ```
 UPF / upf-sim  →  Prometheus (scrape every 15 s)
                         │
-                        └─ remote_write → VictoriaMetrics (long-term store, 12-month default)
+                        ├─ remote_write (primary)  → VictoriaMetrics :8428
+                        └─ /federate   (fallback)  ← VictoriaMetrics promscrape
+                                                      config/victoriametrics/scrape.yml
 ```
+
+VictoriaMetrics ingests metrics via **both** paths simultaneously:
+
+- **Primary:** Prometheus pushes to `http://victoriametrics:8428/api/v1/write` via `remote_write`.
+- **Fallback:** VictoriaMetrics promscrape polls the Prometheus `/federate` endpoint every 15 s (`config/victoriametrics/scrape.yml`). This fills any gap if `remote_write` lags or temporarily fails.
+
+To change where VM scrapes Prometheus, set `PROM_SCRAPE_TARGET` in `.env` (default: `prometheus:9090`). This is useful when Prometheus runs on a different host or non-standard port.
 
 Edit `config/prometheus/targets/upf-targets.yml` to add real UPF endpoints. Prometheus hot-reloads it every 30 seconds — no restart needed.
 
@@ -235,16 +274,32 @@ Edit `config/prometheus/targets/upf-targets.yml` to add real UPF endpoints. Prom
 
 **PII policy:** `write_relabel_configs` in `prometheus.yml` drops `imsi`, `subscriber_*`, and `ue_ip` labels before they reach VictoriaMetrics. Never add subscriber-identifying labels; if you do, add a matching `labeldrop` rule and get security sign-off before narrowing any existing rule.
 
-### 2 — Anomaly detection
+### 2 — Anomaly detection (three tiers)
 
-The detection service polls VictoriaMetrics every 60 seconds using rules defined in `config/detection/rules.yml`:
+The detection service polls VictoriaMetrics every 60 seconds using rules defined in `config/detection/rules.yml`.
+
+**Tier 1 — Statistical rules** (synchronous, every poll):
 
 | Rule | Algorithm | Fires when |
 |---|---|---|
 | `zscore` | Population z-score over rolling window | `\|z\| > threshold` |
 | `trend` | OLS linear regression on window-minus-last | Last point deviates `> deviation_threshold` from predicted |
 | `threshold` | Static bounds check | Latest value `< min` or `> max` |
-| `forecast` (tier 3) | OLS trend extrapolation to a horizon | Predicted value `>= capacity` within `horizon` |
+
+**Tier 3 — OLS predictive forecasting** (synchronous, runs after Tier 1 each poll):
+
+The forecaster queries VictoriaMetrics with rate-aware PromQL — counter metrics (`port_bytes_count`, `port_dropped_count`) are queried with `rate()` to get per-second rates rather than raw counter values. It fits an OLS regression over the lookback window and extrapolates to a horizon. Fire logic:
+
+| Target type | `accel_only` | Fires when |
+|---|---|---|
+| Capacity-bounded (sessions, bytes/s) | false | `predicted_value_at_horizon >= capacity` |
+| Drop-rate monitoring | true | OLS slope is positive (any detected acceleration) |
+
+Predictive events include a `predicted_crossing_time` (seconds since epoch) and are deduplicated for `horizon / 2` to avoid re-firing during sustained trends. In normal operating conditions (sessions well below capacity ceiling), the forecaster stays silent — this is correct behavior; the Forecast page shows current utilization regardless.
+
+**Tier 2 — ML sidecars** (async, called during RCA generation):
+
+MOMENT-1-large and Chronos-2 run as FastAPI sidecars and are invoked by the analysis service's RCA path, not in the synchronous detection poll. See [Tier 2 AI](#tier-2-ai--moment--chronos-2) below.
 
 Events are stored in SQLite and exposed on `:8081/anomalies` (internal only).
 
@@ -263,6 +318,8 @@ The analysis service wraps vLLM in a tool-calling loop. When a chat message arri
 2. The model generates PromQL tool calls; each is validated before reaching VM.
 3. Query results are fed back to the model for up to 4 iterations.
 4. The final answer, the PromQL queries used, and referenced anomalies are returned.
+
+**Qwen3 configuration:** The model is invoked with `enable_thinking: false` in `chat_template_kwargs` to disable extended chain-of-thought thinking tokens. This keeps latency low and prevents token-budget exhaustion. `max_tokens` is capped at 512 and `temperature` is 0.1 for deterministic tool-call generation. The orchestrator includes a `parseTextToolCalls` fallback that parses Hermes-format tool calls from plain-text model responses when the model emits text instead of structured JSON.
 
 PromQL safety is enforced at five layers:
 
@@ -292,12 +349,14 @@ The export job runs nightly at 02:00 UTC (configurable via `config/export/cronta
 | View | Audience | What it shows |
 |---|---|---|
 | **Overview** | Management + NOC | 4 live KPI cards · recent anomaly feed · active forecasts · system health strip |
-| **Anomaly Feed** | NOC | Full event table, filterable by severity and type (live / forecast) |
-| **Forecast** | NOC + management | Per-metric trend cards with OLS projection and ETA to capacity |
+| **Anomaly Feed** | NOC | Full event table, filterable by severity and type (live / predictive); values formatted in carrier units (GB/s, sessions, drops/s) |
+| **Forecast** | NOC + management | Always-on capacity cards via live VM instant queries — current utilization % and formatted value for all 4 monitored metrics at all times; DB predictive events enrich cards with ETA badge and trend % only when a breach is forecast |
 | **Chat** | All | Conversational LLM interface with reasoning trail and suggested prompts |
 | **Scenario Control** | Dev / demo | Activate traffic scenarios on upf-sim (hidden in production via env var) |
 
 The live **Pulse Strip** at the top of the sidebar shows the last 60 s of `pfcp_sessions_total` as a 32 px sparkline, color-coded by health status. It is always visible.
+
+**Forecast page architecture:** Cards always render from the static `FORECAST_METRICS` list, which calls VictoriaMetrics instant query (`/api/v1/query`) directly on every poll. They never depend on the SQLite anomaly store for visibility — DB predictive events are optional enrichment. This means all four metrics remain visible during normal operation when the OLS forecaster is silent (no capacity breach projected).
 
 To hide Scenario Control in production:
 
@@ -341,7 +400,7 @@ Authorization: Basic <base64(user:password)>
 ```
 
 ```json
-{"query": "sum(pfcp_sessions_total)", "samples": [{"labels": {}, "value": 12043.0}]}
+{"query": "sum(pfcp_sessions_total)", "samples": [{"labels": {}, "value": 817423.0}]}
 ```
 
 ### Anomaly feed
@@ -358,7 +417,31 @@ GET  /api/v1/scenario                    # current mode + uptime
 POST /api/v1/scenario {"mode": "session_spike", "duration": "10m"}
 ```
 
-Available modes: `normal`, `diurnal`, `session_spike`, `packet_drop_surge`, `n3_congestion`, `link_failure`.
+Available modes: `normal`, `session_spike`, `session_drop`, `packet_drop_surge`, `asymmetric_traffic`, `flatline`.
+
+---
+
+## Simulator scale (carrier-grade)
+
+The built-in simulator (`upf-sim`) is calibrated to carrier-grade UPF traffic volumes:
+
+| Parameter | Value | Notes |
+|---|---|---|
+| `SIM_BASE_SESSIONS` | 1,000,000 (10 lakhs) | Midpoint session count; diurnal ±30% → 700k–1.3M |
+| `SIM_BYTES_PER_SESSION` | 5,000 bytes/s | N3 rx baseline ≈ 6 GB/s; 4× spike ≈ 24 GB/s |
+| `SIM_SPIKE_MULTIPLIER` | 4.0× | Peak spike: 4M sessions (40 lakhs), 24 GB/s |
+| `SIM_RAMP_SECONDS` | 120 s | Ramp-up time from baseline to peak in spike modes |
+
+**Capacity ceilings** (from `config/detection/rules.yml` — keep in sync with `FORECAST_METRICS` in `ForecastPage.tsx`):
+
+| Metric | Capacity | Rationale |
+|---|---|---|
+| `pfcp_sessions_total` (per node) | 2,000,000 (20 lakhs) | Normal peak 1.3M; spike 4M — ceiling fires before sustained spike |
+| `pfcp_sessions_total` (cluster) | 4,000,000 (40 lakhs) | 2-node fleet × 20 lakhs each |
+| N3 inbound throughput | 10 GB/s (= 80 Gbps) | Sits between 7.8 GB/s normal peak and 24 GB/s spike |
+| Packet drop rate | — (accel-only) | Fires on any positive OLS slope, no capacity ceiling |
+
+**Unit note:** All throughput values are in **bytes/s**. The frontend formatter (`fmtBytes`) displays them as `GB/s` / `MB/s` — not `Gbps` / `Mbps`, which are bit rates (1 GB/s = 8 Gbps).
 
 ---
 
@@ -371,6 +454,7 @@ Available modes: `normal`, `diurnal`, `session_spike`, `packet_drop_surge`, `n3_
 | `VM_AUTH_USERNAME` | `vmadmin` | VictoriaMetrics basic-auth username |
 | `VM_AUTH_PASSWORD` | — | VictoriaMetrics basic-auth password |
 | `VM_RETENTION` | `12` | Retention in months |
+| `PROM_SCRAPE_TARGET` | `prometheus:9090` | Host:port VM uses to federation-scrape Prometheus (dual-ingest fallback) |
 | `MINIO_ROOT_USER` | `minioadmin` | MinIO root credentials |
 | `MINIO_ROOT_PASSWORD` | — | MinIO root password |
 | `MINIO_EXPORTER_USER` | `upf-exporter` | Service account for export-job |
@@ -383,12 +467,18 @@ Available modes: `normal`, `diurnal`, `session_spike`, `packet_drop_surge`, `n3_
 | `ANALYSIS_AUTH_USER` | `analyst` | Chat API username |
 | `ANALYSIS_AUTH_PASSWORD` | — | Chat API password |
 | `VLLM_MODEL` | `Qwen/Qwen3-8B` | HuggingFace model ID |
-| `VLLM_EXTRA_ARGS` | (INT4 + 2048 ctx) | Extra vLLM CLI flags |
+| `VLLM_EXTRA_ARGS` | (INT4 + 4096 ctx) | Extra vLLM CLI flags |
 | `SESSION_TTL` | `30m` | Chat session inactivity timeout |
 | `MAX_QUERY_RANGE` | `720h` | PromQL time-range cap |
 | `MIN_STEP` | `15s` | PromQL step floor |
-| `SIM_BASE_SESSIONS` | `12000` | Simulator baseline session count |
+| `SIM_BASE_SESSIONS` | `1000000` | Simulator baseline session count (10 lakhs, carrier-grade) |
+| `SIM_BYTES_PER_SESSION` | `5000` | bytes/s per session → 6 GB/s N3 rx baseline, 24 GB/s at 4× spike |
 | `SIM_SPIKE_MULTIPLIER` | `4.0` | Session spike scenario multiplier |
+| `SIM_RAMP_SECONDS` | `120` | Ramp-up time in seconds for spike scenarios |
+| `ML_INFER_URL` | `http://ml-infer:8080` | sklearn classifier sidecar URL |
+| `MOMENT_URL` | `http://moment-sidecar:8083` | MOMENT-1 anomaly sidecar URL |
+| `CHRONOS_URL` | `http://chronos-sidecar:8084` | Chronos-2 forecast sidecar URL |
+| `MOMENT_VARIANT` | `MOMENT-1-large` | Set to `MOMENT-1-base` for ≤ 1.5 GB RAM |
 | `GRAFANA_ADMIN_USER` | `admin` | Grafana UI admin username |
 | `GRAFANA_ADMIN_PASSWORD` | — | Grafana UI admin password |
 
@@ -396,7 +486,7 @@ Available modes: `normal`, `diurnal`, `session_spike`, `packet_drop_surge`, `n3_
 
 | VRAM | Recommended config |
 |---|---|
-| 8 GB | `Qwen/Qwen3-8B`, `--quantization bitsandbytes --max-model-len 2048` (default) |
+| 8 GB | `Qwen/Qwen3-8B`, `--quantization bitsandbytes --max-model-len 4096` (default) |
 | 16 GB | `Qwen/Qwen3-8B` no quantization, or `Qwen/Qwen3-14B` with INT4 |
 | 24 GB+ | `Qwen/Qwen3-14B` FP16, `--max-model-len 8192` |
 
@@ -481,6 +571,76 @@ All images are container-native and Helm-portable. Key mapping:
 | MinIO | Single container | MinIO Operator or AWS S3 / Ceph |
 
 The `remote_write` URL in `prometheus.yml` points to `${VM_URL}/api/v1/write`. To migrate to vmcluster, point `VM_URL` at `vminsert` — no code changes required.
+
+---
+
+## Tier 2 AI — MOMENT + Chronos-2
+
+The Tier 2 AI subsystem adds a **multivariate anomaly detection** layer (MOMENT) and a **probabilistic UOI forecasting** layer (Chronos-2) running as lightweight Python FastAPI sidecars on the internal network.
+
+### Model architecture (plain English)
+
+**MOMENT-1-large** is a time-series foundation model that learns a "normal" pattern across 16 UPF channels simultaneously (N3/N6 traffic rates, PFCP session rate, drop rates, DL efficiency, Go runtime). It reconstructs each 512-step window (≈128 min of history) and flags windows where the reconstruction error exceeds the calibrated threshold. This catches subtle correlated deviations that single-metric z-score misses.
+
+**Chronos-2 (chronos-t5-small)** is a probabilistic transformer trained on a large corpus of time series. Given the last 128 min of `uoi_value`, it samples 20 forecast paths for the next 5 minutes and reports a median forecast, 80% confidence interval (p10-p90), and a capacity breach ETA if the UOI threshold is likely to be crossed.
+
+### Training and retraining
+
+```bash
+# 1. Prepare dataset (CSV → moment_windows.npz + chronos_train.parquet)
+cd tools && python train/prepare_dataset.py
+
+# 2. Fine-tune MOMENT head (linear probing only — encoder stays frozen)
+python train/train_moment.py
+
+# 3. Evaluate + optionally fine-tune Chronos (zero-shot first; fine-tunes only if WQL improves ≥5%)
+python train/train_chronos.py
+
+# Artifacts written to:
+#   models/moment_head.pt           — trained anomaly head
+#   models/moment_threshold.json    — calibrated detection threshold
+#   models/moment_channel_names.json
+#   models/chronos_finetuned/       — fine-tuned checkpoint (or zero_shot_marker.json)
+#   models/chronos_metadata.json
+#   tools/train/data/training_report.md — evaluation metrics and honesty report
+```
+
+After retraining, restart the sidecars to pick up new weights:
+```bash
+docker compose restart moment-sidecar chronos-sidecar
+```
+
+### Memory requirements
+
+| Sidecar | Model | Memory |
+|---|---|---|
+| `moment-sidecar` | MOMENT-1-large | ≤ 4 GB (set `MOMENT_VARIANT=MOMENT-1-base` for ≤ 1.5 GB) |
+| `chronos-sidecar` | chronos-t5-small | ≤ 2 GB |
+
+Both sidecars use CPU only. They share a `hf-cache` volume to avoid re-downloading model weights on restart.
+
+### How breach_probability is calibrated
+
+`breach_probability` is the fraction of Chronos-2's 20 Monte Carlo sample paths in which `uoi_value` exceeds the 75th-percentile threshold at least once in the 5-minute forecast horizon.
+
+| Value | Interpretation |
+|---|---|
+| < 0.4 | Low confidence — ETA not displayed, confidence tagged "low" |
+| 0.4 – 0.7 | Medium — ETA displayed with uncertainty |
+| > 0.7 | High — event promoted to critical, breach countdown shown |
+
+This is an empirical heuristic. Trust it more when the 80% interval calibration (in `training_report.md`) is close to 80%.
+
+### RCA report interpretation
+
+After MOMENT fires an anomaly, the analysis service generates a structured Root Cause Analysis report via Brain 2 (vLLM + Qwen3). The report is stored in the `rca_report` column of the SQLite anomaly events table and surfaced in the Context Panel. Key fields:
+
+- **severity** — `low|medium|high|critical` based on MOMENT score/threshold ratio and breach probability
+- **cause** — one-line summary: typically `session-plane`, `throughput-plane`, or `compound`
+- **evidence** — bullet points citing specific metrics with their current values
+- **recommended_actions** — operator actions to investigate or mitigate
+- **eta_minutes** — how long until `uoi_value` is projected to breach the threshold (from Chronos-2)
+- **confidence** — `0.0–1.0`; set to < 0.4 if `breach_probability < 0.4` or no top anomalous channels
 
 ---
 

@@ -1,7 +1,7 @@
 import React from "react";
 
 interface Props {
-  variant: "live" | "forecast" | "severity";
+  variant: "live" | "forecast" | "ml" | "severity";
   severity?: string;
   children: React.ReactNode;
 }
@@ -29,6 +29,13 @@ export function Badge({ variant, severity, children }: Props) {
   if (variant === "forecast") {
     return (
       <span style={{ ...styles, background: "rgba(61,127,232,0.15)", color: "var(--signal-info)", border: "1px solid rgba(61,127,232,0.3)" }}>
+        {children}
+      </span>
+    );
+  }
+  if (variant === "ml") {
+    return (
+      <span style={{ ...styles, background: "rgba(180,100,255,0.15)", color: "var(--signal-warning)", border: "1px solid rgba(180,100,255,0.4)" }}>
         {children}
       </span>
     );

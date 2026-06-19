@@ -9,10 +9,10 @@ export function fmtSessions(n: number): string {
 
 export function fmtBytes(bytesPerSec: number): string {
   if (isNaN(bytesPerSec)) return "—";
-  if (bytesPerSec >= 1e9) return `${(bytesPerSec / 1e9).toFixed(2)} Gbps`;
-  if (bytesPerSec >= 1e6) return `${(bytesPerSec / 1e6).toFixed(1)} Mbps`;
-  if (bytesPerSec >= 1e3) return `${(bytesPerSec / 1e3).toFixed(1)} Kbps`;
-  return `${bytesPerSec.toFixed(0)} bps`;
+  if (bytesPerSec >= 1e9) return `${(bytesPerSec / 1e9).toFixed(2)} GB/s`;
+  if (bytesPerSec >= 1e6) return `${(bytesPerSec / 1e6).toFixed(1)} MB/s`;
+  if (bytesPerSec >= 1e3) return `${(bytesPerSec / 1e3).toFixed(1)} KB/s`;
+  return `${bytesPerSec.toFixed(0)} B/s`;
 }
 
 export function fmtDrops(dropsPerSec: number): string {

@@ -410,3 +410,155 @@ docker compose exec analysis wget -qO- http://vllm:8000/v1/models
 docker compose exec vllm nvidia-smi \
   --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader
 ```
+
+---
+
+## 13. Tier 2 ML anomaly detection
+
+Tier 2 evaluates all UPF metrics **jointly** (multivariate) using an Isolation Forest (unsupervised) and a Random Forest classifier (supervised). It runs inside the `detection` service and calls the `ml-infer` sidecar for scoring. Events appear in the feed with type `ml`.
+
+### 13.1 Sidecar health
+
+```bash
+# Health endpoint — returns {"status":"ok"} when models are loaded
+docker compose exec detection wget -qO- http://ml-infer:8080/health
+
+# From outside (if the port is exposed)
+curl -s http://localhost:8080/health
+```
+
+Expected response when models are loaded:
+```json
+{"status": "ok", "models_loaded": true}
+```
+
+If `models_loaded` is `false` or the request times out, see §13.3.
+
+### 13.2 Check whether models have been trained
+
+```bash
+# List model artifacts inside the models volume
+docker compose run --rm --entrypoint ls \
+  -v models-data:/models ml-infer /models
+
+# Expected files after a successful training run:
+#   isolation_forest.joblib
+#   random_forest.joblib
+#   scaler.joblib
+#   scaler_params.json
+#   metadata.json
+#   feature_columns.json
+#   dataset.parquet
+#   training_report.md
+```
+
+If any of the `.joblib` / `.json` files are missing, the models have not been trained yet (or training failed). Run §13.4 to train.
+
+### 13.3 Tier 2 fires but Tier 1 and Tier 3 do not
+
+This is the most common diagnostic scenario. Two root causes are likely:
+
+**A. Genuine multivariate anomaly**
+
+Tier 1 checks each metric independently (z-score, threshold). Tier 2 detects *correlated* deviations that are each individually within normal bounds but collectively anomalous — for example, a slow session-count increase combined with a disproportionate packet-drop rate.
+
+Steps to confirm:
+1. Open the event in the anomaly feed and expand the "Top features" bar chart.
+2. Note which features dominate (e.g., `rate_port_dropped_count`, `ratio_dropped_per_session`).
+3. Pull recent values in the PromQL sandbox or Grafana:
+   ```promql
+   rate(port_dropped_count[5m]) / rate(pfcp_sessions_total[5m])
+   ```
+4. If the ratio is elevated compared to the past 24 h but still below the Tier 1 threshold, this is a genuine multivariate signal. Consider lowering the Tier 1 threshold or filing a capacity review.
+
+**B. Model drift**
+
+If the UPF workload has changed significantly since training (new scenarios, hardware upgrade, sustained load change), the model's idea of "normal" may be stale.
+
+Steps to distinguish drift from a genuine anomaly:
+1. Check `training_report.md` for the training date and IF/RF metrics:
+   ```bash
+   docker compose run --rm --entrypoint cat \
+     -v models-data:/models ml-infer /models/training_report.md
+   ```
+2. If the training date is more than 30 days ago, or the RF validation F1 is below 0.80, schedule a retrain (§13.4).
+3. Examine the IF score in the event: an IF score barely above the threshold (< 0.1 above) with an RF probability near 0.50 suggests a borderline or noisy signal — treat as low-confidence.
+4. If multiple Tier 2 events fire in rapid succession on otherwise-quiet metrics, that is a strong model-drift signal. Retrain before acting on the anomalies.
+
+**Quick decision tree:**
+
+```
+Tier 2 fires alone
+├─ Top features show a known-bad ratio (dropped/session spikes)?
+│   └─ YES → Genuine multivariate anomaly. Review capacity.
+├─ Training report > 30 days old OR RF F1 < 0.80?
+│   └─ YES → Retrain (§13.4), then re-evaluate.
+├─ Multiple ML events in < 10 min, no Tier 1 events at all?
+│   └─ YES → Likely model drift. Retrain before acting.
+└─ None of the above → Treat as low-confidence. Monitor for 15 min.
+    If it repeats, investigate the top feature trends manually.
+```
+
+### 13.4 Retrain the models
+
+Training reads Parquet files from MinIO, so the data export job must have run at least once and `upf_sim_scenario` must be in `EXPORT_METRICS` (see `.env`).
+
+```bash
+# Run prepare_dataset.py — downloads Parquet, engineers features, writes dataset.parquet
+docker compose run --rm \
+  -v models-data:/models \
+  --env-file .env \
+  ml-infer \
+  python train/prepare_dataset.py \
+    --bucket "$EXPORT_BUCKET" \
+    --endpoint-url "http://minio:9000"
+
+# Run train.py — fits IF + RF, writes all model artifacts
+docker compose run --rm \
+  -v models-data:/models \
+  ml-infer \
+  python train/train.py
+
+# Restart the sidecar so it reloads the new models
+docker compose restart ml-infer
+
+# Confirm new models are loaded
+docker compose exec detection wget -qO- http://ml-infer:8080/health
+```
+
+Training typically takes 1–3 minutes depending on dataset size. Check `training_report.md` afterwards (see §13.3 step 1) to validate RF F1 and IF threshold.
+
+### 13.5 Disable Tier 2 temporarily
+
+If the models are producing excessive false positives during an incident, disable Tier 2 without restarting the detection service:
+
+```bash
+# Stop the sidecar — detection will degrade gracefully to Tier 1 + Tier 3 only
+docker compose stop ml-infer
+```
+
+The detection service polls `http://ml-infer:8080/health` and skips ML evaluation when the sidecar is unavailable. No restart needed.
+
+To re-enable:
+```bash
+docker compose start ml-infer
+```
+
+### 13.6 Inspect raw ML scores
+
+The `ml-infer` sidecar exposes a `/predict` endpoint you can query directly for debugging:
+
+```bash
+# Example: score a hand-crafted feature vector (adjust values to match recent metrics)
+docker compose exec detection \
+  wget -qO- --post-data='{"features":{"rate_pfcp_sessions":12000,"rate_port_bytes_count":1200000,"rate_port_packets_count":800000,"rate_port_dropped_count":0,"ratio_dropped_per_session":0,"ratio_bytes_per_session":100,"ratio_packets_per_session":66,"roll_mean_rate_pfcp_sessions":12000,"roll_std_rate_pfcp_sessions":50,"roll_min_rate_pfcp_sessions":11900,"roll_max_rate_pfcp_sessions":12100,"roll_mean_rate_port_bytes_count":1200000,"roll_std_rate_port_bytes_count":5000,"roll_min_rate_port_bytes_count":1195000,"roll_max_rate_port_bytes_count":1205000,"roll_mean_rate_port_packets_count":800000,"roll_std_rate_port_packets_count":3000,"roll_min_rate_port_packets_count":797000,"roll_max_rate_port_packets_count":803000,"roll_mean_rate_port_dropped_count":0,"roll_std_rate_port_dropped_count":0,"roll_min_rate_port_dropped_count":0,"roll_max_rate_port_dropped_count":0,"roll_mean_ratio_dropped_per_session":0,"roll_std_ratio_dropped_per_session":0,"roll_min_ratio_dropped_per_session":0,"roll_max_ratio_dropped_per_session":0,"roll_mean_ratio_bytes_per_session":100,"roll_std_ratio_bytes_per_session":0.5,"roll_min_ratio_bytes_per_session":99,"roll_max_ratio_bytes_per_session":101,"roll_mean_ratio_packets_per_session":66,"roll_std_ratio_packets_per_session":0.3,"roll_min_ratio_packets_per_session":65,"roll_max_ratio_packets_per_session":67}}' \
+  --header='Content-Type:application/json' \
+  http://ml-infer:8080/predict
+```
+
+Response fields:
+- `if_score` — Isolation Forest anomaly score; positive = anomalous
+- `rf_score` — Random Forest anomaly probability (0–1)
+- `rf_class` — 0 (normal) or 1 (anomaly)
+- `feature_contributions` — top-3 RF feature importances
+- `available` — false if models are not loaded

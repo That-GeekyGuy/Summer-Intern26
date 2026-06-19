@@ -1,4 +1,4 @@
-﻿package llm
+package llm
 
 import (
 	"bytes"
@@ -72,8 +72,12 @@ func (c *Client) Complete(ctx context.Context, messages []Message, tools []ToolD
 	body := map[string]any{
 		"model":       c.model,
 		"messages":    messages,
-		"max_tokens":  256,
-		"temperature": 0.7,
+		"max_tokens":  512,
+		"temperature": 0.1,
+		// Disable Qwen3 chain-of-thought thinking tokens; without this the model
+		// consumes its entire max_tokens budget on <think>…</think> before the
+		// tool call JSON, causing finish_reason:"length" and empty tool_calls.
+		"chat_template_kwargs": map[string]any{"enable_thinking": false},
 	}
 	if len(tools) > 0 {
 		body["tools"] = tools
@@ -111,6 +115,36 @@ func (c *Client) Complete(ctx context.Context, messages []Message, tools []ToolD
 		return nil, fmt.Errorf("vllm returned no choices")
 	}
 	return &out, nil
+}
+
+// ChatRequest is the OpenAI-format request body used by the RCA engine.
+type ChatRequest struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Temperature float64   `json:"temperature,omitempty"`
+	MaxTokens   int       `json:"max_tokens,omitempty"`
+}
+
+// callRaw posts a raw JSON body to the given path and returns the raw response bytes.
+// Used by the RCA engine which builds its own request body.
+func (c *Client) callRaw(ctx context.Context, path string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("vllm callRaw: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("vllm HTTP %d: %s", resp.StatusCode, string(b))
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // UserMessage constructs a user-role message.
