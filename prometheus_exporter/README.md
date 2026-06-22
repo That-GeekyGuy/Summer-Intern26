@@ -1,11 +1,11 @@
 # BESS UPF Metrics → CSV
 
-Exports BESS UPF metrics from a running Prometheus instance to CSV.
-Two independent approaches are provided for comparison.
+Exports BESS UPF metrics from a running Prometheus instance to CSV files
+suitable for ML model training and live monitoring.
 
 ---
 
-## Approaches
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -17,21 +17,25 @@ Two independent approaches are provided for comparison.
           ▼                                ▼
    promql/                          promtool/
    HTTP API → Prometheus engine     docker exec → TSDB blocks + WAL
-   ├── dump.py     (raw, watch)      └── watcher.py  (WAL-mtime triggered)
-   └── ml_export.py (diff'd, ML)
+   └── full_export.py               ├── watcher.py
+       long-format, all labels      │   wide-format, WAL-triggered live
+       as columns, full history     └── full_export.py
+                                        long-format, all labels as columns
+                                        WAL-triggered, mirrors watcher.py
           │                                │
           └───────────────┬────────────────┘
                           ▼
                        data/
 ```
 
-| | `promql/dump.py --watch` | `promql/ml_export.py` | `promtool/watcher.py` |
+| | `promql/full_export.py` | `promtool/watcher.py` | `promtool/full_export.py` |
 |---|---|---|---|
-| **Values** | Raw cumulative | Per-step delta | Raw cumulative |
-| **Live append** | Yes | No (one-shot) | Yes |
-| **Change detection** | Timer | — | WAL mtime |
-| **Works if HTTP down** | No | No | Yes |
-| **Good for** | Debug / snapshot | ML training | Comparison / offline |
+| **Data path** | HTTP `/api/v1/query_range` | `docker exec promtool` | `docker exec promtool` |
+| **Output format** | Long (each label = own column) | Wide (labels in column name) | Long (each label = own column) |
+| **ML-ready** | Yes | No — needs reshaping | Yes |
+| **Live / batch** | Batch (full history in one run) | Live, WAL-triggered | Live, WAL-triggered |
+| **Works if HTTP down** | No | Yes | Yes |
+| **History depth** | Full retention (`--days`) | Seed window (`--hours`) | Seed window (`--hours`) |
 
 ---
 
@@ -70,7 +74,8 @@ Wait ~15 seconds for the first scrape.
 ```bash
 # From prometheus_exporter/
 python -m venv venv
-source venv/bin/activate.fish   # fish shell
+source venv/bin/activate        # bash/zsh
+# source venv/bin/activate.fish # fish shell
 pip install -r requirements.txt
 ```
 
@@ -78,29 +83,54 @@ pip install -r requirements.txt
 
 ## Running
 
-### Live CSV — PromQL approach (HTTP API)
+### One-shot ML export — full history via HTTP API
+
+Queries the full Prometheus retention window in one run.
+Best when you want to export a large historical slice for offline ML training.
 
 ```bash
-# Raw values, auto-append every 30s
-python promql/dump.py --watch
+# All metrics, last 14 days, 60s step
+python promql/full_export.py
 
-# Faster polling (matches scrape interval)
-python promql/dump.py --watch --interval 15
+# Specific metric families, finer resolution
+python promql/full_export.py --prefix upf_ pfcp_ --days 7 --step 30s
 
-# ML-ready snapshot (one-shot, counter-diff'd)
-python promql/ml_export.py --hours 24 --step 1m
+# Drop high-noise constant labels, custom output
+python promql/full_export.py --exclude-labels instance job --out data/train.csv
+
+# Remote Prometheus
+python promql/full_export.py --prom-url http://192.168.1.10:9090
 ```
 
-See [`promql/README.md`](promql/README.md) for all options.
+Output: `data/prometheus_full_export.csv`
+
+See [`promql/full_export.py`](promql/full_export.py) `--help` for all flags.
+
+---
 
 ### Live CSV — promtool approach (direct TSDB read)
 
+Polls continuously, appending new rows as WAL segments are written.
+Best for live training data collection alongside a running UPF.
+
 ```bash
-python promtool/watcher.py              # 15s WAL-triggered poll
+# Wide-format live watcher
+python promtool/watcher.py                       # 15s WAL-triggered poll
 python promtool/watcher.py --interval 30
+python promtool/watcher.py --hours 336           # seed 14 days on first run
+
+# Long-format ML watcher (all labels as columns)
+python promtool/full_export.py                   # 15s WAL-triggered poll
+python promtool/full_export.py --hours 336       # seed 14 days on first run
+python promtool/full_export.py --include-prefix upf_ pfcp_
+python promtool/full_export.py --exclude-labels instance job
 ```
 
-See [`promtool/README.md`](promtool/README.md) for all options.
+Output: `data/promtool_live_*.csv` / `data/ml_export_*.csv`
+
+See [`promtool/README.md`](promtool/README.md) for all options and filter configuration.
+
+---
 
 ### Generate varied traffic
 
@@ -108,8 +138,7 @@ Run in a separate terminal while a watcher is collecting:
 
 ```bash
 python generate_traffic.py              # BURST / NORMAL / IDLE forever
-python generate_traffic.py --cycles 20 # stop after 20 cycles
-python generate_traffic.py --export    # also call ml_export.py each cycle
+python generate_traffic.py --cycles 20  # stop after 20 cycles
 ```
 
 ---
@@ -118,12 +147,30 @@ python generate_traffic.py --export    # also call ml_export.py each cycle
 
 All CSVs land in `data/`:
 
-| File pattern | Produced by |
-|---|---|
-| `prom_dump_*.csv` | `promql/dump.py` (snapshot) |
-| `prom_live_*.csv` | `promql/dump.py --watch` |
-| `ml_export_*.csv` | `promql/ml_export.py` |
-| `promtool_live_*.csv` | `promtool/watcher.py` |
+| File pattern | Produced by | Format |
+|---|---|---|
+| `prometheus_full_export.csv` | `promql/full_export.py` | Long, all labels as columns |
+| `promtool_live_*.csv` | `promtool/watcher.py` | Wide, labels in column names |
+| `ml_export_*.csv` | `promtool/full_export.py` | Long, all labels as columns |
+
+### Long format (ML-ready)
+
+One row per data point. Labels are individual columns — ready as categorical features:
+
+```
+timestamp_ms | datetime_utc        | metric_name         | value | instance       | job | iface  | dir
+1750000000000 | 2025-06-15T12:00:00Z | upf_packets_count  | 42.0  | localhost:8080 | upf | Access | rx
+1750000000000 | 2025-06-15T12:00:00Z | upf_dropped_count  | 1.0   | localhost:8080 | upf | Core   | tx
+```
+
+### Wide format (watcher.py)
+
+One row per timestamp. Each (metric + label set) is a separate column:
+
+```
+timestamp            | upf_packets_count{dir=rx,iface=Access} | upf_dropped_count{dir=tx,iface=Core}
+2025-06-15 12:00:00Z | 42.0                                   | 1.0
+```
 
 ---
 
@@ -152,10 +199,20 @@ All CSVs land in `data/`:
 ```python
 import pandas as pd
 
-# ml_export.py output — already diff'd, ready to use
-df = pd.read_csv("data/ml_export_*.csv", index_col=0, parse_dates=True)
-df = df.loc[:, (df != 0).any(axis=0)]   # drop always-zero sim artefacts
-print(df.describe())
+# Long-format output from promql/full_export.py or promtool/full_export.py
+df = pd.read_csv("data/prometheus_full_export.csv")
+
+# timestamp_ms is a Unix epoch integer — convert for time-series indexing
+df["datetime_utc"] = pd.to_datetime(df["datetime_utc"], utc=True)
+
+# Label columns (instance, job, iface, dir, ...) are strings — encode for sklearn
+from sklearn.preprocessing import LabelEncoder
+label_cols = [c for c in df.columns if c not in ("timestamp_ms", "datetime_utc", "value")]
+for col in label_cols:
+    df[col] = LabelEncoder().fit_transform(df[col].fillna(""))
+
+print(df.head())
+print(df.dtypes)
 ```
 
 ---
@@ -165,17 +222,14 @@ print(df.describe())
 ```
 prometheus_exporter/
 ├── promql/
-│   ├── dump.py          # HTTP API → CSV  (snapshot + --watch)
-│   ├── ml_export.py     # HTTP API → ML-ready CSV  (diff'd counters)
-│   ├── fetch.py         # dynamic metric discovery (used by ml_export)
-│   ├── csv_writer.py    # write / append helpers
-│   └── README.md
+│   └── full_export.py       # HTTP API → long-format ML CSV (batch, full history)
 ├── promtool/
-│   ├── watcher.py       # docker exec promtool → CSV  (WAL-mtime triggered)
+│   ├── watcher.py           # docker exec promtool → wide-format CSV (live)
+│   ├── full_export.py       # docker exec promtool → long-format ML CSV (live)
 │   └── README.md
-├── generate_traffic.py  # sim traffic generator (BURST / NORMAL / IDLE)
-├── requirements.txt     # requests, pandas
-└── data/                # all CSV output (auto-created)
+├── data/                    # all CSV output (auto-created)
+├── requirements.txt         # requests, pandas
+└── README.md
 ```
 
 > `UPF/` and the `prom` container are never modified.

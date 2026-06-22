@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BESS-UPF AI — Complete Technical Deep Dive</title>
+<style>
+  :root {
+    --blue: #1a56db; --blue-light: #ebf2ff; --blue-dark: #1035a0;
+    --green: #057a55; --green-light: #def7ec;
+    --orange: #b45309; --orange-light: #fef3c7;
+    --red: #c81e1e; --red-light: #fde8e8;
+    --purple: #6c2bd9; --purple-light: #ede9fe;
+    --gray: #374151; --gray-light: #f3f4f6; --gray-mid: #9ca3af;
+    --border: #e5e7eb;
+    --code-bg: #1e2433;
+    --code-text: #e2e8f0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; line-height: 1.6; color: #1f2937; background: #fff; }
+
+  /* ── PRINT ── */
+  @media print {
+    body { font-size: 11px; }
+    .no-print { display: none; }
+    .page-break { page-break-before: always; }
+    h1, h2 { page-break-after: avoid; }
+    pre, .box, .diagram { page-break-inside: avoid; }
+  }
+
+  /* ── LAYOUT ── */
+  .cover { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #1a56db 100%); color: #fff; padding: 60px 40px; min-height: 200px; }
+  .cover h1 { font-size: 32px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
+  .cover .subtitle { font-size: 16px; opacity: 0.8; margin-bottom: 20px; }
+  .cover .meta { font-size: 12px; opacity: 0.6; font-family: monospace; }
+
+  .toc { background: var(--gray-light); border: 1px solid var(--border); border-radius: 8px; padding: 24px 28px; margin: 24px 32px; }
+  .toc h2 { font-size: 14px; color: var(--gray); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+  .toc ol { padding-left: 20px; column-count: 2; column-gap: 24px; }
+  .toc li { margin: 4px 0; font-size: 12px; }
+  .toc a { color: var(--blue); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  main { padding: 0 32px 48px; }
+
+  /* ── HEADINGS ── */
+  h1 { font-size: 26px; font-weight: 800; color: #0f172a; margin: 40px 0 12px; border-bottom: 3px solid var(--blue); padding-bottom: 8px; }
+  h2 { font-size: 19px; font-weight: 700; color: #1e3a5f; margin: 32px 0 10px; border-left: 4px solid var(--blue); padding-left: 12px; }
+  h3 { font-size: 15px; font-weight: 700; color: var(--gray); margin: 22px 0 8px; }
+  h4 { font-size: 13px; font-weight: 700; color: var(--gray); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* ── PROSE ── */
+  p { margin: 8px 0; color: #374151; }
+  ul, ol { margin: 8px 0 8px 20px; }
+  li { margin: 3px 0; }
+  strong { color: #0f172a; }
+  em { color: var(--blue-dark); font-style: normal; font-weight: 600; }
+
+  /* ── CODE ── */
+  code { font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 11.5px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 3px; padding: 1px 5px; color: #c02c2c; }
+  pre { background: var(--code-bg); color: var(--code-text); border-radius: 8px; padding: 16px 20px; margin: 12px 0; overflow-x: auto; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 11px; line-height: 1.5; border-left: 3px solid var(--blue); }
+  pre code { background: none; border: none; color: inherit; padding: 0; font-size: inherit; }
+
+  /* ── TABLES ── */
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  th { background: #1e3a5f; color: #fff; font-weight: 700; text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  tr:hover td { background: var(--blue-light); }
+
+  /* ── BOXES ── */
+  .box { border-radius: 8px; padding: 14px 18px; margin: 14px 0; border-left: 4px solid; }
+  .box-blue   { background: var(--blue-light);   border-color: var(--blue);   }
+  .box-green  { background: var(--green-light);  border-color: var(--green);  }
+  .box-orange { background: var(--orange-light); border-color: var(--orange); }
+  .box-red    { background: var(--red-light);    border-color: var(--red);    }
+  .box-purple { background: var(--purple-light); border-color: var(--purple); }
+  .box-gray   { background: var(--gray-light);   border-color: var(--gray-mid); }
+  .box h4 { margin: 0 0 6px; font-size: 12px; }
+
+  /* ── DIAGRAM ── */
+  .diagram { background: #0f172a; border-radius: 10px; padding: 20px 24px; margin: 16px 0; overflow-x: auto; }
+  .diagram pre { background: none; border: none; padding: 0; margin: 0; font-size: 11px; color: #94d2ff; }
+
+  /* ── BADGES ── */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 2px; }
+  .badge-blue   { background: var(--blue-light);   color: var(--blue-dark); }
+  .badge-green  { background: var(--green-light);  color: var(--green);     }
+  .badge-orange { background: var(--orange-light); color: var(--orange);    }
+  .badge-red    { background: var(--red-light);    color: var(--red);       }
+  .badge-purple { background: var(--purple-light); color: var(--purple);    }
+  .badge-gray   { background: var(--gray-light);   color: var(--gray);      }
+
+  /* ── SVG DIAGRAMS ── */
+  .svg-wrap { display: flex; justify-content: center; margin: 20px 0; overflow-x: auto; }
+  svg text { font-family: 'Segoe UI', Arial, sans-serif; }
+
+  /* ── Q&A ── */
+  .qa-block { border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; overflow: hidden; }
+  .qa-q { background: #1e3a5f; color: #fff; padding: 10px 16px; font-weight: 700; font-size: 12.5px; }
+  .qa-a { background: #f8fafc; padding: 10px 16px; font-size: 12px; }
+  .qa-a ul { margin: 6px 0 0 16px; }
+
+  /* ── FLOW STEPS ── */
+  .flow { display: flex; align-items: flex-start; gap: 0; margin: 14px 0; flex-wrap: wrap; }
+  .flow-step { background: var(--blue-light); border: 1.5px solid #93c5fd; border-radius: 8px; padding: 10px 14px; min-width: 110px; text-align: center; position: relative; font-size: 11px; font-weight: 600; color: var(--blue-dark); flex: 1; }
+  .flow-arrow { display: flex; align-items: center; padding: 0 4px; font-size: 18px; color: var(--gray-mid); align-self: center; flex-shrink: 0; }
+  .flow-step .sub { font-weight: 400; color: var(--gray-mid); font-size: 10px; margin-top: 2px; }
+
+  /* ── SECTION NUMBERS ── */
+  .section-num { display: inline-block; background: var(--blue); color: #fff; border-radius: 50%; width: 28px; height: 28px; text-align: center; line-height: 28px; font-weight: 800; font-size: 13px; margin-right: 8px; flex-shrink: 0; }
+
+  /* ── GRID ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 12px 0; }
+  @media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  .card { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card h4 { margin: 0 0 6px; color: var(--blue-dark); }
+
+  hr { border: none; border-top: 2px solid var(--border); margin: 28px 0; }
+  .highlight { background: #fef9c3; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <h1>BESS-UPF AI — Complete Technical Deep Dive</h1>
+  <p class="subtitle">5G User Plane Function Monitoring · Anomaly Detection · LLM Analysis Platform</p>
+  <p class="meta">Generated: June 2026 &nbsp;|&nbsp; Branch: feat/url-shortener &nbsp;|&nbsp; 12 Docker services · Go + Python + React</p>
+</div>
+
+<!-- TOC -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#s1">Project Purpose &amp; Domain Context</a></li>
+    <li><a href="#s2">Full Architecture &amp; Service Map</a></li>
+    <li><a href="#s3">Docker Networks, Volumes &amp; Security Model</a></li>
+    <li><a href="#s4">UPF Simulator (upf-sim)</a></li>
+    <li><a href="#s5">Metric Ingestion Pipeline (Prometheus → VM)</a></li>
+    <li><a href="#s6">Anomaly Detection Service — Tier 1 Statistical</a></li>
+    <li><a href="#s7">Tier 3 OLS Predictive Forecasting</a></li>
+    <li><a href="#s8">Tier 2 ML — MOMENT Anomaly Sidecar</a></li>
+    <li><a href="#s9">Tier 2 ML — Chronos-2 Forecasting Sidecar</a></li>
+    <li><a href="#s10">STL Temporal Intelligence Sidecar</a></li>
+    <li><a href="#s11">LLM Analysis Service &amp; Orchestrator</a></li>
+    <li><a href="#s12">PromQL Safety Validator</a></li>
+    <li><a href="#s13">RAG Retriever &amp; Audit Log</a></li>
+    <li><a href="#s14">Nightly Export Job (VM → Parquet → MinIO)</a></li>
+    <li><a href="#s15">React Frontend — 5 Views Explained</a></li>
+    <li><a href="#s16">Caddy Reverse Proxy &amp; Routing</a></li>
+    <li><a href="#s17">Configuration Reference (.env)</a></li>
+    <li><a href="#s18">Data Flow: End-to-End Walkthrough</a></li>
+    <li><a href="#s19">Cross-Questioning Q&amp;A Prep</a></li>
+  </ol>
+</div>
+
+<main>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s1"><span class="section-num">1</span> Project Purpose &amp; Domain Context</h1>
+
+<p>BESS-UPF AI is an <strong>intelligent monitoring and analysis platform for 5G User Plane Functions (UPF)</strong>. Before diving into code, understanding the telecom context is critical.</p>
+
+<div class="grid-2">
+<div class="card">
+<h4>What is a UPF?</h4>
+<p>In 5G, the <strong>User Plane Function</strong> is the network element that actually moves data packets for mobile subscribers. It sits between the Radio Access Network (RAN) and the internet. Every YouTube video, WhatsApp message, and web request from a 5G phone goes through a UPF.</p>
+</div>
+<div class="card">
+<h4>What does this project do?</h4>
+<p>It collects UPF performance metrics, runs three tiers of anomaly detection, generates capacity forecasts with OLS regression, and exposes a conversational LLM interface so operators can ask questions like "Why are sessions spiking?" in plain English.</p>
+</div>
+</div>
+
+<h3>Key 5G Interfaces Monitored</h3>
+<table>
+<tr><th>Interface</th><th>Full Name</th><th>Direction</th><th>What flows here</th></tr>
+<tr><td><strong>N3</strong></td><td>RAN↔UPF interface</td><td>rx (inbound from RAN), tx (outbound to RAN)</td><td>User data from phone towers; rx is typically higher as downloads dominate</td></tr>
+<tr><td><strong>N6</strong></td><td>UPF↔Internet interface</td><td>rx (from internet), tx (to internet)</td><td>Data to/from the internet; tx is typically higher for downloads</td></tr>
+<tr><td><strong>PFCP</strong></td><td>Packet Forwarding Control Protocol</td><td>Sessions (gauge)</td><td>Count of active subscriber sessions — primary capacity metric</td></tr>
+</table>
+
+<h3>The Four Metrics This System Monitors</h3>
+<table>
+<tr><th>Prometheus Metric</th><th>Type</th><th>Carrier-grade Scale</th><th>What it means</th></tr>
+<tr><td><code>pfcp_sessions_total</code></td><td>Gauge</td><td>1M baseline (10 lakh), 4M spike (40 lakh)</td><td>Active subscribers connected to this UPF</td></tr>
+<tr><td><code>port_bytes_count</code></td><td>Counter</td><td>~6 GB/s N3 rx baseline, 24 GB/s at 4× spike</td><td>Cumulative bytes per direction/interface — use <code>rate()</code> to get bytes/s</td></tr>
+<tr><td><code>port_packets_count</code></td><td>Counter</td><td>Derived from bytes ÷ avg_packet_size (800 B)</td><td>Cumulative packets per direction/interface</td></tr>
+<tr><td><code>port_dropped_count</code></td><td>Counter</td><td>0.01% baseline drop rate</td><td>Packets dropped — elevated drops indicate congestion or hardware issues</td></tr>
+</table>
+
+<div class="box box-orange">
+<h4>Unit Warning — Bytes not Bits</h4>
+<p>All throughput values are in <strong>bytes/s</strong>, not bits/s. The frontend formatter (<code>fmtBytes</code>) displays "GB/s", not "Gbps". 10 GB/s = 80 Gbps. Never confuse these in cross-questioning — the detection capacity ceiling is <code>10_000_000_000</code> (10 GB/s = 10 billion bytes/s).</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s2" class="page-break"><span class="section-num">2</span> Full Architecture &amp; Service Map</h1>
+
+<p>The system runs as <strong>12 Docker services</strong> coordinated by a single <code>docker-compose.yml</code>. Here is the complete picture:</p>
+
+<div class="diagram">
+<pre>
+┌─────────────────────────────────────── OPERATOR BROWSER ──────────────────────────────────────────┐
+│                                   HTTPS :443 (only public port)                                    │
+└──────────────────────────────────────────────┬────────────────────────────────────────────────────┘
+                                               │
+                                    ┌──────────▼──────────┐
+                                    │    CADDY :443        │  TLS termination
+                                    │  (public-net +       │  Reverse proxy
+                                    │   metrics-backend)   │  Security headers
+                                    └──┬──────┬──────┬────┘
+                                       │      │      │
+              ┌────────────────────────┘      │      └─────────────────────┐
+              │                               │                             │
+   ┌──────────▼──────┐           ┌───────────▼──────┐          ┌──────────▼────────┐
+   │  FRONTEND :80   │           │ ANALYSIS :8082   │          │  GRAFANA :3000    │
+   │  React 18+Vite  │           │  Go backend       │          │  Dashboards       │
+   │  nginx static   │           │  LLM orchestrator │          │  over VM          │
+   └─────────────────┘           └──┬───┬───┬───┬───┘          └───────────────────┘
+                                    │   │   │   │
+             ┌──────────────────────┘   │   │   └─────────────────────┐
+             │                          │   │                           │
+  ┌──────────▼────────┐    ┌───────────▼─┐ │              ┌───────────▼──────────┐
+  │ VICTORIAMETRICS   │    │  vLLM :8000  │ │              │  DETECTION :8081     │
+  │ :8428 TSDB        │    │  Qwen3-8B    │ │              │  Go backend          │
+  │ 12-month retention│    │  GPU (INT4)  │ │              │  z-score/trend/OLS   │
+  └──┬─────────────┬──┘    └─────────────┘ │              │  SQLite anomaly DB   │
+     │             │                        │              └──┬───────────────────┘
+     │             │           ┌────────────┘                 │
+     │             │           │  (RCA path)                  │
+  ┌──▼──────┐  ┌──▼──────┐  ┌─▼───────────────┐  ┌──────────▼────────┐
+  │PROMETHEUS│  │EXPORT   │  │ MOMENT  :8083    │  │ ml-infer  :8080   │
+  │:9090     │  │JOB      │  │ CHRONOS :8084    │  │ sklearn           │
+  │scrapes   │  │nightly  │  │ STL     :8085    │  │ classifiers       │
+  │15s cadence│  │VM→Parquet│  │ Python FastAPI  │  └───────────────────┘
+  └──┬───────┘  └────┬────┘  └─────────────────┘
+     │               │
+  ┌──▼───────┐   ┌───▼─────┐
+  │ UPF-SIM  │   │  MINIO   │
+  │ :8090    │   │  :9000   │
+  │ Go sim   │   │  Parquet │
+  │ 6 modes  │   │  storage │
+  └──────────┘   └─────────┘
+  (or real UPF)
+</pre>
+</div>
+
+<h3>Services Quick Reference</h3>
+<table>
+<tr><th>Service</th><th>Port</th><th>Lang/Image</th><th>Role</th><th>Key Dependency</th></tr>
+<tr><td><strong>caddy</strong></td><td>80, 443</td><td>caddy:2.8-alpine</td><td>TLS proxy, only public face</td><td>All internal services</td></tr>
+<tr><td><strong>prometheus</strong></td><td>9090 (internal)</td><td>prom/prometheus:v2.52.0</td><td>Scrapes UPF/sim, remote_write to VM</td><td>victoriametrics</td></tr>
+<tr><td><strong>victoriametrics</strong></td><td>8428 (internal)</td><td>victoriametrics:v1.101.0</td><td>Long-term TSDB, 12-month retention</td><td>prometheus (federation)</td></tr>
+<tr><td><strong>upf-sim</strong></td><td>8090 (internal)</td><td>Go (custom)</td><td>Simulated 5G UPF with scenario API</td><td>Prometheus scrapes it</td></tr>
+<tr><td><strong>detection</strong></td><td>8081 (internal)</td><td>Go (custom)</td><td>Tier 1 statistical + Tier 3 OLS</td><td>victoriametrics</td></tr>
+<tr><td><strong>ml-infer</strong></td><td>8080 (internal)</td><td>Python FastAPI</td><td>sklearn classifiers (Tier 2 classic)</td><td>minio (models)</td></tr>
+<tr><td><strong>moment-sidecar</strong></td><td>8083 (internal)</td><td>Python FastAPI</td><td>MOMENT-1-large anomaly detection</td><td>./models bind mount</td></tr>
+<tr><td><strong>chronos-sidecar</strong></td><td>8084 (internal)</td><td>Python FastAPI</td><td>Chronos-2 probabilistic forecasting</td><td>./models bind mount</td></tr>
+<tr><td><strong>stl-sidecar</strong></td><td>8085 (internal)</td><td>Python FastAPI</td><td>STL decomposition + regime classifier</td><td>victoriametrics + CSV</td></tr>
+<tr><td><strong>analysis</strong></td><td>8082 (internal)</td><td>Go (custom)</td><td>LLM orchestrator, chat API, validator</td><td>vllm, detection, VM</td></tr>
+<tr><td><strong>vllm</strong></td><td>8000 (internal)</td><td>vllm/vllm-openai:v0.7.3</td><td>Qwen3-8B INT4 GPU inference</td><td>NVIDIA GPU</td></tr>
+<tr><td><strong>frontend</strong></td><td>80 (internal)</td><td>React 18 / nginx</td><td>Operator dashboard SPA</td><td>analysis, detection</td></tr>
+<tr><td><strong>grafana</strong></td><td>3000 (internal)</td><td>grafana:11.0.0</td><td>Pre-provisioned dashboards</td><td>victoriametrics</td></tr>
+<tr><td><strong>minio</strong></td><td>9000/9001 (internal)</td><td>minio/minio</td><td>S3-compatible Parquet store</td><td>—</td></tr>
+<tr><td><strong>export-job</strong></td><td>—</td><td>Go (custom)</td><td>Nightly VM→Parquet→MinIO cron</td><td>victoriametrics, minio</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s3" class="page-break"><span class="section-num">3</span> Docker Networks, Volumes &amp; Security Model</h1>
+
+<h2>Network Topology</h2>
+<p>There are <strong>three Docker bridge networks</strong>, each with a specific security role:</p>
+
+<div class="diagram">
+<pre>
+┌──────────────────────── public-net (bridge, NOT internal) ──────────────────────────┐
+│  Caddy ←→ host:80,443                                                                │
+│  vLLM  (needs internet to download HuggingFace model weights)                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────── metrics-backend (bridge, internal: true) ────────────────────────┐
+│  ALL services: caddy, prometheus, victoriametrics, minio, export-job,               │
+│  detection, analysis, vllm, ml-infer, moment-sidecar, chronos-sidecar,             │
+│  stl-sidecar, frontend, grafana, upf-sim                                            │
+│                                                                                      │
+│  "internal: true" = containers CANNOT make outbound internet connections.           │
+│  This is a Docker-level firewall — no routing to external IPs.                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────── scrape-net (bridge, NOT internal) ──────────────────────────┐
+│  prometheus + upf-sim                                                                │
+│  Prometheus uses this to reach physical UPF nodes on the operator LAN.             │
+│  upf-sim is on both scrape-net AND metrics-backend.                                 │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+
+<div class="box box-blue">
+<h4>Why is metrics-backend "internal: true"?</h4>
+<p>Security isolation. The VictoriaMetrics database, MinIO store, and all ML models run on a network with <strong>no outbound internet access</strong>. If any service is compromised, it cannot phone home, exfiltrate data, or download additional payloads. The only internet-capable service is vLLM (to download model weights from HuggingFace) and Caddy (for ACME Let's Encrypt in production).</p>
+</div>
+
+<h2>Docker Volumes</h2>
+<table>
+<tr><th>Volume</th><th>Type</th><th>Used By</th><th>Content</th></tr>
+<tr><td><code>prometheus-data</code></td><td>Named</td><td>prometheus</td><td>TSDB blocks (24h retention)</td></tr>
+<tr><td><code>victoriametrics-data</code></td><td>Named</td><td>victoriametrics</td><td>VM storage blocks (12 months)</td></tr>
+<tr><td><code>minio-data</code></td><td>Named</td><td>minio</td><td>Parquet files for ML datasets</td></tr>
+<tr><td><code>detection-data</code></td><td>Named</td><td>detection</td><td>SQLite: <code>anomalies.db</code></td></tr>
+<tr><td><code>analysis-data</code></td><td>Named</td><td>analysis</td><td>SQLite: <code>audit.db</code></td></tr>
+<tr><td><code>vllm-cache</code></td><td>Named</td><td>vllm</td><td>HuggingFace weights (~5 GB for Qwen3-8B INT4)</td></tr>
+<tr><td><code>hf-cache</code></td><td>Named</td><td>moment-sidecar, chronos-sidecar</td><td>HF weights shared between both (MOMENT-1-large ≈4 GB, chronos-t5-small ≈2 GB)</td></tr>
+<tr><td><code>grafana-data</code></td><td>Named</td><td>grafana</td><td>Grafana DB, sessions</td></tr>
+<tr><td><code>./models</code></td><td>Bind mount (read-only for sidecars)</td><td>moment, chronos, detection, analysis</td><td>Trained artifacts: <code>moment_head.pt</code>, <code>chronos/</code>, thresholds, metadata</td></tr>
+</table>
+
+<div class="box box-orange">
+<h4>Critical: Bind Mount vs Named Volume</h4>
+<p>The <code>./models</code> directory uses a <strong>bind mount</strong> (not a named Docker volume). This means the path exists on the host filesystem and you can copy trained model files there directly. Named volumes like <code>vllm-cache</code> live inside Docker's storage and require <code>docker volume</code> commands to inspect. The bind mount allows retraining scripts to write directly to <code>./models/</code> without needing to exec into a container.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s4" class="page-break"><span class="section-num">4</span> UPF Simulator (upf-sim)</h1>
+
+<p>The simulator is a <strong>Go service</strong> located in <code>upf-sim/</code>. It emulates a carrier-grade 5G UPF, exposing realistic Prometheus metrics on <code>:8090/metrics</code> without needing real network hardware.</p>
+
+<h2>Simulator Scale (Carrier-Grade)</h2>
+<table>
+<tr><th>Parameter</th><th>Env Var</th><th>Default</th><th>Meaning</th></tr>
+<tr><td>Base sessions</td><td><code>SIM_BASE_SESSIONS</code></td><td>1,000,000 (10 lakh)</td><td>Midpoint of diurnal cycle; real-world UPF handles millions of PDU sessions</td></tr>
+<tr><td>Bytes per session</td><td><code>SIM_BYTES_PER_SESSION</code></td><td>5,000 bytes/s</td><td>At 1M sessions: N3 rx ≈ 6 GB/s (1M × 5000 × 1.2 N3 factor)</td></tr>
+<tr><td>Spike multiplier</td><td><code>SIM_SPIKE_MULTIPLIER</code></td><td>4.0×</td><td>Session spike: 4M sessions, N3 rx ≈ 24 GB/s</td></tr>
+<tr><td>Ramp seconds</td><td><code>SIM_RAMP_SECONDS</code></td><td>120 s</td><td>Linear ramp from 1× to 4× over 2 minutes</td></tr>
+</table>
+
+<h2>Diurnal Pattern (normalRates function)</h2>
+<p>The simulator uses a <strong>sine wave</strong> to model real-world traffic patterns:</p>
+<pre><code>hour := float64(now.Hour()) + float64(now.Minute())/60.0
+diurnal := 1.0 + 0.3 * math.Sin(2*math.Pi*(hour-8.0)/24.0)
+// Peak at hour 14:00 (2 PM), trough at 02:00 (2 AM)
+// Variation: ±30% from base (700k–1.3M sessions at 1M base)
+jitter  := 1.0 + (rand.Float64()*0.04 - 0.02)  // ±2% random noise</code></pre>
+
+<h2>Six Scenario Modes</h2>
+<table>
+<tr><th>Mode</th><th>API Name</th><th>What Happens</th><th>Detects As</th></tr>
+<tr><td><strong>Normal</strong></td><td><code>normal</code></td><td>Diurnal baseline ± 2% jitter</td><td>Baseline — no alerts</td></tr>
+<tr><td><strong>Session Spike</strong></td><td><code>session_spike</code></td><td>4× sessions over 120s ramp. N3 rx hits 24 GB/s. All metrics scale proportionally.</td><td>z-score (high), threshold (critical at 2M), OLS forecast</td></tr>
+<tr><td><strong>Session Drop</strong></td><td><code>session_drop</code></td><td>Sessions collapse to ~500 over 30s. Simulates UPF failure / handover storm</td><td>z-score (high), trend (downward)</td></tr>
+<tr><td><strong>Packet Drop Surge</strong></td><td><code>packet_drop_surge</code></td><td>Normal sessions. N3 rx drops jump to 5% of packet rate. Drop counter accelerates.</td><td>z-score (critical, threshold 2.0), OLS acceleration on drops</td></tr>
+<tr><td><strong>Asymmetric Traffic</strong></td><td><code>asymmetric_traffic</code></td><td>N3 rx × 5 (surge inbound), N6 tx × 0.1 (outbound congestion)</td><td>z-score on throughput bytes</td></tr>
+<tr><td><strong>Flatline</strong></td><td><code>flatline</code></td><td>All rates → 0. Sessions frozen at last known value. Simulates crashed UPF that still answers scrapes.</td><td>z-score (zero traffic), trend</td></tr>
+</table>
+
+<h2>Scenario API</h2>
+<pre><code># Trigger a 10-minute session spike
+POST /scenario
+{"mode": "session_spike", "duration": "10m"}
+
+# Check current mode
+GET /scenario
+→ {"mode": "session_spike", "started_at": "...", "uptime_seconds": 45}</code></pre>
+
+<h2>How Counter Semantics Work</h2>
+<div class="box box-blue">
+<p>Prometheus Counters <strong>can only increase</strong>. The simulator models per-second <em>rates</em> and calls <code>counter.Add(rate × dt)</code> each tick. In flatline mode, <code>rate → 0</code>, so the counter stops incrementing (stays flat) — it doesn't reset to zero. In Prometheus, you then use <code>rate(counter[5m]) → 0</code> to detect the flatline. This is why dropping to zero traffic with a flatline is detectable even though the raw counter doesn't decrease.</p>
+</div>
+
+<h2>N3 vs N6 Traffic Asymmetry</h2>
+<pre><code>// N3 (RAN-facing) carries slightly more traffic than N6 (internet-facing)
+"rx/N3": sessions * bps * 1.2,   // 120% — users downloading from internet → high inbound
+"tx/N6": sessions * bps * 1.2,   // 120% — UPF sending to internet
+"tx/N3": sessions * bps * 0.8,   // 80%  — UPF sending to phones (uploads are smaller)
+"rx/N6": sessions * bps * 0.8,   // 80%  — from internet (acknowledgments, etc.)</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s5" class="page-break"><span class="section-num">5</span> Metric Ingestion Pipeline (Prometheus → VM)</h1>
+
+<h2>Dual-Ingest Architecture</h2>
+<p>VictoriaMetrics receives data via <strong>two simultaneous paths</strong> for redundancy:</p>
+
+<div class="diagram">
+<pre>
+UPF / upf-sim (:8090/metrics)
+      │
+      │  scrape every 15 seconds (file_sd targets)
+      ▼
+ PROMETHEUS :9090
+      │
+      ├─── remote_write (PRIMARY) ──────────────────────▶ VictoriaMetrics :8428
+      │    URL: http://victoriametrics:8428/api/v1/write       /api/v1/write
+      │    Fires immediately on each scrape
+      │
+      └─── /federate endpoint (FALLBACK) ◀─── VictoriaMetrics promscrape
+           Prometheus acts as federation source         polls every 15s
+           VM polls: http://prometheus:9090/federate    config/victoriametrics/scrape.yml
+           Fills gaps if remote_write lags
+</pre>
+</div>
+
+<h2>Prometheus Configuration Key Points</h2>
+<pre><code># config/prometheus/prometheus.yml (key sections)
+scrape_configs:
+  - job_name: upf
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/*.yml]
+        refresh_interval: 30s   # hot-reload — no restart needed to add UPF nodes
+    scrape_interval: 15s
+
+remote_write:
+  - url: http://victoriametrics:8428/api/v1/write
+    write_relabel_configs:
+      # PII STRIPPING — drop subscriber-identifying labels
+      - action: labeldrop
+        regex: ^(imsi|subscriber_.*|ue_ip)$</code></pre>
+
+<div class="box box-red">
+<h4>PII Policy — Critical</h4>
+<p>The <code>write_relabel_configs</code> in <code>prometheus.yml</code> drops <strong>IMSI</strong> (International Mobile Subscriber Identity), <code>subscriber_*</code>, and <code>ue_ip</code> labels <em>before</em> they reach VictoriaMetrics. This means subscriber-level data never enters the TSDB. If you add new subscriber-identifying labels, you must add a matching <code>labeldrop</code> rule and get security sign-off.</p>
+</div>
+
+<h2>VictoriaMetrics Configuration</h2>
+<table>
+<tr><th>Flag</th><th>Value</th><th>Why</th></tr>
+<tr><td><code>-retentionPeriod</code></td><td>12 (months)</td><td>Store one year of UPF metrics for trend analysis</td></tr>
+<tr><td><code>-httpAuth.username/password</code></td><td>from <code>.env</code></td><td>Basic auth — all queries must authenticate</td></tr>
+<tr><td><code>-storage.minFreeDiskSpaceBytes</code></td><td>1 GB</td><td>Refuse writes if disk nearly full to prevent data corruption</td></tr>
+<tr><td><code>-search.maxQueryDuration</code></td><td>60s</td><td>Kill runaway queries</td></tr>
+<tr><td><code>-memory.allowedPercent</code></td><td>60%</td><td>Cap in-process cache so other services aren't starved</td></tr>
+</table>
+
+<h2>Adding Real UPF Nodes</h2>
+<pre><code># config/prometheus/targets/upf-targets.yml
+# Hot-reloaded every 30s — no Prometheus restart
+- targets:
+    - "10.0.1.10:9090"
+  labels:
+    upf_id: upf-east-1
+    site:   east
+    vendor: ericsson</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s6" class="page-break"><span class="section-num">6</span> Anomaly Detection Service — Tier 1 Statistical</h1>
+
+<p>Located in <code>detection/</code>, written in Go. Polls VictoriaMetrics every 60 seconds, evaluates rules, stores events in SQLite at <code>/data/anomalies.db</code>, and exposes <code>GET /anomalies</code> internally.</p>
+
+<h2>Detection Loop (detection/main.go)</h2>
+<pre><code>ticker := time.NewTicker(pollInterval)  // 60s default
+for range ticker.C {
+    reactive,   _ := det.Run(ctx)            // Tier 1: z-score, trend, threshold
+    predictive, _ := forecaster.Run(ctx)     // Tier 3: OLS forecasting
+    mlEvents,   _ := ml2.Run(ctx)            // Tier 2 classic: sklearn
+    aiEval.Push(ctx, time.Now())             // Tier 2 AI: MOMENT buffer fill
+    aiEval.Run(ctx, time.Now())              // (after 512 steps warmup)
+    disp.Notify(ctx, append(reactive, predictive..., mlEvents...))
+}</code></pre>
+
+<h2>Rule Evaluation Flow</h2>
+<p>For each metric in <code>rules.yml</code>, the detector:</p>
+<div class="flow">
+  <div class="flow-step">Query VM<div class="sub">QueryRange 30m window, 15s step</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">Per series<div class="sub">iterate over label combos</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">Run rules<div class="sub">zscore + trend + threshold</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">Store event<div class="sub">SQLite Insert</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">Dispatch<div class="sub">webhook if configured</div></div>
+</div>
+
+<h2>Z-Score Rule (zscore.go)</h2>
+<p>This is the <strong>most important Tier 1 rule</strong> — it flags the latest data point when it's statistically extreme vs. the window baseline.</p>
+
+<pre><code>// ZScore computation — note the crucial design choice:
+baseline := values[:len(values)-1]  // ALL values EXCEPT the latest
+latest   := values[len(values)-1]
+
+mean = sum(baseline) / len(baseline)
+std  = sqrt(sum((v - mean)² for v in baseline) / len(baseline))
+
+if std < 1e-10 { return nil }  // flat line — skip (avoids division by zero)
+
+z = (latest - mean) / std
+if |z| >= threshold { fire anomaly event }</code></pre>
+
+<div class="box box-green">
+<h4>Why exclude the latest value from the baseline?</h4>
+<p>If the spike value were included in the mean/std calculation, it would inflate both statistics, potentially reducing its own z-score and self-suppressing the alert. By computing mean/std from the <em>window minus the last point</em>, a genuine spike cannot hide itself in the distribution.</p>
+</div>
+
+<table>
+<tr><th>Metric</th><th>Z-score threshold</th><th>Severity</th><th>Rationale</th></tr>
+<tr><td><code>pfcp_sessions_total</code></td><td>2.5</td><td>high</td><td>4× spike ≈ z > 100 vs baseline; fires on first spike sample</td></tr>
+<tr><td><code>port_bytes_count</code></td><td>2.5</td><td>high</td><td>Traffic bursts are serious but not immediately critical</td></tr>
+<tr><td><code>port_dropped_count</code></td><td>2.0</td><td>critical</td><td>Drops are always serious — lower threshold, higher severity</td></tr>
+</table>
+
+<h2>Trend Rule</h2>
+<p>Fits an OLS line to <em>all values except the last</em>, then checks if the latest point deviates from the predicted value by more than <code>deviation_threshold</code> (20-25%).</p>
+<pre><code>// Simplified:
+predicted := olsLine.predict(latestTimestamp)
+deviation := |latest - predicted| / predicted
+if deviation > deviation_threshold { fire "trend" event }</code></pre>
+
+<h2>Threshold Rule</h2>
+<p>Simple bounds check on the latest value:</p>
+<pre><code>if threshold.Max != nil && latest > *threshold.Max { fire critical }
+if threshold.Min != nil && latest < *threshold.Min { fire warning }</code></pre>
+<p>Configured in <code>rules.yml</code>: <code>pfcp_sessions_total</code> threshold max = <strong>2,000,000</strong> (20 lakh per node). A session spike to 40 lakh will hit this.</p>
+
+<h2>Event Schema (SQLite)</h2>
+<table>
+<tr><th>Field</th><th>Type</th><th>Example</th></tr>
+<tr><td><code>metric_name</code></td><td>text</td><td><code>pfcp_sessions_total</code></td></tr>
+<tr><td><code>labels</code></td><td>JSON text</td><td><code>{"job":"upf","node_id":"sim-upf-01"}</code></td></tr>
+<tr><td><code>timestamp</code></td><td>unix epoch</td><td>Detection time</td></tr>
+<tr><td><code>observed_value</code></td><td>float64</td><td>4,100,000 (actual reading)</td></tr>
+<tr><td><code>expected_value</code></td><td>float64</td><td>1,050,000 (baseline mean or OLS prediction)</td></tr>
+<tr><td><code>deviation_magnitude</code></td><td>float64</td><td>z-score value (e.g., 125.3)</td></tr>
+<tr><td><code>rule_name</code></td><td>text</td><td><code>zscore</code>, <code>trend</code>, <code>threshold</code>, <code>forecast_linear</code></td></tr>
+<tr><td><code>severity</code></td><td>text</td><td><code>low</code>, <code>medium</code>, <code>high</code>, <code>critical</code></td></tr>
+<tr><td><code>event_type</code></td><td>text</td><td><code>reactive</code> or <code>predictive</code></td></tr>
+<tr><td><code>predicted_crossing_time</code></td><td>unix epoch (nullable)</td><td>When OLS line hits capacity ceiling</td></tr>
+<tr><td><code>confidence</code></td><td>float64 (nullable)</td><td>R² value from OLS fit</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s7" class="page-break"><span class="section-num">7</span> Tier 3 OLS Predictive Forecasting</h1>
+
+<p>This runs <em>after</em> Tier 1 each poll and predicts capacity breaches <strong>before they happen</strong>. Located in <code>detection/internal/detector/forecaster.go</code>.</p>
+
+<h2>OLS Linear Fit (olsLinearFit)</h2>
+<pre><code>// Ordinary Least Squares: fits y = a + b*x where x is 0-based sample index
+// (using index instead of raw timestamps avoids float64 cancellation at large Unix timestamps)
+
+n := float64(len(values))
+// sums for OLS formula
+sumX, sumY, sumXY, sumX2 := ...
+
+denom := n*sumX2 - sumX*sumX
+b = (n*sumXY - sumX*sumY) / denom   // slope
+a = (sumY - b*sumX) / n             // intercept
+
+// R² (goodness of fit):
+r2 = 1 - ssResiduals/ssTotal</code></pre>
+
+<h2>Fire Logic</h2>
+<pre><code>// Steps ahead to horizon (1h ahead by default):
+stepDur := window / (n-1)           // time between samples
+stepsAhead := horizon / stepDur     // how many steps is 1h away?
+predictedAtHorizon := a + b*(n-1 + stepsAhead)
+
+// Fire if:
+// Capacity target: predicted value crosses capacity ceiling within horizon
+shouldFire = predictedAtHorizon >= capacity
+
+// Drop-rate target (accel_only: true): fire if slope is positive
+shouldFire = b > 1e-10 && currentValue > 0</code></pre>
+
+<h2>Deduplication</h2>
+<div class="box box-orange">
+<p>To avoid flooding operators with repeated alerts during a sustained trend, the forecaster checks if a predictive event for the same <code>metric+labels</code> was emitted within <code>horizon/2 = 30 minutes</code>. If yes, the event is suppressed. This means at most <strong>one predictive event per metric per 30 minutes</strong>.</p>
+</div>
+
+<h2>Four Forecast Targets</h2>
+<table>
+<tr><th>Target</th><th>PromQL</th><th>Capacity</th><th>AccelOnly</th><th>Severity</th></tr>
+<tr><td>Sessions (per node)</td><td><code>pfcp_sessions_total{job="upf"}</code></td><td>2,000,000</td><td>false</td><td>high</td></tr>
+<tr><td>Sessions (cluster)</td><td><code>sum(pfcp_sessions_total{job="upf"})</code></td><td>4,000,000</td><td>false</td><td>critical</td></tr>
+<tr><td>N3 rx throughput</td><td><code>sum(rate(port_bytes_count{iface="N3",dir="rx"}[5m]))</code></td><td>10,000,000,000</td><td>false</td><td>high</td></tr>
+<tr><td>Packet drop rate</td><td><code>sum(rate(port_dropped_count[2m]))</code></td><td>0</td><td>true</td><td>medium</td></tr>
+</table>
+
+<div class="box box-blue">
+<h4>Why use rate() for counter metrics in the forecaster?</h4>
+<p><code>port_bytes_count</code> and <code>port_dropped_count</code> are Prometheus <strong>Counters</strong> (monotonically increasing). Their raw values always go up, so OLS on the raw counter would always predict breaching any capacity — meaningless. Using <code>rate()</code> converts them to per-second rates (e.g., bytes/s), which have real capacity ceilings (like 10 GB/s link bandwidth). The forecaster uses the PromQL string from <code>rules.yml</code> directly, which already includes <code>rate()</code>.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s8" class="page-break"><span class="section-num">8</span> Tier 2 ML — MOMENT Anomaly Sidecar</h1>
+
+<p>Located in <code>tools/infer/moment_server.py</code>. Runs as a FastAPI service on port 8083.</p>
+
+<h2>What is MOMENT-1-large?</h2>
+<p>MOMENT is a <strong>time-series foundation model</strong> developed by AutonLab (Carnegie Mellon). It was pre-trained on a massive corpus of time series data (MOIRAI-style). We use it in <em>reconstruction</em> mode: given a 512-step window of multivariate UPF data, MOMENT encodes it to an embedding, then a reconstruction head decodes it back. High reconstruction error → anomaly.</p>
+
+<h2>Architecture: Encoder + Head</h2>
+<div class="diagram">
+<pre>
+Input: (n_channels × 512 steps) of UPF metrics
+       [pfcp_sessions, N3_rx_bytes, N3_tx_bytes, N6_rx_bytes, N6_tx_bytes,
+        N3_rx_pkts, N3_tx_pkts, port_dropped_N3, port_dropped_N6,
+        DL_efficiency, go_goroutines, go_heap_alloc, ...]
+
+        │  z-score normalize each channel independently
+        ▼
+   MOMENT-1-large Encoder (frozen — never fine-tuned)
+        │  Transformer backbone, ~4 GB RAM
+        │  Produces dense embedding of the window
+        ▼
+   ReconstructionAnomalyHead (trained on UPF data)
+        │  Encoder: Linear(emb_dim→256) → GELU → Linear(256→128)
+        │  Decoder: Linear(128→256) → GELU → Linear(256→emb_dim)
+        │  Loss: MSE reconstruction error
+        ▼
+   anomaly_score = MSE(embedding, reconstructed_embedding)
+
+   anomaly = score >= threshold (calibrated at training time to 0.167)
+</pre>
+</div>
+
+<h2>Graceful Degradation</h2>
+<p>The sidecar has <strong>three operating levels</strong>:</p>
+<table>
+<tr><th>Level</th><th>Condition</th><th>Behavior</th></tr>
+<tr><td>Full</td><td>MOMENT encoder + head both loaded</td><td>Uses transformer embeddings → head → anomaly score</td></tr>
+<tr><td>Head-only</td><td>Head loaded but MOMENT encoder failed (missing <code>momentfm</code> package)</td><td>Uses <em>statistical features</em> (mean, std, max, min, trend, autocorrelation per channel) as fallback embedding</td></tr>
+<tr><td>Degraded</td><td>Models not found (threshold/channel files missing)</td><td><code>available: false</code> — returns no anomaly. Does NOT crash. Other tiers continue.</td></tr>
+</table>
+
+<h2>Statistical Features Fallback</h2>
+<pre><code>def _statistical_features_np(window):  # window: (n_channels, seq_len)
+    # Per channel: [mean, std, max, min, (last-first), autocorr]
+    # Total output: n_channels × 6 dimensional vector
+    feats = [window.mean(-1), window.std(-1), window.max(-1),
+             window.min(-1), window[:,-1]-window[:,0],
+             (window[:,1:]*window[:,:-1]).mean(-1)]
+    return np.concatenate(feats, axis=0)</code></pre>
+
+<h2>Per-Channel Anomaly Attribution</h2>
+<pre><code># Approximate which channels are most anomalous:
+ch_var   = window.var(axis=-1)          # variance per channel
+total_var = ch_var.sum()
+ch_scores = { name: (ch_var[i] / total_var) * total_score
+              for i, name in enumerate(channel_names) }
+# Top anomalous channels: those where ch_score >= threshold * 2.0
+top_channels = sorted by ch_score, descending</code></pre>
+
+<h2>Confidence Calculation</h2>
+<pre><code>confidence = clamp(1.0 - exp(-(score - threshold) / normal_std), 0.0, 1.0)
+# Interpretation:
+# score barely above threshold → confidence near 0 (uncertain)
+# score >> threshold           → confidence near 1.0 (certain anomaly)</code></pre>
+
+<h2>Training Pipeline</h2>
+<p>Run: <code>cd tools && python train/prepare_dataset.py && python train/train_moment.py</code></p>
+<ol>
+<li><strong>prepare_dataset.py</strong>: Reads <code>ansh_out_15_06_2026.csv</code> (76k UPF rows, 41 hours). Slices into 512-step overlapping windows. Saves to <code>moment_windows.npz</code>.</li>
+<li><strong>train_moment.py</strong>: Loads windows, runs MOMENT encoder (frozen), trains only the ReconstructionAnomalyHead (linear probing). 50 epochs. Calibrates threshold at 95th percentile of training scores. Saves <code>moment_head.pt</code>, <code>moment_threshold.json</code>.</li>
+</ol>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s9" class="page-break"><span class="section-num">9</span> Tier 2 ML — Chronos-2 Forecasting Sidecar</h1>
+
+<p>Located in <code>tools/infer/chronos_server.py</code>. Runs on port 8084. Uses Amazon's <strong>Chronos-T5-Small</strong> probabilistic forecasting model.</p>
+
+<h2>What Chronos Does</h2>
+<p>Given the last 512 steps (128 minutes at 15s cadence) of a <code>uoi_value</code> (utilization-of-interest), Chronos samples <strong>20 Monte Carlo paths</strong> of the future and returns percentile forecasts (p10/p50/p90). It's <em>zero-shot</em> — trained on a large corpus of diverse time series, no fine-tuning required for our UPF data.</p>
+
+<h2>Three Forecast Horizons</h2>
+<table>
+<tr><th>Horizon</th><th>Steps</th><th>Duration</th><th>Method</th></tr>
+<tr><td><code>short</code></td><td>20</td><td>5 minutes</td><td>Direct Chronos-2 output (most accurate)</td></tr>
+<tr><td><code>medium</code></td><td>240</td><td>1 hour</td><td>Direct for first 64 steps, then linear extrapolation with widening uncertainty bands (sqrt(step) spread)</td></tr>
+<tr><td><code>long</code></td><td>1440</td><td>6 hours</td><td>STL hybrid: Chronos direct for first 20 steps, STL seasonal profile + Chronos slope for remaining 1420 steps</td></tr>
+</table>
+
+<div class="box box-orange">
+<h4>Chronos-T5-Small practical limit</h4>
+<p>The model has a practical prediction limit of ~64 steps. Beyond that, quality degrades. That's why medium/long horizons use extrapolation rather than running the model for 240/1440 steps directly. The 5-minute direct window is the most trustworthy.</p>
+</div>
+
+<h2>Breach Probability Calculation</h2>
+<pre><code>thr = uoi_threshold  # calibrated from training data
+# 20 sample paths from Chronos:
+breach_prob = mean( (samples > thr).any(axis=-1) )
+# = fraction of the 20 paths where value breaches threshold at any point
+
+# Thresholds:
+# < 0.4 → low confidence   → ETA not shown
+# 0.4–0.7 → medium         → ETA shown with caveat
+# > 0.7 → high             → event promoted to critical</code></pre>
+
+<h2>STL Hybrid Long-Horizon Forecast</h2>
+<pre><code># For 6-hour forecast:
+# 1. Run Chronos for first 20 steps (5 min) — direct
+# 2. For remaining 1420 steps:
+#    a. Load STL hourly profile for uoi_session_component (from stl-sidecar)
+#    b. For each future timestamp, look up hourly_mean[hour] from STL profile
+#    c. Add Chronos-derived slope correction
+#    d. Uncertainty band grows proportionally with step index
+
+pred_val = seasonal_mean + slope_per_step * (short_steps + i)
+spread   = seasonal_std_at_that_hour</code></pre>
+
+<h2>Naive Baseline Fallback</h2>
+<p>When Chronos isn't installed or fails:</p>
+<pre><code># Simple linear extrapolation from last 10 context values:
+slope = polyfit(arange(10), context[-10:], 1)[0]
+median_fc = last_val + slope * steps
+std_est = std(context[-20:])
+# Returns p10 = median - 1.28*std, p90 = median + 1.28*std</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s10" class="page-break"><span class="section-num">10</span> STL Temporal Intelligence Sidecar</h1>
+
+<p>Located in <code>tools/temporal/</code>. Runs on port 8085. Decomposes UPF time series using Seasonal-Trend decomposition using LOESS (STL).</p>
+
+<h2>What STL Decomposition Does</h2>
+<pre><code>time_series = Trend + Seasonal + Residual
+
+# Parameters:
+STL_PERIOD = 96  # 96 steps × 15s = 24 hours → captures diurnal seasonality
+# Weekly STL requires ≥ 14 days of data (we have 1.71 days — only daily period used)</code></pre>
+
+<h2>Traffic Regime Classification</h2>
+<p>At each poll, the STL sidecar classifies the <strong>current traffic regime</strong>:</p>
+<table>
+<tr><th>Regime</th><th>Condition</th><th>Color in UI</th></tr>
+<tr><td><code>low</code></td><td>Sessions below 70th pct of diurnal baseline</td><td>Blue #4a90d9</td></tr>
+<tr><td><code>normal</code></td><td>Within expected diurnal range</td><td>Green #27ae60</td></tr>
+<tr><td><code>peak</code></td><td>Above 90th pct — approaching daily high</td><td>Orange #e67e22</td></tr>
+<tr><td><code>surge</code></td><td>Z-score from seasonal norm > threshold</td><td>Red #e74c3c</td></tr>
+</table>
+
+<h2>Calendar Context</h2>
+<p>The <code>calendar_context.py</code> module uses the <code>holidays</code> library to annotate every timestamp with:</p>
+<ul>
+<li>Day of week, hour of day (UTC)</li>
+<li>Is it a public holiday? (configurable country: <code>HOLIDAY_COUNTRY=IN</code>)</li>
+<li>Is it a weekend?</li>
+</ul>
+<p>This lets the LLM distinguish "sessions are low because it's 3am Saturday" from "sessions are low because UPF is failing".</p>
+
+<h2>STL Profiles Written to /models/stl_profiles.json</h2>
+<p>The STL sidecar writes hourly seasonal profiles for each channel to <code>/models/stl_profiles.json</code>. The Chronos sidecar reads this file to power the long-horizon (6h) STL hybrid forecast.</p>
+<pre><code># stl_profiles.json structure:
+{
+  "pfcp_sessions_total": {
+    "hourly_means": {"0": 820000, "1": 790000, ..., "23": 870000},
+    "hourly_stds":  {"0": 45000, "1": 42000, ..., "23": 48000}
+  },
+  "uoi_session_component": { ... }
+}</code></pre>
+
+<h2>Data Coverage Warning</h2>
+<div class="box box-orange">
+<p>The training dataset covers only <strong>1.71 days</strong>. With STL period = 96 steps (24h), this gives roughly 1.7 complete cycles — enough for intraday seasonality but not weekly patterns. All API responses include <code>data_coverage_days</code> so the frontend can display "⚠ thin baseline" warnings.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s11" class="page-break"><span class="section-num">11</span> LLM Analysis Service &amp; Orchestrator</h1>
+
+<p>Located in <code>analysis/</code>, written in Go. This is the <strong>conversational AI brain</strong> of the system.</p>
+
+<h2>Service Architecture</h2>
+<div class="diagram">
+<pre>
+HTTP POST /api/v1/chat
+     │
+     ├── Rate limiter (60 req/min per IP)
+     ├── Basic Auth check
+     │
+     ▼
+  Handler → Orchestrator.Chat(sessionID, message)
+     │
+     ├── 1. Get/create Session (in-memory, TTL 30min)
+     │      History: [SystemMessage, ...previous turns...]
+     │
+     ├── 2. RAG retrieval (keyword match over analysis/docs/*.md)
+     │      Prepends: "[Background context from runbooks]\n---\n..."
+     │
+     ├── 3. Inject anomaly context from Detection service
+     │
+     └── 4. TOOL-CALLING LOOP (max 4 iterations):
+              │
+              ├── LLM.Complete(messages, tools)  → vLLM Qwen3-8B
+              │
+              ├── If tool_calls in response:
+              │     ├── query_prometheus  → validate → VM query
+              │     ├── get_anomalies    → Detection service
+              │     ├── get_predictions  → Detection service (predictive events)
+              │     └── get_metric_metadata → allowlist names
+              │
+              ├── Append tool results → messages
+              │
+              └── If no tool_calls: DONE → return answer
+</pre>
+</div>
+
+<h2>System Prompt (The LLM's Instructions)</h2>
+<p>The system prompt (hardcoded in <code>orchestrator.go</code>) gives the LLM critical behavioral rules:</p>
+<ul>
+<li>Call <code>get_metric_metadata</code> first if unsure of metric names — never guess</li>
+<li>Report <strong>actual numeric values</strong> from queries — never estimate</li>
+<li>Distinguish <span class="badge badge-red">REACTIVE</span> events ("is elevated", "has spiked") from <span class="badge badge-orange">PREDICTIVE</span> events ("is forecast to", "is projected to breach")</li>
+<li>Use at most <strong>3 tool calls per response</strong> then synthesize</li>
+<li>Check <code>get_anomalies</code> early to see what's already been flagged</li>
+</ul>
+
+<h2>Four LLM Tools</h2>
+<table>
+<tr><th>Tool</th><th>Args</th><th>What it does</th></tr>
+<tr><td><code>query_prometheus</code></td><td><code>promql</code>, <code>time_range</code>, <code>step</code></td><td>Validates PromQL through 5-layer validator, then runs against VictoriaMetrics</td></tr>
+<tr><td><code>get_anomalies</code></td><td><code>since</code>, <code>metric</code>, <code>severity</code></td><td>Fetches reactive events from Detection service SQLite</td></tr>
+<tr><td><code>get_predictions</code></td><td><code>since</code>, <code>metric</code></td><td>Fetches predictive (OLS forecast) events — returns with note about future tense</td></tr>
+<tr><td><code>get_metric_metadata</code></td><td>none</td><td>Returns list of all operator-visible metric names from VM allowlist (filters out go_*, prometheus_*, process_*)</td></tr>
+</table>
+
+<h2>vLLM / Qwen3 Configuration</h2>
+<pre><code>// In llm/client.go:
+model: "Qwen/Qwen3-8B"   (or Qwen2.5-7B-Instruct per analysis env var)
+max_tokens: 512
+temperature: 0.1          // low temperature → deterministic tool calls
+enable_thinking: false    // CRITICAL: disable chain-of-thought thinking tokens
+                          // Reason: reduces latency, avoids token budget exhaustion
+
+// Tool call parser: hermes format
+// --tool-call-parser hermes in vLLM command
+</code></pre>
+
+<h2>Hermes Text Fallback Parser</h2>
+<p>Qwen3 sometimes emits tool calls as text inside <code>&lt;tool_call&gt;...&lt;/tool_call&gt;</code> tags instead of the structured JSON <code>tool_calls</code> field. The orchestrator handles this:</p>
+<pre><code>func parseTextToolCalls(content string) []ToolCall {
+    // Scan for <tool_call>{"name":"...","arguments":{...}}</tool_call>
+    // Extract JSON, build ToolCall structs with synthetic IDs "fallback-0", "fallback-1"
+    // Normalizes content field to nil (tool_calls messages must have null content)
+}</code></pre>
+
+<h2>Session Management</h2>
+<pre><code>type Session struct {
+    ID         string
+    Messages   []Message   // [SystemMsg, UserMsg, AssistantMsg, ToolResult, ...]
+    LastActive time.Time
+}
+// After each complete turn, session is reset to [sys, user, answer]
+// → keeps exactly one turn of context for follow-ups without unbounded growth
+// TTL: 30 minutes of inactivity (configurable via SESSION_TTL env var)
+// Cleanup: background goroutine runs every 10 minutes</code></pre>
+
+<h2>RCA Engine (Brain 2)</h2>
+<p>Separately from the chat orchestrator, the <code>RCAEngine</code> generates structured Root Cause Analysis reports when MOMENT fires an anomaly:</p>
+<table>
+<tr><th>RCA Field</th><th>Description</th></tr>
+<tr><td><code>severity</code></td><td><code>low/medium/high/critical</code> based on MOMENT score/threshold ratio and Chronos breach probability</td></tr>
+<tr><td><code>cause</code></td><td>One-line: typically <code>session-plane</code>, <code>throughput-plane</code>, or <code>compound</code></td></tr>
+<tr><td><code>evidence</code></td><td>Bullet points with specific metrics and current values</td></tr>
+<tr><td><code>recommended_actions</code></td><td>Operator mitigation steps</td></tr>
+<tr><td><code>eta_minutes</code></td><td>Chronos-2 predicted breach ETA</td></tr>
+<tr><td><code>confidence</code></td><td>0.0–1.0; < 0.4 if breach_probability < 0.4</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s12" class="page-break"><span class="section-num">12</span> PromQL Safety Validator</h1>
+
+<p>Located in <code>analysis/internal/validator/</code>. Every PromQL query from the LLM passes through <strong>five validation layers</strong> before reaching VictoriaMetrics.</p>
+
+<div class="diagram">
+<pre>
+LLM produces: query_prometheus{"promql": "pfcp_sessions_total{job='upf'}", "time_range": "1h", "step": "15s"}
+                               │
+                               ▼
+  ┌─────────────────── VALIDATOR.Validate(promql, timeRange, step) ──────────────────┐
+  │                                                                                    │
+  │  1. SYNTAX CHECK                                                                   │
+  │     parser.ParseExpr(promql)  →  rejects malformed PromQL immediately             │
+  │                                                                                    │
+  │  2. FAN-OUT GUARD                                                                  │
+  │     Queries without a metric name (e.g., bare {job="upf"}) would scan all        │
+  │     series — blocked to prevent cardinality explosions                             │
+  │                                                                                    │
+  │  3. METRIC ALLOWLIST                                                               │
+  │     Extract metric names from AST → check each against DynamicAllowlist          │
+  │     Allowlist populated from VM's /api/v1/label/__name__/values                  │
+  │     Refreshed every 5 minutes (configurable ALLOWLIST_REFRESH_INTERVAL)           │
+  │     Any metric not in VM's live index is rejected                                  │
+  │                                                                                    │
+  │  4. TIME RANGE CAP                                                                 │
+  │     time_range > MAX_QUERY_RANGE (default 720h = 30 days) → rejected             │
+  │     Prevents LLM from triggering expensive range scans                            │
+  │                                                                                    │
+  │  5. STEP FLOOR                                                                     │
+  │     step < MIN_STEP (default 15s) → rejected                                      │
+  │     Prevents high-cardinality sub-second resolution                                │
+  │                                                                                    │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+                               │ PASS
+                               ▼
+                     VictoriaMetrics query (safe)
+</pre>
+</div>
+
+<h2>Dynamic Allowlist</h2>
+<pre><code>// validator/allowlist.go
+// Calls: GET http://victoriametrics:8428/api/v1/label/__name__/values
+// Returns: all metric names currently in VM
+// Initial population: retries 3× at startup (non-blocking)
+// Background refresh: every 5 minutes via StartRefreshLoop
+// Thread-safe: sync.RWMutex protects the name set</code></pre>
+
+<div class="box box-blue">
+<h4>Why a dynamic allowlist instead of a static one?</h4>
+<p>When new UPF nodes or scrape targets are added, new metrics appear in VM automatically. A static allowlist would require code changes. The dynamic approach also means the LLM can never query metrics that don't exist in the target environment — it's environment-specific security.</p>
+</div>
+
+<h2>Validation Error Classification (for Prometheus metrics)</h2>
+<pre><code>func classifyValidationError(msg string) string {
+    "syntax"    → malformed PromQL expression
+    "allowlist" → metric name not in VM index
+    "time_range"→ exceeds MAX_QUERY_RANGE
+    "step"      → below MIN_STEP
+    "fan_out"   → no metric name in selector
+    "selector"  → invalid label selector
+    "other"     → anything else
+}
+// Labeled on o.m.ValidatorRejects counter for Prometheus monitoring</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s13" class="page-break"><span class="section-num">13</span> RAG Retriever &amp; Audit Log</h1>
+
+<h2>RAG (Retrieval-Augmented Generation)</h2>
+<p>Located in <code>analysis/internal/rag/</code>. Uses simple <strong>keyword matching</strong> (not vector embeddings) over Markdown documents.</p>
+<pre><code>// rag/keyword.go
+// At startup: loads all *.md files from analysis/docs/
+// On each user message: finds top 3 snippets by keyword overlap
+// Prepends to user message as "[Background context from runbooks]\n---\n..."
+// Enables LLM to cite specific runbook procedures without hallucinating them</code></pre>
+
+<p>To add runbook content: <code>cp my-runbook.md analysis/docs/ && docker compose restart analysis</code></p>
+
+<h2>SQLite Audit Log</h2>
+<p>Every PromQL tool call is logged in <code>analysis-data:/data/audit.db</code>:</p>
+<table>
+<tr><th>Field</th><th>Purpose</th></tr>
+<tr><td><code>session_id</code></td><td>Correlate all queries in one conversation</td></tr>
+<tr><td><code>user_message</code></td><td>What the operator asked</td></tr>
+<tr><td><code>tool_name</code></td><td>Which tool the LLM called</td></tr>
+<tr><td><code>tool_args</code></td><td>PromQL and parameters used</td></tr>
+<tr><td><code>validation_error</code></td><td>Why a query was rejected (if any)</td></tr>
+<tr><td><code>execution_status</code></td><td><code>ok</code>, <code>rejected</code>, <code>vm_error</code></td></tr>
+<tr><td><code>row_count</code></td><td>Data points returned</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s14" class="page-break"><span class="section-num">14</span> Nightly Export Job (VM → Parquet → MinIO)</h1>
+
+<p>Located in <code>export-job/</code>, written in Go. Runs on a cron schedule via <code>supercronic</code> (bundled in the image). Default: daily at 02:00 UTC (<code>config/export/crontab</code>).</p>
+
+<h2>Export Pipeline</h2>
+<div class="flow">
+  <div class="flow-step">Idempotency check<div class="sub">Look for .done sentinel in MinIO</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">VM range query<div class="sub">Past 24h at 15s resolution</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">Parquet encode<div class="sub">Apache Arrow writer</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">MinIO upload<div class="sub">{metric}/date={YYYY-MM-DD}/</div></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">Write .done<div class="sub">Sentinel prevents re-export</div></div>
+</div>
+
+<h2>MinIO Object Layout</h2>
+<pre><code>upf-metrics/                               ← EXPORT_BUCKET
+  pfcp_sessions_total/
+    date=2026-06-21/
+      2026-06-21.parquet
+  port_bytes_count/
+    date=2026-06-21/
+      2026-06-21.parquet
+  _manifests/
+    pfcp_sessions_total/
+      date=2026-06-21.done   ← idempotency sentinel (0 bytes)</code></pre>
+
+<h2>Parquet Schema</h2>
+<pre><code>// writer/parquet.go — each row:
+{
+    timestamp_unix_ms: int64,   // Unix milliseconds
+    value:             float64, // metric value
+    labels:            map[string]string  // {job: "upf", node_id: "sim-upf-01", ...}
+}</code></pre>
+
+<h2>MinIO Access Control</h2>
+<p>The <code>minio-init</code> container (runs once) creates:</p>
+<ul>
+<li>A bucket named <code>$EXPORT_BUCKET</code> (default: <code>upf-metrics</code>)</li>
+<li>A <strong>least-privilege service account</strong> (<code>$MINIO_EXPORTER_USER</code>) with write-only access to that bucket</li>
+<li>The root MinIO credentials are NOT used by the export job</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s15" class="page-break"><span class="section-num">15</span> React Frontend — 5 Views Explained</h1>
+
+<p>Located in <code>frontend/</code>. Built with React 18, TypeScript, Vite, Tailwind CSS, Zustand (state), React Query (server state), Recharts (charts).</p>
+
+<h2>Application Shell</h2>
+<pre><code>AppShell
+├── Sidebar (navigation)
+├── TopBar
+├── PulseStrip (always-visible 32px sparkline — last 60s pfcp_sessions_total)
+└── &lt;Outlet&gt; — current view:
+    ├── OverviewPage
+    ├── AnomalyFeedPage
+    ├── ForecastPage
+    ├── ChatPage
+    └── ScenarioPage (hidden in production via VITE_ENABLE_SCENARIO_CONTROLS=false)</code></pre>
+
+<h2>PulseStrip (Sidebar Live Indicator)</h2>
+<p>Always visible. Polls every 10 seconds. Shows a 32px sparkline of the last 60s of <code>pfcp_sessions_total</code>. Color-coded: green (ok), yellow (warning > 15k), red (critical > 18k). Implemented in <code>components/layout/PulseStrip.tsx</code>.</p>
+
+<h2>Overview Page</h2>
+<table>
+<tr><th>Section</th><th>Data Source</th><th>Refresh</th></tr>
+<tr><td>Temporal regime strip (STL)</td><td><code>GET /api/v1/temporal/analysis</code> → stl-sidecar</td><td>60s</td></tr>
+<tr><td>4 KPI cards (sessions, N3 rx, N6 tx, drops)</td><td><code>GET /api/v1/query?q=sum(pfcp_sessions_total)</code> → VM instant</td><td>15s</td></tr>
+<tr><td>Event feed (left 60%)</td><td><code>GET /api/v1/anomalies</code> → detection SQLite</td><td>30s</td></tr>
+<tr><td>Forecast summary (right 40%)</td><td>Filtered from anomaly feed: <code>event_type="predictive"</code></td><td>30s</td></tr>
+<tr><td>System health strip</td><td>Static labels (Prometheus, VM, Detection, LLM, Sim)</td><td>Static</td></tr>
+</table>
+
+<h2>Anomaly Feed Page</h2>
+<p>Full event table. Filterable by severity (<code>low/medium/high/critical</code>) and type (<code>reactive/predictive</code>). Values formatted in carrier units via <code>fmtBytes()</code> helper.</p>
+<pre><code>// lib/formatters.ts — fmtBytes:
+// 10_000_000_000 bytes/s → "10.00 GB/s"
+// 6_200_000_000 bytes/s  → "6.20 GB/s"
+// 150_000_000 bytes/s    → "150.00 MB/s"</code></pre>
+
+<h2>Forecast Page (Key Architecture Point)</h2>
+<div class="box box-green">
+<h4>Critical design: always-on VM instant queries</h4>
+<p>The Forecast page does NOT depend on the SQLite anomaly store for visibility. It uses a static <code>FORECAST_METRICS</code> list and calls <code>GET /api/v1/query</code> (VictoriaMetrics instant query) directly on every 15s poll. This means <strong>all 4 metric cards are always visible</strong>, even during normal operation when no OLS forecast has fired. DB predictive events are optional enrichment — they add ETA badges and trend % when available.</p>
+</div>
+<pre><code>FORECAST_METRICS = [
+  { name: "pfcp_sessions_total",  query: "sum(pfcp_sessions_total)",           capacity: 2_000_000 },
+  { name: "N3 rx throughput",     query: 'sum(rate(port_bytes_count{...}[1m]))', capacity: 10_000_000_000 },
+  { name: "N6 tx throughput",     query: 'sum(rate(port_bytes_count{...}[1m]))', capacity: 10_000_000_000 },
+  { name: "Packet drop rate",     query: "sum(rate(port_dropped_count[1m]))",   capacity: 1000 },
+]</code></pre>
+
+<h2>Chat Page</h2>
+<p>Conversational interface. Sends to <code>POST /api/v1/chat</code>. Shows:</p>
+<ul>
+<li>Conversation history with reasoning trail</li>
+<li>PromQL queries used (collapsible)</li>
+<li>Anomaly events referenced in the answer</li>
+<li>Suggested prompts for new operators</li>
+</ul>
+
+<h2>Scenario Control Page</h2>
+<p>Dev/demo only. Buttons for each of the 6 simulator modes. Hidden in production via <code>VITE_ENABLE_SCENARIO_CONTROLS=false</code> build argument.</p>
+
+<h2>State Management</h2>
+<pre><code>// Zustand global store (store/useAppStore.ts):
+{
+  contextPanel: { type: "event"|"rca", data: ... },  // drives right-side context panel
+  setContext: (ctx) => void,
+  creds: { user, password }  // Basic auth credentials stored in memory
+}</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s16" class="page-break"><span class="section-num">16</span> Caddy Reverse Proxy &amp; Routing</h1>
+
+<p>Caddy is the <strong>only service with public ports (80, 443)</strong>. It handles TLS termination, basic auth for admin UIs, and routes requests to the appropriate internal service.</p>
+
+<h2>Routing Rules (Caddyfile)</h2>
+<table>
+<tr><th>URL Path</th><th>Backend</th><th>Auth</th><th>Notes</th></tr>
+<tr><td><code>/vm/*</code></td><td><code>victoriametrics:8428</code></td><td>Caddy basic-auth</td><td>Strips <code>/vm</code> prefix before forwarding</td></tr>
+<tr><td><code>/minio/*</code></td><td><code>minio:9001</code> (console)</td><td>Caddy basic-auth</td><td>Strips <code>/minio</code> prefix</td></tr>
+<tr><td><code>/health</code></td><td><code>analysis:8082</code></td><td>None</td><td>Liveness probe — no sensitive data</td></tr>
+<tr><td><code>/api/*</code></td><td><code>analysis:8082</code></td><td>Analysis service own Basic Auth</td><td>LLM chat, anomalies, PromQL passthrough</td></tr>
+<tr><td><code>/grafana/*</code></td><td><code>grafana:3000</code></td><td>Grafana's own login</td><td>Dashboard UI</td></tr>
+<tr><td><code>/*</code></td><td><code>frontend:80</code></td><td>App-level auth</td><td>React SPA catch-all</td></tr>
+</table>
+
+<h2>Security Headers</h2>
+<pre><code>Strict-Transport-Security: max-age=31536000; includeSubDomains  # Force HTTPS for 1 year
+X-Content-Type-Options: nosniff                                   # Prevent MIME sniffing
+X-Frame-Options: SAMEORIGIN                                       # Block clickjacking
+Referrer-Policy: no-referrer                                      # Don't leak referer
+-Server                                                           # Remove Server header</code></pre>
+
+<h2>TLS Modes</h2>
+<table>
+<tr><th>Mode</th><th>Configuration</th><th>When to use</th></tr>
+<tr><td>Dev (self-signed)</td><td><code>tls {$TLS_CERT_FILE} {$TLS_KEY_FILE}</code> in Caddyfile. Generate with <code>scripts/gen-dev-certs.sh</code></td><td>Local development. Browser shows warning.</td></tr>
+<tr><td>Production (ACME)</td><td>Remove the <code>tls {...}</code> block. Set <code>CADDY_HOSTNAME</code> to real FQDN. Open ports 80/443 to internet for HTTP-01 challenge.</td><td>Production deployment</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s17" class="page-break"><span class="section-num">17</span> Configuration Reference (.env)</h1>
+
+<table>
+<tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
+<tr><td><code>VM_AUTH_USERNAME</code></td><td><code>vmadmin</code></td><td>VictoriaMetrics basic-auth username (all services use this)</td></tr>
+<tr><td><code>VM_AUTH_PASSWORD</code></td><td>CHANGE_ME</td><td>VM password — shared secret</td></tr>
+<tr><td><code>VM_RETENTION</code></td><td><code>12</code></td><td>VM retention in months</td></tr>
+<tr><td><code>PROM_SCRAPE_TARGET</code></td><td><code>prometheus:9090</code></td><td>Host:port VM uses for federation fallback scrape</td></tr>
+<tr><td><code>MINIO_ROOT_USER</code></td><td><code>minioadmin</code></td><td>MinIO admin (not used by export-job)</td></tr>
+<tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>CHANGE_ME</td><td>MinIO admin password</td></tr>
+<tr><td><code>MINIO_EXPORTER_USER</code></td><td><code>upf-exporter</code></td><td>Least-privilege service account for export-job</td></tr>
+<tr><td><code>MINIO_EXPORTER_PASSWORD</code></td><td>CHANGE_ME</td><td>Service account password</td></tr>
+<tr><td><code>EXPORT_BUCKET</code></td><td><code>upf-metrics</code></td><td>MinIO bucket for Parquet files</td></tr>
+<tr><td><code>EXPORT_METRICS</code></td><td>comma-separated</td><td>Which metrics to export nightly (e.g., <code>pfcp_sessions_total,port_bytes_count</code>)</td></tr>
+<tr><td><code>CADDY_HOSTNAME</code></td><td><code>localhost</code></td><td>Set to real FQDN in production for ACME TLS</td></tr>
+<tr><td><code>CADDY_ADMIN_USER</code></td><td><code>admin</code></td><td>Caddy basic-auth for /vm/* and /minio/* UIs</td></tr>
+<tr><td><code>CADDY_ADMIN_PASS_HASH</code></td><td>bcrypt hash</td><td>Generate: <code>docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'pass'</code></td></tr>
+<tr><td><code>ANALYSIS_AUTH_USER</code></td><td><code>analyst</code></td><td>Chat API username</td></tr>
+<tr><td><code>ANALYSIS_AUTH_PASSWORD</code></td><td>CHANGE_ME</td><td>Chat API password</td></tr>
+<tr><td><code>VLLM_MODEL</code></td><td><code>Qwen/Qwen3-8B</code></td><td>HuggingFace model ID for vLLM</td></tr>
+<tr><td><code>SESSION_TTL</code></td><td><code>30m</code></td><td>Chat session inactivity timeout</td></tr>
+<tr><td><code>MAX_QUERY_RANGE</code></td><td><code>720h</code></td><td>PromQL time-range cap (30 days)</td></tr>
+<tr><td><code>MIN_STEP</code></td><td><code>15s</code></td><td>PromQL step floor</td></tr>
+<tr><td><code>SIM_BASE_SESSIONS</code></td><td><code>1000000</code></td><td>Simulator: 10 lakh baseline sessions</td></tr>
+<tr><td><code>SIM_BYTES_PER_SESSION</code></td><td><code>5000</code></td><td>bytes/s per session → 6 GB/s N3 rx baseline</td></tr>
+<tr><td><code>SIM_SPIKE_MULTIPLIER</code></td><td><code>4.0</code></td><td>4× spike = 40 lakh sessions, 24 GB/s</td></tr>
+<tr><td><code>MOMENT_VARIANT</code></td><td><code>MOMENT-1-large</code></td><td>Set to <code>MOMENT-1-base</code> for ≤ 1.5 GB RAM</td></tr>
+<tr><td><code>HF_TOKEN</code></td><td>optional</td><td>HuggingFace token for gated models</td></tr>
+<tr><td><code>DETECTION_POLL_INTERVAL</code></td><td><code>60s</code></td><td>How often detection polls VM</td></tr>
+<tr><td><code>DETECTION_WINDOW</code></td><td><code>30m</code></td><td>Rolling window for z-score/trend rules</td></tr>
+<tr><td><code>HOLIDAY_COUNTRY</code></td><td><code>IN</code></td><td>ISO country code for holiday calendar in STL sidecar</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s18" class="page-break"><span class="section-num">18</span> Data Flow: End-to-End Walkthrough</h1>
+
+<h2>Scenario: Session Spike Detected and Explained</h2>
+
+<div class="box box-gray">
+<p><strong>Trigger:</strong> Operator activates <code>session_spike</code> on the Scenario Control page.</p>
+</div>
+
+<table>
+<tr><th>Step</th><th>Time</th><th>What happens</th><th>Where in code</th></tr>
+<tr><td>1</td><td>T+0s</td><td>Operator POSTs <code>/api/v1/scenario {"mode":"session_spike","duration":"10m"}</code></td><td><code>analysis/internal/api/handler.go</code> → <code>simclient</code> → <code>upf-sim/internal/api/handler.go</code></td></tr>
+<tr><td>2</td><td>T+0s to T+120s</td><td>upf-sim engine ramps sessions 1M → 4M over 120s (SpikeMultiplier×). Bytes rate ramps to 24 GB/s.</td><td><code>upf-sim/internal/sim/engine.go:computeRates():ModeSessionSpike</code></td></tr>
+<tr><td>3</td><td>T+15s</td><td>Prometheus scrapes <code>/metrics</code> from upf-sim. Sees elevated <code>pfcp_sessions_total</code>.</td><td><code>prometheus.yml</code> scrape_interval: 15s</td></tr>
+<tr><td>4</td><td>T+15s</td><td>Prometheus remote_writes to VictoriaMetrics. PII labels stripped.</td><td><code>prometheus.yml:remote_write</code> + <code>write_relabel_configs</code></td></tr>
+<tr><td>5</td><td>T+60s</td><td>Detection service ticks. Queries VM for last 30min of all metrics.</td><td><code>detection/main.go:ticker.C</code></td></tr>
+<tr><td>6</td><td>T+60s</td><td>Z-score fires on <code>pfcp_sessions_total</code> (z > 100 vs 30min baseline). Threshold fires at 2M sessions. Event inserted to SQLite as "reactive/high" and "reactive/critical".</td><td><code>detection/internal/detector/zscore.go</code>, <code>threshold.go</code>, <code>store/store.go:Insert</code></td></tr>
+<tr><td>7</td><td>T+60s</td><td>OLS forecaster runs. Fits line to 30min of data. Predicts 4M+ in 1h. Fires predictive event with <code>predicted_crossing_time</code>.</td><td><code>detection/internal/detector/forecaster.go:evalTarget</code></td></tr>
+<tr><td>8</td><td>T+65s</td><td>Frontend anomaly feed polls <code>/api/v1/anomalies</code>. New events appear in the event list. Forecast page shows ETA badge.</td><td><code>frontend/src/features/anomalies/AnomalyFeedPage.tsx</code></td></tr>
+<tr><td>9</td><td>User action</td><td>Operator opens Chat page and asks: "Why are sessions spiking?"</td><td><code>frontend/src/features/chat/ChatPage.tsx</code></td></tr>
+<tr><td>10</td><td>Chat req</td><td>Analysis service: injects anomaly context, enriches with RAG runbook snippets.</td><td><code>analysis/internal/llm/orchestrator.go:Chat()</code></td></tr>
+<tr><td>11</td><td>LLM iter 1</td><td>Qwen3 calls <code>get_anomalies{"since":"1h"}</code>. Returns 2 events (zscore high, threshold critical).</td><td><code>orchestrator.go:execGetAnomalies()</code> → <code>detector/client.go</code></td></tr>
+<tr><td>12</td><td>LLM iter 2</td><td>Qwen3 calls <code>query_prometheus{"promql":"pfcp_sessions_total{job='upf'}","time_range":"30m","step":"15s"}</code>. Validator passes. VM returns timeseries showing 1M→4M ramp.</td><td><code>validator.go</code> → <code>vmclient.go</code></td></tr>
+<tr><td>13</td><td>LLM iter 3</td><td>Qwen3 calls <code>get_predictions{"since":"2h"}</code>. Returns OLS forecast event with ETA.</td><td><code>orchestrator.go:execGetPredictions()</code></td></tr>
+<tr><td>14</td><td>Answer</td><td>Qwen3 synthesizes: "pfcp_sessions_total has spiked to 4,100,000 at 14:35 UTC (z-score 125). Based on the trend, the cluster is forecast to reach the 4M ceiling in approximately 35 minutes."</td><td><code>orchestrator.go</code> final answer returned</td></tr>
+<tr><td>15</td><td>Nightly</td><td>At 02:00 UTC, export-job queries VM for the day's metrics, encodes Parquet, uploads to MinIO. Available for ML retraining.</td><td><code>export-job/internal/job/job.go:Run()</code></td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h1 id="s19" class="page-break"><span class="section-num">19</span> Cross-Questioning Q&amp;A Prep</h1>
+
+<div class="qa-block">
+<div class="qa-q">Q: What does a UPF do and why does it need monitoring?</div>
+<div class="qa-a">A UPF (User Plane Function) in 5G is the data forwarding element — all subscriber internet traffic flows through it. Monitoring matters because capacity failures affect millions of users simultaneously. The key metrics are session count (how many users connected), throughput (N3/N6 bytes/s), and packet drops (quality indicator). Our stack detects anomalies in real-time and predicts capacity breaches hours before they happen.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: How does the z-score rule avoid missing a spike that's in the rolling window?</div>
+<div class="qa-a">The baseline is computed from <em>all values except the last one</em> (<code>values[:len-1]</code>). The spike value is only the <em>observed</em> data point (<code>values[len-1]</code>). This means the spike can't inflate its own baseline distribution and self-suppress the alert. If the spike were included in the mean/std calculation, it would move both closer to the spike value, reducing the z-score.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: Why are port_bytes_count and port_dropped_count counters, not gauges?</div>
+<div class="qa-a">They are Prometheus Counters (monotonically increasing) because they measure cumulative bytes/packets transferred since process start. To get a rate (bytes/second), you use <code>rate(port_bytes_count[5m])</code> in PromQL. The simulator models per-second rates and calls <code>counter.Add(rate × dt)</code> each tick. In flatline mode, rate → 0 so the counter stops incrementing but never resets — you detect the flatline by observing <code>rate() → 0</code>.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: What is the difference between reactive and predictive anomaly events?</div>
+<div class="qa-a"><strong>Reactive</strong> (event_type="reactive"): something anomalous is happening RIGHT NOW. Detected by z-score, trend, or threshold rules that fire when the current observed value is statistically extreme. <strong>Predictive</strong> (event_type="predictive"): a linear regression (OLS) over the recent window is extrapolated forward by 1 hour, and if the trend line hits a capacity ceiling before then, a predictive event fires. These give operators advance warning. The LLM system prompt explicitly instructs the model to use different language for each type ("is spiking" vs "is projected to breach").</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: How does the dual-ingest (Prometheus + federation fallback) work?</div>
+<div class="qa-a">VictoriaMetrics receives data via two simultaneous paths: (1) <strong>Primary</strong>: Prometheus pushes to <code>http://victoriametrics:8428/api/v1/write</code> immediately after each 15-second scrape. (2) <strong>Fallback</strong>: VictoriaMetrics promscrape polls the Prometheus <code>/federate</code> endpoint every 15 seconds. Both paths write to the same TSDB. If remote_write lags (network hiccup, VM temporarily overwhelmed), the federation scrape fills the gap. VM deduplicates by timestamp so no data is double-counted.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: Why does MOMENT need 512 input steps? What is that time-wise?</div>
+<div class="qa-a">512 steps × 15 seconds per step = 7,680 seconds = 128 minutes of UPF history. MOMENT-1-large was pre-trained on this fixed context window. Our training uses sliding windows of 512 steps over the 76k-row dataset. The encoder generates an embedding from the full 128-minute multivariate pattern, which the head then scores for anomaly. The window must be exactly 512 steps because MOMENT's positional encoding is fixed.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: Why is the MOMENT sidecar never exposed through Caddy?</div>
+<div class="qa-a">Security policy. MOMENT runs on the <code>metrics-backend</code> internal network only. The detection and analysis services call it by internal Docker DNS (<code>http://moment-sidecar:8083</code>). There's no public API for ML inference — only the analysis service's /api/* endpoints are public-facing. This also prevents abuse of the inference endpoint (it's compute-intensive and has no rate limiting).</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: What happens when the LLM produces malformed PromQL?</div>
+<div class="qa-a">The validator catches it at the syntax layer (<code>parser.ParseExpr()</code>) and returns a JSON error: <code>{"error":"PromQL validation failed: syntax error at ..."}</code>. This error is appended as a tool result to the conversation — it is NOT fatal. The LLM reads the error message and reformulates the query. This is the standard OpenAI-compatible tool-calling pattern: tool results (including errors) are fed back to the model for correction. Up to 4 iterations are allowed before giving up.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: What is the N3 vs N6 interface distinction?</div>
+<div class="qa-a">N3 is the interface between the UPF and the Radio Access Network (phone towers). N6 is the interface between the UPF and the internet (PDN — Packet Data Network). In normal download traffic: user's phone → tower → N3 rx (UPF inbound from RAN) → UPF routes packet → N6 tx (UPF outbound to internet). The simulator models N3 at 120% of base traffic and N6 at 120% on the other direction (downloads dominate, so N3 rx and N6 tx carry more).</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: How does the Chronos breach probability work?</div>
+<div class="qa-a">Chronos-T5-Small samples 20 Monte Carlo forecast paths of <code>uoi_value</code> over the next 5 minutes. <code>breach_probability</code> is the fraction of those 20 paths where the value exceeds the UOI threshold at any point. Example: if 14 of 20 paths breach the threshold, breach_probability = 0.70. Thresholds: &lt; 0.4 = low (ETA not shown), 0.4–0.7 = medium (ETA shown), &gt; 0.7 = high (critical alert).</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: Why use OLS (Ordinary Least Squares) for forecasting instead of a neural model?</div>
+<div class="qa-a">OLS runs synchronously in the 60-second detection poll and must complete in milliseconds. Neural models (Chronos, MOMENT) are too slow for synchronous use. OLS also produces an interpretable R² goodness-of-fit score that's stored in the event's <code>confidence</code> field. The design deliberately uses a statistical method for the reactive/fast path (Tier 1 + 3) and neural models for the analytical/slow path (Tier 2, called during RCA generation).</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: Where are secrets stored and how are they passed to services?</div>
+<div class="qa-a">Secrets are stored in <code>.env</code> (gitignored) and injected as environment variables via Docker Compose's <code>environment:</code> blocks. The <code>secrets/</code> directory exists but is gitignored and holds nothing committed. The README notes that VictoriaMetrics credentials appear in process args (visible via <code>docker inspect</code>) and recommends using Kubernetes Secrets with env refs for production. For the Caddy admin password, only the bcrypt hash (not plaintext) is stored in the Caddyfile.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: What does "degraded mode" mean for the ML sidecars?</div>
+<div class="qa-a">Each Python sidecar (<code>ml-infer</code>, <code>moment-sidecar</code>, <code>chronos-sidecar</code>, <code>stl-sidecar</code>) catches all exceptions at startup and sets <code>available: False</code> in its state rather than crashing. The <code>/health</code> endpoint returns <code>{"available": false, "error": "threshold file not found"}</code>. When called by the detection or analysis service, the sidecar returns <code>{"available": false, "anomaly": false}</code> and the caller continues without ML enrichment. This means the stack runs and does Tier 1 detection even before models are trained.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: What happens at 02:00 UTC every night?</div>
+<div class="qa-a">The <code>export-job</code> service's supercronic daemon fires the export binary. For each metric in <code>EXPORT_METRICS</code>: (1) checks MinIO for a <code>.done</code> sentinel file — if present, skips (idempotent). (2) Queries VictoriaMetrics for the past 24h at 15s resolution. (3) Encodes the timeseries as Apache Parquet with schema <code>{timestamp_unix_ms, value, labels}</code>. (4) Uploads to MinIO at <code>{metric}/date={YYYY-MM-DD}/</code>. (5) Writes the <code>.done</code> sentinel. These Parquet files are the training dataset for MOMENT and Chronos retraining.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: Why does the Forecast page always show all 4 metrics, even when no anomaly is firing?</div>
+<div class="qa-a">Design decision to avoid a confusing empty state. The Forecast page uses a static <code>FORECAST_METRICS</code> constant and queries VictoriaMetrics instant API (<code>/api/v1/query</code>) directly — not the anomaly SQLite. Cards show current utilization % and raw value at all times. When the OLS forecaster is silent (normal conditions, no capacity breach projected), cards show something like "sessions: 1,200,000 / 2,000,000 capacity = 60%". Only when a predictive event exists does an ETA badge appear. This is documented in both the README and the component code.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: What is the STL period=96 and why does it matter?</div>
+<div class="qa-a">STL (Seasonal-Trend decomposition using LOESS) requires you to specify the seasonal period. Period=96 means 96 time steps × 15 seconds = 1440 seconds = 24 hours. This captures the <em>diurnal</em> (daily) cycle — traffic peaks at 14:00 and troughs at 02:00. A period of 96×7=672 would capture weekly patterns, but our dataset is only 1.71 days so there's insufficient data for weekly decomposition. The STL sidecar warns about this limitation via <code>data_coverage_days</code> in every response.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: How is the analysis service's Basic Auth different from Caddy's Basic Auth?</div>
+<div class="qa-a">There are TWO layers of authentication: (1) <strong>Caddy Basic Auth</strong> protects the raw infrastructure UIs at <code>/vm/*</code> and <code>/minio/*</code>. Credentials: <code>CADDY_ADMIN_USER</code> / <code>CADDY_ADMIN_PASS_HASH</code> (bcrypt). (2) <strong>Analysis Service Basic Auth</strong> protects all <code>/api/*</code> endpoints (chat, anomalies, PromQL). Credentials: <code>ANALYSIS_AUTH_USER</code> / <code>ANALYSIS_AUTH_PASSWORD</code> (plaintext in env, checked in Go middleware). The React frontend, Grafana, and direct VM access all use their own separate credential systems.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: What is the `hf-cache` volume shared between MOMENT and Chronos sidecars?</div>
+<div class="qa-a">Both <code>moment-sidecar</code> and <code>chronos-sidecar</code> download their model weights from HuggingFace on first start. The <code>hf-cache</code> named Docker volume is mounted at <code>/hf-cache</code> in both containers (<code>HF_HOME=/hf-cache</code>). HuggingFace's library stores downloaded weights in <code>HF_HOME</code>. By sharing the volume: (1) models only download once, (2) container restarts don't re-download, (3) both sidecars benefit from the same cache. Chronos sidecar also runs with <code>TRANSFORMERS_OFFLINE=1</code> after first download to prevent internet access on metrics-backend.</div>
+</div>
+
+<div class="qa-block">
+<div class="qa-q">Q: How would you add a new UPF metric to monitor?</div>
+<div class="qa-a">Four places to update: (1) <code>config/detection/rules.yml</code>: add a new metric entry with zscore/threshold/trend rules. (2) <code>config/prometheus/prometheus.yml</code>: ensure the new metric isn't PII-stripped (check write_relabel_configs). (3) <code>.env</code>: add the metric name to <code>EXPORT_METRICS</code> for nightly Parquet export. (4) <code>frontend/src/lib/metrics.ts</code>: add display name and formatting. Then: <code>docker compose restart detection</code> (no VM restart needed; allowlist auto-refreshes in 5 minutes).</div>
+</div>
+
+<hr>
+<div class="box box-gray" style="text-align:center;">
+<h4>Print this document as PDF</h4>
+<p>Use browser print (Ctrl+P / Cmd+P) → Save as PDF. All sections are formatted for A4/Letter printing with page breaks at major sections. Tables and code blocks avoid splitting across pages.</p>
+<p class="no-print">Document covers: 12 Docker services · 3 detection tiers · OLS forecasting · MOMENT + Chronos-2 ML · Qwen3 LLM orchestration · React dashboard · Caddy TLS proxy · Parquet export pipeline</p>
+</div>
+
+</main>
+
+<script class="no-print">
+// Auto-highlight code keywords
+document.querySelectorAll('pre code').forEach(el => {
+  let html = el.innerHTML;
+  ['func', 'return', 'if', 'for', 'var', 'const', 'type', 'struct', 'package', 'import',
+   'def', 'class', 'import', 'from', 'async', 'await', 'self', 'true', 'false', 'nil', 'None'
+  ].forEach(kw => {
+    html = html.replace(new RegExp(`\\b${kw}\\b`, 'g'), `<span style="color:#93c5fd;">${kw}</span>`);
+  });
+  el.innerHTML = html;
+});
+</script>
+</body>
+</html>
