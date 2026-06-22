@@ -34,6 +34,8 @@ Rows are streamed to disk chunk by chunk — memory stays proportional
 to one time chunk (~3h), not the full export.
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import sys
