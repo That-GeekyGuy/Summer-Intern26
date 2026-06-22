@@ -1,3 +1,1 @@
-# No third-party dependencies.
-# All API calls go through docker exec curl inside the container.
-# stdlib only: argparse, csv, json, subprocess, urllib.parse, pathlib, datetime
+requests>=2.31
