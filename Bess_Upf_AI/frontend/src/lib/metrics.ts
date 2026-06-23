@@ -26,6 +26,26 @@ export const metricDisplayNames: Record<string, string> = {
   detection_poll_errors_total: "Detection Poll Errors",
   detection_sqlite_stored_events: "Stored Anomaly Events",
   analysis_active_sessions: "Active Chat Sessions",
+  // Tier 2 AI synthetic metric names (emitted by AIEvaluator)
+  upf_multivariate_ai: "UPF Multivariate (AI)",
+  upf_multivariate: "UPF Multivariate",
+  // MOMENT channel names — used in channel attribution bars
+  port_bytes_N3_rx_rate:    "N3 Inbound Throughput",
+  port_bytes_N6_tx_rate:    "N6 Outbound Throughput",
+  port_pkts_N3_rx_rate:     "N3 Packet Rate",
+  port_dropped_N3_rx_rate:  "N3 Drop Rate",
+  port_dropped_N6_rx_rate:  "N6 Drop Rate",
+  pfcp_session_setup_rate:  "Session Setup Rate",
+  dl_forwarding_efficiency: "DL Forwarding Eff.",
+  dl_throughput_efficiency: "DL Throughput Eff.",
+  drop_rate_percentage:     "Drop Rate (%)",
+  tsi_value:                "TSI Value",
+  uoi_value:                "UPF Overload Index",
+  uoi_session_component:    "UOI Session",
+  uoi_throughput_component: "UOI Throughput",
+  go_goroutines:            "Go Goroutines",
+  go_heap_alloc_bytes:      "Heap Alloc",
+  gc_pressure_rate:         "GC Pressure Rate",
 };
 
 export function displayName(metric: string): string {

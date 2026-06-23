@@ -1,7 +1,7 @@
 import { Credentials, fetchAnomalies, queryInstant, AnomalyEvent, fetchTemporalAnalysis, Regime } from "../../api/client";
 import { useAppStore } from "../../store/useAppStore";
 import { COPY } from "../../lib/copy";
-import { displayName, formatLabels, severityColor } from "../../lib/metrics";
+import { displayName, formatLabels, severityColor, fmtMetricVal } from "../../lib/metrics";
 import { fmtRelative, fmtEta } from "../../lib/formatters";
 import { KpiCard } from "./KpiCard";
 import { useQuery } from "@tanstack/react-query";
@@ -35,10 +35,11 @@ export function OverviewPage({ creds }: Props) {
   const { setContext } = useAppStore();
 
   // ── Live KPI data from VictoriaMetrics ──────────────────────────────────
-  const sessions = useKpi(creds, "sum(pfcp_sessions_total)");
-  const n3rx     = useKpi(creds, 'sum(rate(port_bytes_count{dir="rx",iface="N3"}[1m]))');
-  const n6tx     = useKpi(creds, 'sum(rate(port_bytes_count{dir="tx",iface="N6"}[1m]))');
-  const drops    = useKpi(creds, "sum(rate(port_dropped_count[1m]))");
+  const sessions = useKpi(creds, 'sum(pfcp_sessions_total{job="upf"})');
+  const n3rx     = useKpi(creds, 'sum(rate(port_bytes_count{job="upf",dir="rx",iface="N3"}[1m]))');
+  const n6tx     = useKpi(creds, 'sum(rate(port_bytes_count{job="upf",dir="tx",iface="N6"}[1m]))');
+  const drops    = useKpi(creds, 'sum(rate(port_dropped_count{job="upf"}[1m]))');
+
 
   // ── Temporal regime (non-blocking — silently absent if sidecar is down) ──
   const { data: temporalData } = useQuery({
@@ -227,7 +228,7 @@ export function OverviewPage({ creds }: Props) {
                   </div>
                 )}
                 <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: 2 }}>
-                  Current: {e.observed_value.toFixed(0)} · Threshold: {(e.expected_value ?? 0).toFixed(0)}
+                  Current: {fmtMetricVal(e.metric_name, e.observed_value)} · Threshold: {fmtMetricVal(e.metric_name, e.expected_value ?? 0)}
                 </div>
               </div>
             ))}

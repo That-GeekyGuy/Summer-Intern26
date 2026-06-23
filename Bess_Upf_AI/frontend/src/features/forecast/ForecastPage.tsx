@@ -94,8 +94,14 @@ export function ForecastPage({ creds }: Props) {
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
         {FORECAST_METRICS.map((m, i) => {
+          const renderNow = Date.now(); // single timestamp for this render pass
           const q = metricQueries[i];
-          const currentValue = q.data?.samples?.[0]?.value ?? null;
+          // Sum all returned samples (per-node metrics like pfcp_sessions_total return
+          // one sample per UPF node; rate queries with sum() return a single sample).
+          const samplesArr = q.data?.samples ?? [];
+          const currentValue = samplesArr.length > 0
+            ? samplesArr.reduce((acc, s) => acc + s.value, 0)
+            : null;
           const dbEvent = dbEvents.get(m.metric) ?? null;
           const capacity = m.capacity as number | null;
 
@@ -103,12 +109,15 @@ export function ForecastPage({ creds }: Props) {
             ? Math.min(100, (currentValue / capacity) * 100)
             : null;
 
-          const trendPct = dbEvent?.expected_value !== undefined && dbEvent.observed_value
-            ? ((dbEvent.expected_value - dbEvent.observed_value) / Math.abs(dbEvent.observed_value)) * 100
+          // Trend %: how much the DB-projected value deviates from the current live value.
+          // expected_value in a predictive event holds the extrapolated value at the
+          // forecast horizon (e.g. 1h from now), so this is a genuine forward-looking %.
+          const trendPct = dbEvent?.expected_value !== undefined && currentValue !== null && currentValue !== 0
+            ? ((dbEvent.expected_value - currentValue) / Math.abs(currentValue)) * 100
             : null;
 
           const etaH = dbEvent?.predicted_crossing_time
-            ? (dbEvent.predicted_crossing_time * 1000 - Date.now()) / 3_600_000
+            ? (dbEvent.predicted_crossing_time * 1000 - renderNow) / 3_600_000
             : -1;
 
           const alarming = dbEvent !== null;
@@ -210,7 +219,7 @@ export function ForecastPage({ creds }: Props) {
                   color: "var(--signal-warning)",
                   fontFamily: "var(--font-mono)",
                 }}>
-                  {COPY.forecast.etaLabel}: {fmtEta(dbEvent.predicted_crossing_time)}
+                  {COPY.forecast.etaLabel}: {fmtEta(dbEvent.predicted_crossing_time, renderNow)}
                 </div>
               )}
 

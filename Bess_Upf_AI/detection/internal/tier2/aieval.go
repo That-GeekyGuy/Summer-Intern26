@@ -31,31 +31,31 @@ const (
 	// chronosStaleSteps: if uoi_value has not updated in this many steps, skip Chronos.
 	chronosStaleSteps = 7 // 7 × 15s = 105s > 90s UOI cadence + 1 step margin
 
-	// channelCount: number of MOMENT channels (matches train_moment.py MOMENT_CHANNELS order).
-	channelCount = 16
+	// channelCount: number of MOMENT channels.
+	// Must match len(MOMENT_CHANNELS) in prepare_dataset.py — currently 14.
+	channelCount = 14
 
 	// analysisRCATimeout: max time to wait for Brain 2 RCA response.
 	analysisRCATimeout = 10 * time.Second
 )
 
-// MOMENT channel names in the same order as MOMENT_CHANNELS in train_moment.py.
+// MOMENT channel names in the same order as MOMENT_CHANNELS in prepare_dataset.py.
+// MUST stay in sync with that dict (Python 3.7+ preserves insertion order).
 var momentChannelOrder = []string{
-	"port_bytes_N3_rx_rate",
-	"port_bytes_N6_tx_rate",
-	"port_pkts_N3_rx_rate",
-	"port_dropped_N3_rx_rate",
-	"port_dropped_N6_rx_rate",
-	"pfcp_sessions_total",
-	"pfcp_session_setup_rate",
-	"dl_forwarding_efficiency",
-	"dl_throughput_efficiency",
-	"drop_rate_percentage",
-	"tsi_value",
-	"uoi_session_component",
-	"uoi_throughput_component",
-	"go_goroutines",
-	"go_heap_alloc_bytes",
-	"gc_pressure_rate",
+	"port_bytes_N3_rx_rate",       // 0
+	"port_bytes_N6_tx_rate",       // 1
+	"port_pkts_N3_rx_rate",        // 2
+	"port_dropped_N3_rx_rate",     // 3
+	"port_dropped_N6_rx_rate",     // 4
+	"pfcp_sessions_total",         // 5
+	"pfcp_session_setup_rate",     // 6
+	"dl_throughput_efficiency",    // 7  ← maps to dl_throughput_efficiency_packet metric
+	"dl_throughput_efficiency_rate", // 8
+	"drop_rate_percentage",        // 9
+	"tsi_value",                   // 10
+	"go_goroutines",               // 11
+	"go_heap_alloc_bytes",         // 12
+	"gc_pressure_rate",            // 13
 }
 
 // circularBuffer is a ring buffer of float64 for a single channel.
@@ -268,24 +268,26 @@ func (a *AIEvaluator) Push(ctx context.Context, ts time.Time) (remaining int) {
 		kind string
 	}
 
-	// Map channel index → PromQL + kind
+	// Map channel index → PromQL + kind.
+	// Indices must match momentChannelOrder exactly.
+	// kind="rate"  → compute (v[t]-v[t-1])/dt over the 15 s step, matching the
+	//               diff()/15 rate conversion in prepare_dataset.py resample_and_rate().
+	// kind="gauge" → use the last sample value as-is (already a rate or dimensionless).
 	queries := []channelQuery{
 		{0, `port_bytes_count{dir="rx",iface="N3",job="upf"}`, "rate"},
 		{1, `port_bytes_count{dir="tx",iface="N6",job="upf"}`, "rate"},
 		{2, `port_packets_count{dir="rx",iface="N3",job="upf"}`, "rate"},
 		{3, `port_dropped_count{dir="rx",iface="N3",job="upf"}`, "rate"},
 		{4, `port_dropped_count{dir="rx",iface="N6",job="upf"}`, "rate"},
-		{5, `pfcp_sessions_total{job="upf",node_id!=""}`, "gauge"},
+		{5, `pfcp_sessions_total{job="upf",node_id!=""}`, "gauge"},  // NON_COUNTER in training
 		{6, `pfcp_messages_total{direction="Incoming",message_type="Session Establishment Request",job="upf"}`, "rate"},
-		{7, `dl_forwarding_efficiency`, "gauge"},
-		{8, `dl_throughput_efficiency_packet`, "gauge"},
+		{7, `dl_throughput_efficiency_packet`, "gauge"},             // dl_throughput_efficiency channel
+		{8, `dl_throughput_efficiency_rate`, "gauge"},               // dl_throughput_efficiency_rate channel
 		{9, `drop_rate_percentage`, "gauge"},
 		{10, `tsi_value`, "gauge"},
-		{11, `uoi_session_component`, "gauge"},
-		{12, `uoi_throughput_component`, "gauge"},
-		{13, `go_goroutines{job="upf"}`, "gauge"},
-		{14, `go_memstats_heap_alloc_bytes{job="upf"}`, "gauge"},
-		{15, `go_gc_duration_seconds_count{job="upf"}`, "rate"},
+		{11, `go_goroutines{job="upf"}`, "gauge"},
+		{12, `go_memstats_heap_alloc_bytes{job="upf"}`, "gauge"},
+		{13, `go_gc_duration_seconds_count{job="upf"}`, "rate"},
 	}
 
 	start := now.Add(-lookback)
@@ -296,17 +298,21 @@ func (a *AIEvaluator) Push(ctx context.Context, ts time.Time) (remaining int) {
 			a.channelBuffers[cq.idx].push(0.0)
 			continue
 		}
-		// Use first series (usually one series per query)
-		s := series[0]
+		// Sum across all returned series (VM may return one series per UPF node
+		// for per-node metrics like pfcp_sessions_total or port_bytes_count).
+		// Summing here matches the training data which was generated from cluster-
+		// aggregated PromQL queries (sum(...)).
 		var val float64
-		if len(s.Values) >= 2 && cq.kind == "rate" {
-			dt := step.Seconds()
-			delta := s.Values[len(s.Values)-1] - s.Values[len(s.Values)-2]
-			if delta >= 0 && dt > 0 {
-				val = delta / dt
+		for _, s := range series {
+			if cq.kind == "rate" && len(s.Values) >= 2 {
+				dt := step.Seconds()
+				delta := s.Values[len(s.Values)-1] - s.Values[len(s.Values)-2]
+				if delta >= 0 && dt > 0 {
+					val += delta / dt
+				}
+			} else if len(s.Values) >= 1 {
+				val += s.Values[len(s.Values)-1]
 			}
-		} else if len(s.Values) >= 1 {
-			val = s.Values[len(s.Values)-1]
 		}
 		a.channelBuffers[cq.idx].push(val)
 	}

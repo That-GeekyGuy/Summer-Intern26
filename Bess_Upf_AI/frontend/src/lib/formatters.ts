@@ -33,8 +33,8 @@ export function fmtRelative(iso: string): string {
   return `${Math.round(delta / 3_600_000)}h ago`;
 }
 
-export function fmtEta(crossingUnixSec: number): string {
-  const delta = crossingUnixSec * 1000 - Date.now();
+export function fmtEta(crossingUnixSec: number, nowMs = Date.now()): string {
+  const delta = crossingUnixSec * 1000 - nowMs;
   if (delta <= 0) return "now";
   const mins = Math.round(delta / 60_000);
   if (mins < 60) return `~${mins}min`;

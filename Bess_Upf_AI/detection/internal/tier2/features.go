@@ -126,7 +126,7 @@ func rollingStats(v []float64) (mean, std, min_, max_ float64) {
 	mean = sum / float64(n)
 
 	if n < 2 {
-		return mean, 0.0, min_, max_
+		return mean, math.NaN(), min_, max_
 	}
 	var ssq float64
 	for _, x := range window {

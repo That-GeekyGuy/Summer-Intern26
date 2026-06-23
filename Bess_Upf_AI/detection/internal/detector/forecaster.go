@@ -84,13 +84,12 @@ func (f *Forecaster) evalTarget(ctx context.Context, t ForecastTarget, start, no
 		}
 
 		n := float64(len(s.Values))
-		// stepsAhead: how many additional sample-index steps maps to the horizon duration.
-		// Step interval ≈ window / (n-1)
-		stepDur := f.window / time.Duration(n-1)
-		if stepDur <= 0 {
-			continue
-		}
-		stepsAhead := float64(f.horizon) / float64(stepDur)
+		// Use the nominal query step (30 s) rather than reconstructing it from
+		// the actual sample count. VM can return fewer points than expected when
+		// there are gaps, making the reconstructed step diverge from the real one
+		// and producing wrong stepsAhead / xCross values.
+		const nominalStep = 30 * time.Second
+		stepsAhead := float64(f.horizon) / float64(nominalStep)
 		predictedAtHorizon := a + b*(n-1+stepsAhead)
 		currentValue := s.Values[len(s.Values)-1]
 
@@ -123,7 +122,7 @@ func (f *Forecaster) evalTarget(ctx context.Context, t ForecastTarget, start, no
 			// Solve: a + b*x_cross = capacity  →  x_cross = (capacity - a) / b
 			xCross := (t.Capacity - a) / b
 			if xCross > n-1 { // crossing is in the future relative to the series
-				crossingTime := now.Add(time.Duration(float64(stepDur) * (xCross - (n - 1))))
+				crossingTime := now.Add(time.Duration(float64(nominalStep) * (xCross - (n - 1))))
 				unix := crossingTime.Unix()
 				crossingUnix = &unix
 			}
@@ -140,7 +139,7 @@ func (f *Forecaster) evalTarget(ctx context.Context, t ForecastTarget, start, no
 			Timestamp:             now,
 			ObservedValue:         currentValue,
 			ExpectedValue:         &predictedAtHorizon,
-			DeviationMagnitude:    predictedAtHorizon - currentValue,
+			DeviationMagnitude:    math.Abs(predictedAtHorizon - currentValue),
 			RuleName:              "forecast_linear",
 			Severity:              sev,
 			EventType:             "predictive",

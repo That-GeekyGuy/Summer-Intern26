@@ -36,6 +36,11 @@ func (r *ZScoreRule) Eval(values []float64, timestamps []int64) ([]AnomalyEvent,
 	baseline := values[:len(values)-1]
 	latest := values[len(values)-1]
 
+	// Require at least 2 baseline samples so the sample std denominator (N-1) is non-zero.
+	if len(baseline) < 2 {
+		return nil, nil
+	}
+
 	mean := 0.0
 	for _, v := range baseline {
 		mean += v
@@ -47,7 +52,10 @@ func (r *ZScoreRule) Eval(values []float64, timestamps []int64) ([]AnomalyEvent,
 		d := v - mean
 		variance += d * d
 	}
-	std := math.Sqrt(variance / float64(len(baseline)))
+	// Use sample std (÷N-1, Bessel correction) — the baseline is a finite window
+	// sample, not the full population. Population std (÷N) systematically underestimates
+	// the true std, making z-score thresholds harder to breach at small window sizes.
+	std := math.Sqrt(variance / float64(len(baseline)-1))
 	if std < 1e-10 {
 		return nil, nil
 	}
