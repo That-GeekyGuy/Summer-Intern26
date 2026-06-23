@@ -81,6 +81,11 @@ services:
 
     # VM already drops privileges internally after opening its data directory.
 
+    # host.docker.internal resolves to the Docker host's LAN IP on Linux.
+    # Required when PROM_SCRAPE_TARGET=host.docker.internal:<port> (Prometheus on same machine).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     volumes:
 
       - victoriametrics-data:/victoria-metrics-data
@@ -321,13 +326,13 @@ services:
 
   # To change model params (quantization, context length) edit the command list below.
 
+  # ── LLM inference server ───────────────────────────────────────────────────
+  # Default: vLLM (GPU) — override with docker-compose.gpu.yml or docker-compose.cpu.yml.
+  # Use scripts/start.sh to auto-detect and apply the right override.
+
   vllm:
 
     image: vllm/vllm-openai:v0.7.3
-
-    runtime: nvidia
-
-    ipc: host                   # required for tensor-parallel shared memory
 
     environment:
 
@@ -345,7 +350,7 @@ services:
 
       - --quantization
 
-      - bitsandbytes              # INT4 â€" fits in 8 GB VRAM; remove for FP16 (needs 16+ GB)
+      - bitsandbytes
 
       - --load-format
 
@@ -353,11 +358,11 @@ services:
 
       - --max-model-len
 
-      - "3200"
+      - "${VLLM_MAX_MODEL_LEN:-3200}"
 
       - --gpu-memory-utilization
 
-      - "0.95"
+      - "${VLLM_GPU_MEM_UTIL:-0.90}"
 
       - --enable-auto-tool-choice
 
@@ -377,23 +382,13 @@ services:
 
       - metrics-backend
 
-      - public-net      # needs internet to download model weights from HuggingFace
+      - public-net
 
     restart: unless-stopped
 
     deploy:
 
       resources:
-
-        reservations:
-
-          devices:
-
-            - driver: nvidia
-
-              count: 1
-
-              capabilities: [gpu]
 
         limits:
 
