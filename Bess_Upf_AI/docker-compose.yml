@@ -33,7 +33,7 @@ networks:
 
   public-net:
     name: bess-upf-public
-    driver: bridge   # Caddy's egress to the host; non-internal so Docker publishes ports 80/443
+    driver: bridge   # Caddy's egress to the host; non-internal so Docker publishes ports 9080/443
 
 
 
@@ -916,7 +916,7 @@ services:
 
     ports:
 
-      - "80:80"     # redirects to HTTPS
+      - "9080:80"   # redirects to HTTPS (host 9080 → container 80; avoids Windows HTTP.sys port 80 reservation)
 
       - "443:443"
 
