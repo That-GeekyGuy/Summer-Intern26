@@ -46,10 +46,16 @@
         reverse_proxy analysis:8082
     }
 
-    # Grafana — has its own login page.
+    # Grafana — has its own login page. Only available when dev/docker-compose.yml is running.
+    # Returns 502 if grafana is not started (acceptable for production deployments).
     handle /grafana/* {
         reverse_proxy grafana:3000
     }
+
+    # Diagnostics page alias — /diagnostics and /diagnostic both redirect to
+    # the static diagnostic.html served by nginx (not a React route).
+    redir /diagnostics  /diagnostic.html 302
+    redir /diagnostic   /diagnostic.html 302
 
     # React frontend — catch-all; auth handled by the app itself.
     handle /* {

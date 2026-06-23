@@ -20,6 +20,8 @@ Usage:
   python train/train_chronos.py [--data-dir train/data] [--models-dir ../models]
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging

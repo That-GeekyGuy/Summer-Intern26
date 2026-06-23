@@ -21,10 +21,13 @@ Usage:
     docker run --rm -v ./models:/models bess-ml-tools python train/train.py [--detection-db /path/to/anomalies.db]
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 import os
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -131,9 +134,11 @@ def train(detection_db: str | None = None):
 
     # ── StandardScaler (fit on all training data) ─────────────────────────────
     scaler = StandardScaler()
-    # Impute NaN with column mean before fitting
-    X_train_clean = np.where(np.isnan(X_train), np.nanmean(X_train, axis=0), X_train)
-    X_eval_clean  = np.where(np.isnan(X_eval),  np.nanmean(X_train, axis=0), X_eval)
+    # Impute NaN with column mean; all-NaN columns fall back to 0 (zero-traffic features)
+    col_means = np.nanmean(X_train, axis=0)
+    col_means = np.where(np.isnan(col_means), 0.0, col_means)
+    X_train_clean = np.where(np.isnan(X_train), col_means, X_train)
+    X_eval_clean  = np.where(np.isnan(X_eval),  col_means, X_eval)
 
     scaler.fit(X_train_clean)
     X_train_sc = scaler.transform(X_train_clean)
@@ -189,8 +194,8 @@ def train(detection_db: str | None = None):
     except Exception:
         roc_rf = float("nan")
 
-    rf_report = classification_report(y_eval_bin, y_pred_rf, target_names=["normal", "anomaly"])
-    rf_cm = confusion_matrix(y_eval_bin, y_pred_rf).tolist()
+    rf_report = classification_report(y_eval_bin, y_pred_rf, target_names=["normal", "anomaly"], labels=[0, 1])
+    rf_cm = confusion_matrix(y_eval_bin, y_pred_rf, labels=[0, 1]).tolist()
 
     # Feature importances (top 10 for report)
     feat_importance = sorted(
@@ -232,8 +237,8 @@ def train(detection_db: str | None = None):
     metadata = {
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "dataset_time_range": {
-            "start": int(df["timestamp"].min()),
-            "end":   int(df["timestamp"].max()),
+            "start": int(pd.Timestamp(df["timestamp"].min()).timestamp()),
+            "end":   int(pd.Timestamp(df["timestamp"].max()).timestamp()),
         },
         "label_counts": {k: int(v) for k, v in label_counts.items()},
         "eval_metrics": {
@@ -254,7 +259,15 @@ def train(detection_db: str | None = None):
         "earliness": earliness,
         "warnings": warnings,
     }
-    (MODELS_DIR / "metadata.json").write_text(json.dumps(metadata, indent=2))
+    def _nan_to_null(obj):
+        if isinstance(obj, float) and math.isnan(obj):
+            return None
+        if isinstance(obj, dict):
+            return {k: _nan_to_null(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_nan_to_null(v) for v in obj]
+        return obj
+    (MODELS_DIR / "metadata.json").write_text(json.dumps(_nan_to_null(metadata), indent=2))
     log.info("metadata.json written")
 
     # ── Training report ──────────────────────────────────────────────────────
@@ -312,7 +325,7 @@ Train / eval split: {int(TRAIN_RATIO*100)}% / {int((1-TRAIN_RATIO)*100)}% (time-
 
 Confusion matrix (rows=actual, cols=predicted):
 ```
-{confusion_matrix(y_eval_bin, y_pred_rf)}
+{confusion_matrix(y_eval_bin, y_pred_rf, labels=[0, 1])}
 ```
 
 ROC-AUC: **{roc_rf:.4f}**
@@ -346,7 +359,7 @@ Consider LLM-assisted labeling when > 2 weeks of real (non-simulated) traffic is
 with < 20% labeled windows.
 """
     report_path = MODELS_DIR / "training_report.md"
-    report_path.write_text(report)
+    report_path.write_text(report, encoding="utf-8")
     log.info("training_report.md written to %s", report_path)
 
     log.info("training complete — restart the ml-infer service to pick up new models")

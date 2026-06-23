@@ -6,12 +6,10 @@
   "port_dropped_N6_rx_rate",
   "pfcp_sessions_total",
   "pfcp_session_setup_rate",
-  "dl_forwarding_efficiency",
   "dl_throughput_efficiency",
+  "dl_throughput_efficiency_rate",
   "drop_rate_percentage",
   "tsi_value",
-  "uoi_session_component",
-  "uoi_throughput_component",
   "go_goroutines",
   "go_heap_alloc_bytes",
   "gc_pressure_rate"

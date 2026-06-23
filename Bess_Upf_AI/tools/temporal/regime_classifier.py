@@ -9,6 +9,7 @@ The same load at 3am Sunday is SURGE (unexpected).
 This requires per-hour expected distributions, not global thresholds.
 """
 
+from __future__ import annotations
 from typing import Optional
 import numpy as np
 

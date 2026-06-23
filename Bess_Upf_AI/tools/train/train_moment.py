@@ -582,7 +582,7 @@ Recommendation: accumulate more data (30+ days of real traffic) for improved tra
 """
 
     report_path = data_dir / "training_report.md"
-    existing = report_path.read_text() if report_path.exists() else "# Tier 2 AI Training Report\n\n"
+    existing = report_path.read_text(encoding="utf-8") if report_path.exists() else "# Tier 2 AI Training Report\n\n"
     # Replace or append MOMENT section
     marker = "## MOMENT-1-large"
     if marker in existing:

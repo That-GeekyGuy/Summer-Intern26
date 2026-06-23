@@ -21,6 +21,7 @@ Environment:
   HOST              bind address                             (default: 0.0.0.0)
   PORT              bind port                                (default: 8084)
 """
+from __future__ import annotations
 
 import json
 import logging

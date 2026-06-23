@@ -3,7 +3,7 @@
 Tier 2 + TSFM dataset preparation pipeline.
 
 Reads from either:
-  - local CSV (default): ansh_out_15_06_2026.csv at project root
+  - local CSV (default): prometheus_full_export_20260622_115327.csv at project root
   - MinIO Parquet store (legacy, pass --source=minio)
 
 Steps:
@@ -28,11 +28,10 @@ Usage:
   python train/prepare_dataset.py                      # local CSV source
   python train/prepare_dataset.py --source=minio       # MinIO Parquet source
 
-Dataset facts (verified 2026-06-17 on ansh_out_15_06_2026.csv):
-  76,176 rows · 120 columns · ~2s actual cadence
-  UOI q75 = 1.0 (heavily right-skewed: normal=1.0, anomaly spikes to 2177)
-  Anomaly fraction: ~7.38% of UOI-present rows
+Dataset: prometheus_full_export_20260622_115327.csv (~13 days of UPF data, 2026-06-22)
 """
+
+from __future__ import annotations
 
 import argparse
 import io
@@ -55,7 +54,7 @@ log = logging.getLogger(__name__)
 
 REPO_ROOT    = Path(__file__).parent.parent.parent
 DATA_DIR     = Path(__file__).parent / "data"
-CSV_PATH     = REPO_ROOT / "ansh_out_15_06_2026.csv"
+CSV_PATH     = REPO_ROOT / "prometheus_full_export_20260622_115327.csv"
 MODELS_DIR   = Path(os.getenv("MODELS_DIR", str(REPO_ROOT / "models")))
 OUTPUT_DIR   = DATA_DIR
 
@@ -81,15 +80,11 @@ STL_TRAFFIC_CHANNELS = {
     "port_dropped_N3_rx_rate",
     "port_dropped_N6_rx_rate",
     "pfcp_sessions_total",
-    "uoi_session_component",
-    "uoi_throughput_component",
+    "dl_throughput_efficiency_rate",
 }
 
 # Columns that are gauges at ~90s cadence — forward-fill up to FFILL_SLOW_STEPS
 SLOW_CADENCE_COLS = [
-    "uoi_value",
-    "uoi_session_component",
-    "uoi_throughput_component",
     "tsi_value",
     "dl_forwarding_efficiency",
     "dl_throughput_efficiency_packet",
@@ -129,34 +124,33 @@ DROP_SUBSTRINGS = [
 
 # MOMENT channel specification
 # Maps logical name → substring to find in the wide DataFrame
+# MOMENT_CHANNELS: logical name → one or more substrings that must ALL appear in the column name.
+# Using multiple substrings avoids embedding device-specific instance IPs — any UPF deployment
+# that exports these standard metrics will match regardless of the scrape target address.
 MOMENT_CHANNELS = {
-    "port_bytes_N3_rx_rate":       "port_bytes_count{dir=rx_iface=N3",
-    "port_bytes_N6_tx_rate":       "port_bytes_count{dir=tx_iface=N6",
-    "port_pkts_N3_rx_rate":        "port_packets_count{dir=rx_iface=N3",
-    "port_dropped_N3_rx_rate":     "port_dropped_count{dir=rx_iface=N3",
-    "port_dropped_N6_rx_rate":     "port_dropped_count{dir=rx_iface=N6",
-    "pfcp_sessions_total":         "pfcp_sessions_total{instance=192.168.237.186:30093_job=upf_node_id",
-    "pfcp_session_setup_rate":     "pfcp_messages_total{direction=Incoming_instance=192.168.237.186:30093_job=upf_message_type=Session Establishment",
-    "dl_forwarding_efficiency":    "dl_forwarding_efficiency",
-    "dl_throughput_efficiency":    "dl_throughput_efficiency_packet",
-    "drop_rate_percentage":        "drop_rate_percentage",
-    "tsi_value":                   "tsi_value{",
-    "uoi_session_component":       "uoi_session_component",
-    "uoi_throughput_component":    "uoi_throughput_component",
-    "go_goroutines":               "go_goroutines{",
-    "go_heap_alloc_bytes":         "go_memstats_heap_alloc_bytes{instance=",
-    "gc_pressure_rate":            "go_gc_duration_seconds_count{",
+    "port_bytes_N3_rx_rate":         ("port_bytes_count{dir=rx_iface=N3",),
+    "port_bytes_N6_tx_rate":         ("port_bytes_count{dir=tx_iface=N6",),
+    "port_pkts_N3_rx_rate":          ("port_packets_count{dir=rx_iface=N3",),
+    "port_dropped_N3_rx_rate":       ("port_dropped_count{dir=rx_iface=N3",),
+    "port_dropped_N6_rx_rate":       ("port_dropped_count{dir=rx_iface=N6",),
+    "pfcp_sessions_total":           ("pfcp_sessions_total{",),
+    "pfcp_session_setup_rate":       ("pfcp_messages_total{", "direction=Incoming", "message_type=Session Establishment"),
+    "dl_throughput_efficiency":      ("dl_throughput_efficiency_packet",),
+    "dl_throughput_efficiency_rate": ("dl_throughput_efficiency_rate",),
+    "drop_rate_percentage":          ("drop_rate_percentage",),
+    "tsi_value":                     ("tsi_value",),
+    "go_goroutines":                 ("go_goroutines{",),
+    "go_heap_alloc_bytes":           ("go_memstats_heap_alloc_bytes{",),
+    "gc_pressure_rate":              ("go_gc_duration_seconds_count{",),
 }
 
 # Channels that are already rates/gauges — do NOT apply diff() to these
 NON_COUNTER_CHANNELS = {
-    "pfcp_sessions_total",          # gauge in MOMENT context (absolute sessions, forwarded-filled)
-    "dl_forwarding_efficiency",
+    "pfcp_sessions_total",          # gauge in MOMENT context (absolute sessions, forward-filled)
     "dl_throughput_efficiency",
+    "dl_throughput_efficiency_rate",
     "drop_rate_percentage",
     "tsi_value",
-    "uoi_session_component",
-    "uoi_throughput_component",
     "go_goroutines",
     "go_heap_alloc_bytes",
 }
@@ -164,13 +158,68 @@ NON_COUNTER_CHANNELS = {
 
 # ── CSV ingestion ─────────────────────────────────────────────────────────────
 
+def _pivot_long_to_wide(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert long-format Prometheus export (metric_name + label columns + value)
+    to wide format (one column per labeled series, one row per timestamp).
+
+    Column name format: metric_name{key=val_key=val...} (sorted alphabetically, _ separator)
+    This matches the substring patterns used in MOMENT_CHANNELS / COUNTER_SUBSTRINGS.
+    """
+    LABEL_COLS = [
+        "code", "dir", "direction", "iface", "instance", "job", "le",
+        "message_type", "node_id", "quantile", "reason", "result", "sliceid", "version",
+    ]
+    present = [c for c in LABEL_COLS if c in df.columns]
+
+    # Convert Unix-seconds float timestamp to UTC datetime
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
+    # Build series_key vectorised: accumulate "col=val" strings joined with _
+    combined = pd.Series("", index=df.index, dtype=str)
+    for col in present:
+        s = df[col].astype(str)
+        valid = df[col].notna() & (s != "nan") & (s.str.strip() != "")
+        part = (col + "=" + s).where(valid, "")
+        has_combined = combined.str.len() > 0
+        has_part     = part.str.len() > 0
+        mask_both    = has_combined & has_part
+        mask_new     = (~has_combined) & has_part
+        combined     = combined.where(~mask_both, combined + "_" + part)
+        combined     = combined.where(~mask_new, part)
+
+    df["_series_key"] = (
+        df["metric_name"].astype(str)
+        + np.where(combined.str.len() > 0, "{" + combined + "}", "")
+    )
+
+    n_series = df["_series_key"].nunique()
+    log.info("pivoting %d rows × %d unique series → wide format …", len(df), n_series)
+    wide = df[["timestamp", "_series_key", "value"]].pivot_table(
+        index="timestamp", columns="_series_key", values="value", aggfunc="mean",
+    )
+    wide.columns.name = None
+    wide = wide.reset_index()
+    log.info("wide format: %d rows × %d columns", len(wide), len(wide.columns))
+    return wide
+
+
 def load_csv(path: Path) -> pd.DataFrame:
-    """Load the raw wide CSV. Columns contain Prometheus label sets in the name."""
+    """Load raw CSV in either wide or long Prometheus export format."""
     log.info("loading CSV from %s", path)
     df = pd.read_csv(str(path), low_memory=False, on_bad_lines="skip")
-    # Parse timestamp
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    if "metric_name" in df.columns:
+        # Long-format (prometheus_full_export) — pivot to wide first
+        log.info("detected long-format Prometheus export (%d rows, %d cols) — pivoting",
+                 len(df), len(df.columns))
+        df = _pivot_long_to_wide(df)
+    else:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        df = df.sort_values("timestamp").reset_index(drop=True)
+
     log.info("CSV loaded: %d rows, %d columns", len(df), len(df.columns))
     return df
 
@@ -304,10 +353,10 @@ def compute_binary_label(df: pd.DataFrame, uoi_col: str, split_ts: pd.Timestamp)
 
 # ── Column finding helpers ────────────────────────────────────────────────────
 
-def find_col(df: pd.DataFrame, substring: str) -> str | None:
-    """Return the first column name containing `substring`, or None."""
+def find_col(df: pd.DataFrame, *substrings: str) -> str | None:
+    """Return the first column name containing ALL substrings, or None."""
     for col in df.columns:
-        if substring in col:
+        if all(s in col for s in substrings):
             return col
     return None
 
@@ -333,11 +382,11 @@ def apply_stl_residuals(df: pd.DataFrame, channel_map: dict[str, str]) -> tuple[
 
     fit_quality = {}
 
-    for logical_name, substring in channel_map.items():
+    for logical_name, substrings in channel_map.items():
         if logical_name not in STL_TRAFFIC_CHANNELS:
             continue  # keep Go runtime channels raw
 
-        col = find_col(df, substring)
+        col = find_col(df, *substrings)
         if col is None:
             continue
 
@@ -377,7 +426,7 @@ def apply_stl_residuals(df: pd.DataFrame, channel_map: dict[str, str]) -> tuple[
 
 def build_moment_windows(
     df: pd.DataFrame,
-    channel_map: dict[str, str],
+    channel_map: dict[str, tuple[str, ...]],
     binary_label_col: str,
     seq_len: int = MOMENT_SEQ_LEN,
     stride: int  = MOMENT_STRIDE,
@@ -394,11 +443,11 @@ def build_moment_windows(
     channel_names = []
     channel_arrays = []
 
-    for logical_name, substring in channel_map.items():
-        col = find_col(df, substring)
+    for logical_name, substrings in channel_map.items():
+        col = find_col(df, *substrings)
         if col is None:
-            log.warning("MOMENT channel '%s' (substring '%s') NOT FOUND — filling with zeros",
-                        logical_name, substring)
+            log.warning("MOMENT channel '%s' (substrings %s) NOT FOUND — filling with zeros",
+                        logical_name, substrings)
             arr = np.zeros(len(df), dtype=np.float32)
         else:
             arr = df[col].astype(float).values.astype(np.float32)
@@ -466,7 +515,7 @@ def build_legacy_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     ROLLING_W = 20  # 5 min at 15s
 
     # Find columns by substring
-    sess_col     = find_col(df, "pfcp_sessions_total{instance=192.168.237.186:30093_job=upf_node_id")
+    sess_col     = find_col(df, "pfcp_sessions_total{")
     bytes_n3_rx  = find_col(df, "port_bytes_count{dir=rx_iface=N3")
     bytes_n3_tx  = find_col(df, "port_bytes_count{dir=tx_iface=N3")
     bytes_n6_rx  = find_col(df, "port_bytes_count{dir=rx_iface=N6")
@@ -520,11 +569,11 @@ def build_legacy_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     FEATURE_COLS = RATE_FEATURES + RATIO_FEATURES + ROLLING_FEATURES
 
     # Label: normal / anomaly
-    uoi_col = find_col(df, "uoi_value{")
-    if uoi_col:
+    tsi_col = find_col(df, "tsi_value")
+    if tsi_col:
         split_ts = df["timestamp"].quantile(TRAIN_RATIO)
-        _, threshold = compute_binary_label(df, uoi_col, split_ts)
-        label_raw = (df[uoi_col].ffill(limit=FFILL_SLOW_STEPS) > threshold).astype(int)
+        _, threshold = compute_binary_label(df, tsi_col, split_ts)
+        label_raw = (df[tsi_col].ffill(limit=FFILL_SLOW_STEPS) > threshold).astype(int)
         w["label"] = label_raw.map({0: "normal", 1: "anomaly"}).fillna("normal")
     else:
         w["label"] = "normal"
@@ -564,9 +613,9 @@ def run(source: str = "local"):
     log.info("train/eval split at row %d  (%s)", split_idx, split_ts)
 
     # ── 6. Binary label ───────────────────────────────────────────────────────
-    uoi_col = find_col(df, "uoi_value{")
+    uoi_col = find_col(df, "tsi_value")
     if uoi_col is None:
-        log.error("uoi_value column not found — check CSV column names")
+        log.error("tsi_value column not found — check CSV column names")
         sys.exit(1)
 
     df["uoi_binary"], uoi_threshold = compute_binary_label(df, uoi_col, split_ts)
@@ -711,7 +760,7 @@ if __name__ == "__main__":
         "--source",
         choices=["local", "minio"],
         default="local",
-        help="Data source: 'local' reads ansh_out_15_06_2026.csv, 'minio' reads from MinIO Parquet store",
+        help="Data source: 'local' reads prometheus_full_export_20260622_115327.csv, 'minio' reads from MinIO Parquet store",
     )
     args = parser.parse_args()
     run(source=args.source)

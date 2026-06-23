@@ -37,6 +37,8 @@ Environment:
   PORT                        bind port (default: 8085)
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -80,9 +82,7 @@ STL_TRAFFIC_CHANNELS = {
     "port_pkts_N3_rx_rate":        "port_packets_count{dir=rx_iface=N3",
     "port_dropped_N3_rx_rate":     "port_dropped_count{dir=rx_iface=N3",
     "port_dropped_N6_rx_rate":     "port_dropped_count{dir=rx_iface=N6",
-    "pfcp_sessions_total":         "pfcp_sessions_total{instance=192.168.237.186:30093",
-    "uoi_session_component":       "uoi_session_component",
-    "uoi_throughput_component":    "uoi_throughput_component",
+    "pfcp_sessions_total":         "pfcp_sessions_total{",
     "drop_rate_percentage":        "drop_rate_percentage",
     "tsi_value":                   "tsi_value{",
     "dl_forwarding_efficiency":    "dl_forwarding_efficiency",
@@ -120,21 +120,79 @@ app = FastAPI(title="STL Temporal Sidecar", docs_url=None, redoc_url=None)
 
 # ── STL fitting ───────────────────────────────────────────────────────────────
 
+_LONG_LABEL_COLS = [
+    "code", "dir", "direction", "iface", "instance", "job", "le",
+    "message_type", "node_id", "quantile", "reason", "result", "sliceid", "version",
+]
+
+
+_STL_METRIC_PREFIXES = {
+    "port_bytes_count", "port_packets_count", "port_dropped_count",
+    "pfcp_sessions_total", "drop_rate_percentage", "tsi_value",
+    "dl_forwarding_efficiency",
+}
+
+
+def _pivot_long_to_wide(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert Prometheus long-format export (pre-filtered) to wide format."""
+    present = [c for c in _LONG_LABEL_COLS if c in df.columns]
+    df = df.copy()
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    combined = pd.Series("", index=df.index, dtype=str)
+    for col in present:
+        s = df[col].astype(str)
+        valid = df[col].notna() & (s != "nan") & (s.str.strip() != "")
+        part = (col + "=" + s).where(valid, "")
+        has_combined = combined.str.len() > 0
+        has_part = part.str.len() > 0
+        combined = combined.where(~(has_combined & has_part), combined + "_" + part)
+        combined = combined.where(~((~has_combined) & has_part), part)
+    df["_series_key"] = (
+        df["metric_name"].astype(str)
+        + np.where(combined.str.len() > 0, "{" + combined + "}", "")
+    )
+    wide = df[["timestamp", "_series_key", "value"]].pivot_table(
+        index="timestamp", columns="_series_key", values="value", aggfunc="mean"
+    )
+    wide.columns.name = None
+    return wide  # index is already DatetimeIndex
+
+
 def _load_csv_data() -> Optional[pd.DataFrame]:
     """Load and preprocess CSV data into a 15s-resampled DataFrame."""
     path = CSV_PATH
-    # Try alternate paths
     if not path.exists():
-        alt = Path("/data/ansh_out_15_06_2026.csv")
+        alt = Path("/data/prometheus_full_export_20260622_115327.csv")
         if alt.exists():
             path = alt
     if not path.exists():
         return None
 
     log.info("loading CSV from %s", path)
-    df = pd.read_csv(str(path), low_memory=False, on_bad_lines="skip")
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    df = df.sort_values("timestamp").set_index("timestamp")
+    # Peek at first row to detect format without loading everything
+    header_df = pd.read_csv(str(path), nrows=1, low_memory=False, on_bad_lines="skip")
+
+    if "metric_name" in header_df.columns:
+        # Long format — read in chunks to avoid OOM, filter to STL metrics only
+        chunks = []
+        for chunk in pd.read_csv(str(path), chunksize=200_000, low_memory=False, on_bad_lines="skip"):
+            filtered = chunk[chunk["metric_name"].isin(_STL_METRIC_PREFIXES)]
+            if not filtered.empty:
+                chunks.append(filtered)
+        if not chunks:
+            log.error("STL: no matching metrics found in CSV")
+            return None
+        df = pd.concat(chunks, ignore_index=True)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+        log.info("long-format CSV: kept %d rows for %d STL metrics", len(df), df["metric_name"].nunique())
+        df = _pivot_long_to_wide(df)
+        log.info("pivot complete: %d columns", len(df.columns))
+    else:
+        # Wide format: one column per series
+        df = pd.read_csv(str(path), low_memory=False, on_bad_lines="skip")
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        df = df.sort_values("timestamp").set_index("timestamp")
+
     return df
 
 
@@ -155,9 +213,13 @@ def _extract_series(df: pd.DataFrame) -> dict[str, pd.Series]:
             continue
         raw = df[col]
         if is_counter(col):
-            resampled = raw.resample("15s").last()
-            rate = resampled.diff().clip(lower=0) / 15.0
-            series_dict[logical] = rate.dropna()
+            # Compute rate at native cadence to handle sub-15s scrape gaps correctly
+            native = raw.dropna().sort_index()
+            if len(native) < 2:
+                continue
+            dt_s = native.index.to_series().diff().dt.total_seconds()
+            rate_native = (native.diff().clip(lower=0) / dt_s).replace([np.inf, -np.inf], np.nan).dropna()
+            series_dict[logical] = rate_native.resample("15s").mean().dropna()
         else:
             series_dict[logical] = raw.resample("15s").mean().dropna()
 

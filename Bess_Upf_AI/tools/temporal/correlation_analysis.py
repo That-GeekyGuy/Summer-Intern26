@@ -11,11 +11,12 @@ Outputs:
 
 Usage:
   python tools/temporal/correlation_analysis.py
-  python tools/temporal/correlation_analysis.py --csv ansh_out_15_06_2026.csv
+  python tools/temporal/correlation_analysis.py --csv prometheus_full_export_20260622_115327.csv
 
 Only edges with |correlation| > CORRELATION_THRESHOLD are included.
 The graph is loaded by Brain 2 at startup for causal RCA language.
 """
+from __future__ import annotations
 
 import argparse
 import json
@@ -318,6 +319,6 @@ def _write_report(path: Path, graph: dict, coverage_days: float):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Metric correlation analysis")
-    parser.add_argument("--csv", default=str(REPO_ROOT / "ansh_out_15_06_2026.csv"))
+    parser.add_argument("--csv", default=str(REPO_ROOT / "prometheus_full_export_20260622_115327.csv"))
     args = parser.parse_args()
     run(Path(args.csv))

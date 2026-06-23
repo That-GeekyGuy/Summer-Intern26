@@ -650,7 +650,7 @@ top_channels = sorted by ch_score, descending</code></pre>
 <h2>Training Pipeline</h2>
 <p>Run: <code>cd tools && python train/prepare_dataset.py && python train/train_moment.py</code></p>
 <ol>
-<li><strong>prepare_dataset.py</strong>: Reads <code>ansh_out_15_06_2026.csv</code> (76k UPF rows, 41 hours). Slices into 512-step overlapping windows. Saves to <code>moment_windows.npz</code>.</li>
+<li><strong>prepare_dataset.py</strong>: Reads <code>prometheus_full_export_20260622_115327.csv</code> (~13 days of UPF data). Slices into 512-step overlapping windows. Saves to <code>moment_windows.npz</code>.</li>
 <li><strong>train_moment.py</strong>: Loads windows, runs MOMENT encoder (frozen), trains only the ReconstructionAnomalyHead (linear probing). 50 epochs. Calibrates threshold at 95th percentile of training scores. Saves <code>moment_head.pt</code>, <code>moment_threshold.json</code>.</li>
 </ol>
 

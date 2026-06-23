@@ -7,6 +7,7 @@ Run inside the tools Docker image:
 These tests do NOT contact MinIO — they test feature engineering and label logic
 with synthetic in-memory data.
 """
+from __future__ import annotations
 
 import json
 import sys

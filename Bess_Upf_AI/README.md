@@ -72,24 +72,76 @@ flowchart TD
 
 ---
 
+## Deployment modes
+
+The stack is split into two Docker Compose files:
+
+| File | Purpose |
+|---|---|
+| `docker-compose.yml` | **Production core** — VictoriaMetrics, MinIO, all AI/ML sidecars, frontend, Caddy |
+| `dev/docker-compose.yml` | **Dev/testing only** — Prometheus, upf-sim, Grafana |
+
+### Server / production (external Prometheus)
+
+When running on a server with a real UPF already feeding an external Prometheus:
+
+```bash
+# 1. Set your external Prometheus address in .env
+PROM_SCRAPE_TARGET=10.0.1.5:9090
+
+# 2. Start the core stack only
+docker compose up --build -d
+```
+
+VictoriaMetrics federation-scrapes your external Prometheus via `PROM_SCRAPE_TARGET`. Nothing else changes.
+
+### Local development (built-in simulator)
+
+Adds the UPF simulator, an internal Prometheus, and Grafana on top of the core stack:
+
+```bash
+# Start core stack
+docker compose up --build -d
+
+# Then start dev services (prometheus, upf-sim, grafana)
+docker compose -f dev/docker-compose.yml up --build -d
+```
+
+Or start everything at once:
+```bash
+docker compose -f docker-compose.yml -f dev/docker-compose.yml up --build -d
+```
+
+> **Nothing is device-specific.** All metric channel matching uses label substrings (`port_bytes_count{dir=rx_iface=N3`, etc.) — no hardcoded IPs or node IDs appear anywhere in the codebase. Device-specific configuration lives only in `config/prometheus/targets/upf-targets.yml`.
+
+---
+
 ## Services at a glance
+
+**`docker-compose.yml` (production core)**
 
 | Service | Image / source | Role |
 |---|---|---|
-| `prometheus` | `prom/prometheus:v2.52.0` | Scrapes UPF exporters, remote-writes to VM |
-| `victoriametrics` | `victoriametrics/victoria-metrics:v1.101.0` | Long-term TSDB; federation-scrapes Prometheus as dual-ingest fallback |
+| `victoriametrics` | `victoriametrics/victoria-metrics:v1.101.0` | Long-term TSDB; federation-scrapes Prometheus |
 | `export-job` | `./export-job/` (Go) | Nightly VM → Parquet → MinIO export |
 | `minio` | `minio/minio` | Parquet object store (ML dataset output) |
-| `upf-sim` | `./upf-sim/` (Go) | Simulated UPF — carrier-grade 5G metrics + scenario API |
 | `detection` | `./detection/` (Go) | Anomaly detection (Tier 1 statistical + Tier 3 OLS forecast) |
 | `analysis` | `./analysis/` (Go) | LLM orchestrator, PromQL validator, chat API |
 | `vllm` | `vllm/vllm-openai:v0.7.3` | Qwen3-8B inference (GPU required) |
 | `ml-infer` | `./tools/infer/` (Python FastAPI) | Sklearn anomaly classifiers (CPU-only) |
 | `moment-sidecar` | `./tools/infer/` (Python FastAPI) | MOMENT-1-large multivariate anomaly detection (CPU, ≤ 4 GB RAM) |
 | `chronos-sidecar` | `./tools/infer/` (Python FastAPI) | Chronos-2 probabilistic UOI forecasting (CPU, ≤ 2 GB RAM) |
+| `stl-sidecar` | `./tools/temporal/` (Python FastAPI) | STL temporal decomposition for hotzone detection (CPU) |
 | `frontend` | `./frontend/` (React 18 + Vite) | Dark-theme ops dashboard |
-| `grafana` | `grafana/grafana:11.0.0` | Pre-provisioned dashboards over VM |
 | `caddy` | `caddy:2.8-alpine` | TLS termination, reverse proxy, basic-auth |
+
+**`dev/docker-compose.yml` (local dev / simulator only)**
+
+| Service | Image / source | Role |
+|---|---|---|
+| `prometheus` | `prom/prometheus:v2.52.0` | Scrapes upf-sim, remote-writes to VM |
+| `upf-sim` | `./upf-sim/` (Go) | Simulated UPF — carrier-grade 5G metrics + scenario API |
+| `grafana` | `grafana/grafana:11.0.0` | Pre-provisioned dashboards over VM |
 
 ---
 
@@ -155,15 +207,17 @@ flowchart TD
 │       ├── store/                    # Zustand global state
 │       └── lib/                      # Formatters, metric display names, constants
 │
-├── tools/                            # Tier 2 ML pipeline
+├── tools/                            # Tier 2 ML pipeline + temporal analysis
 │   ├── train/
-│   │   ├── prepare_dataset.py        # VM Parquet → windowed NumPy/Parquet for MOMENT/Chronos-2
+│   │   ├── prepare_dataset.py        # VM Parquet/CSV → windowed NumPy/Parquet for MOMENT/Chronos-2
 │   │   ├── train_moment.py           # MOMENT linear-probe fine-tuning + threshold calibration
 │   │   └── train_chronos.py          # Chronos-2 zero-shot eval + optional fine-tune
-│   └── infer/
-│       ├── moment_server.py          # FastAPI sidecar: /predict → MOMENT anomaly score
-│       ├── chronos_server.py         # FastAPI sidecar: /forecast → Chronos-2 probabilistic forecast
-│       └── ml_infer_server.py        # FastAPI sidecar: /classify → sklearn classifiers
+│   ├── infer/
+│   │   ├── moment_server.py          # FastAPI sidecar: /predict → MOMENT anomaly score
+│   │   ├── chronos_server.py         # FastAPI sidecar: /forecast → Chronos-2 probabilistic forecast
+│   │   └── ml_infer_server.py        # FastAPI sidecar: /classify → sklearn classifiers
+│   └── temporal/
+│       └── stl_service.py            # FastAPI sidecar: STL decomposition → /hotzone, /refit
 │
 ├── models/                           # Trained artifact store (gitignored)
 │   ├── moment_head.pt                # MOMENT anomaly detection head weights
@@ -202,8 +256,12 @@ docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'your_admin_pas
 # 4. Generate dev TLS certificates (browser will show a warning — see TLS section)
 bash scripts/gen-dev-certs.sh
 
-# 5. Build and start everything
+# 5a. Production (external Prometheus) — core stack only
+#     Set PROM_SCRAPE_TARGET=<your-prometheus-host>:<port> in .env first
 docker compose up --build -d
+
+# 5b. Local dev (built-in simulator) — core stack + dev services
+docker compose -f docker-compose.yml -f dev/docker-compose.yml up --build -d
 
 # 6. Check all services are healthy
 docker compose ps
@@ -211,7 +269,7 @@ docker compose ps
 
 On first startup, vLLM downloads the model weights (~5 GB for Qwen3-8B INT4). Watch progress with `docker compose logs -f vllm`.
 
-The `moment-sidecar` and `chronos-sidecar` download their weights on first start into the shared `hf-cache` volume (MOMENT-1-large ≈ 4 GB, chronos-t5-small ≈ 2 GB).
+The `moment-sidecar`, `chronos-sidecar`, and `stl-sidecar` download their weights on first start into the shared `hf-cache` volume (MOMENT-1-large ≈ 4 GB, chronos-t5-small ≈ 2 GB).
 
 ### Verify the stack
 
@@ -478,7 +536,11 @@ The built-in simulator (`upf-sim`) is calibrated to carrier-grade UPF traffic vo
 | `ML_INFER_URL` | `http://ml-infer:8080` | sklearn classifier sidecar URL |
 | `MOMENT_URL` | `http://moment-sidecar:8083` | MOMENT-1 anomaly sidecar URL |
 | `CHRONOS_URL` | `http://chronos-sidecar:8084` | Chronos-2 forecast sidecar URL |
+| `ANALYSIS_URL` | `http://analysis:8082` | Analysis service URL (used by detection for RCA callbacks) |
 | `MOMENT_VARIANT` | `MOMENT-1-large` | Set to `MOMENT-1-base` for ≤ 1.5 GB RAM |
+| `STL_URL` | `http://stl-sidecar:8085` | STL temporal decomposition sidecar URL |
+| `HOLIDAY_COUNTRY` | `IN` | ISO 3166-1 alpha-2 country code for public holiday calendar (affects STL hotzone baseline) |
+| `HOLIDAY_SUBDIVISION` | _(empty)_ | Optional subdivision code (e.g. `MH` for Maharashtra) — leave blank for national calendar |
 | `GRAFANA_ADMIN_USER` | `admin` | Grafana UI admin username |
 | `GRAFANA_ADMIN_PASSWORD` | — | Grafana UI admin password |
 
@@ -586,6 +648,12 @@ The Tier 2 AI subsystem adds a **multivariate anomaly detection** layer (MOMENT)
 
 ### Training and retraining
 
+The training pipeline accepts Prometheus exports in two formats:
+- **Wide format** — one column per time-series (legacy)
+- **Long format** — one row per `(timestamp, metric_name, label_set, value)` tuple, as produced by the `full_export.py` Prometheus exporter script
+
+`prepare_dataset.py` auto-detects the format by checking for a `metric_name` column and pivots long-format data to wide before training.
+
 ```bash
 # 1. Prepare dataset (CSV → moment_windows.npz + chronos_train.parquet)
 cd tools && python train/prepare_dataset.py
@@ -604,6 +672,8 @@ python train/train_chronos.py
 #   models/chronos_metadata.json
 #   tools/train/data/training_report.md — evaluation metrics and honesty report
 ```
+
+**Channel matching is device-agnostic.** `MOMENT_CHANNELS` in `prepare_dataset.py` uses label-substring tuples (e.g. `("port_bytes_count{dir=rx_iface=N3",)`) — no hardcoded IPs or node IDs. The same trained model works against any UPF deployment as long as the Prometheus metric names follow the standard BESS-UPF exporter schema.
 
 After retraining, restart the sidecars to pick up new weights:
 ```bash
@@ -644,12 +714,56 @@ After MOMENT fires an anomaly, the analysis service generates a structured Root 
 
 ---
 
+## STL temporal sidecar
+
+The `stl-sidecar` (`tools/temporal/stl_service.py`) fits Seasonal-Trend decomposition (STL) on historical UPF metrics to power the **Insights / Hotzone** view — which hours of the day and days of the week historically see elevated traffic.
+
+### How it works
+
+1. On startup it loads pre-computed profiles from `stl_profiles.json` (if present).
+2. `POST /refit` triggers a background fit from the latest dataset CSV, which is mounted at `/data/upf_dataset.csv` inside the container.
+3. The sidecar reads the CSV in 200k-row chunks to avoid OOM on large exports, filters to only the relevant metric prefixes, pivots from long-format (one row per `metric_name` + label set) to wide-format (one column per time-series), then fits STL on each channel.
+4. Counter metrics (`port_bytes_count`, `port_packets_count`, `port_dropped_count`, `pfcp_sessions_total`) are rate-computed at their native scrape cadence before resampling — avoids all-NaN windows from sparse intermediate bins.
+5. Fitted profiles are written to `stl_profiles.json` and served via `GET /hotzone` with a 60-minute in-memory cache.
+
+### Triggering a refit
+
+```bash
+# Trigger refit after updating the dataset
+curl -k -X POST https://localhost/api/v1/stl/refit   # via analysis service proxy
+
+# Or directly inside the container
+docker compose exec stl-sidecar curl -s -X POST http://localhost:8085/refit
+
+# Tail logs to watch progress
+docker compose logs -f stl-sidecar
+```
+
+Expected log output when successful:
+```
+INFO STL: fitting on 13.82 days of data (8 channels)
+INFO   fitting STL for pfcp_sessions_total ...
+INFO STL: saved 8 profiles to /data/stl_profiles.json
+```
+
+### Memory note
+
+The sidecar has a 1 GB container limit. For datasets > 5M rows, increase the limit in `docker-compose.yml` under `stl-sidecar.deploy.resources.limits.memory`.
+
+### Holiday-aware hotzone baseline
+
+Set `HOLIDAY_COUNTRY` (ISO 3166-1 code, e.g. `IN`) and optionally `HOLIDAY_SUBDIVISION` in `.env` to adjust the hotzone baseline for public holidays. The sidecar uses the `holidays` Python library; a full country code list is at <https://pypi.org/project/holidays/>.
+
+---
+
 ## Diagnostic tool
 
 `frontend/public/diagnostic.html` is a self-contained HTML page (no build required) that checks connectivity, runs PromQL queries, and shows the anomaly feed. Access it at:
 
 ```
 https://localhost/diagnostic.html
+https://localhost/diagnostics          ← redirect alias
+https://localhost/diagnostic           ← redirect alias
 ```
 
 Useful when the main React app is unavailable or for quick stack health checks from any browser.

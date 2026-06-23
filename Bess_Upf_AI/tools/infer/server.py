@@ -13,6 +13,7 @@ GET /health
 
 The sidecar is internal-network only — never exposed through the reverse proxy.
 """
+from __future__ import annotations
 
 import json
 import logging

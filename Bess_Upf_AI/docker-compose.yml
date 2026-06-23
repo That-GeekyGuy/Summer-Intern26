@@ -23,24 +23,21 @@
 networks:
 
   metrics-backend:
-
+    name: bess-upf-backend
     driver: bridge
-
     internal: true   # containers on this network cannot initiate external connections
 
   scrape-net:
-
-    driver: bridge   # Prometheus uses this to reach physical UPF scrape targets
+    name: bess-upf-scrape
+    driver: bridge   # VictoriaMetrics uses this to reach external/dev Prometheus
 
   public-net:
-
+    name: bess-upf-public
     driver: bridge   # Caddy's egress to the host; non-internal so Docker publishes ports 80/443
 
 
 
 volumes:
-
-  prometheus-data:
 
   victoriametrics-data:
 
@@ -56,8 +53,6 @@ volumes:
 
   vllm-cache:
 
-  grafana-data:
-
   models-data:         # shared between ml-infer (read) and training runs (write)
 
   hf-cache:            # HuggingFace model cache — avoids re-downloading MOMENT/Chronos on restart
@@ -68,73 +63,7 @@ services:
 
 
 
-  # â"€â"€ Prometheus â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-
-  prometheus:
-
-    image: prom/prometheus:v2.52.0
-
-    user: "65534:65534"   # nobody:nobody â€" non-root
-
-    read_only: true
-
-    tmpfs:
-
-      - /tmp
-
-    volumes:
-
-      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-
-      - ./config/prometheus/targets:/etc/prometheus/targets:ro
-
-      - prometheus-data:/prometheus
-
-    command:
-
-      - --config.file=/etc/prometheus/prometheus.yml
-
-      - --storage.tsdb.path=/prometheus
-
-      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-24h}
-
-      - --web.enable-lifecycle           # enables POST /-/reload for config hot-reload
-
-      - --web.listen-address=0.0.0.0:9090
-
-      - --log.level=info
-
-    environment:
-
-      - VM_AUTH_USERNAME=${VM_AUTH_USERNAME}
-
-      - VM_AUTH_PASSWORD=${VM_AUTH_PASSWORD}
-
-    networks:
-
-      - metrics-backend   # remote_write to VictoriaMetrics
-
-      - scrape-net        # scrape physical UPF endpoints
-
-    restart: unless-stopped
-
-    deploy:
-
-      resources:
-
-        limits:
-
-          cpus: "0.5"
-
-          memory: 512M
-
-        reservations:
-
-          memory: 128M
-
-
-
-  # â"€â"€ VictoriaMetrics (vmsingle) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  # ── VictoriaMetrics (vmsingle) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
   # NOTE: credentials appear in process args (visible via `docker inspect`).
 
@@ -189,6 +118,8 @@ services:
     networks:
 
       - metrics-backend
+
+      - scrape-net      # federation scrape — reaches prometheus:9090 (dev) or external host (prod)
 
     restart: unless-stopped
 
@@ -382,63 +313,7 @@ services:
 
 
 
-  # â"€â"€ UPF metrics simulator â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-
-  # Exposes realistic time-varying UPF metrics on :8090/metrics.
-
-  # Prometheus scrapes it via file_sd (config/prometheus/targets/sim-targets.yml).
-
-  # Scenario engine: POST /scenario {"mode":"session_spike","duration":"10m"}
-
-  # Optional sequence file: set SEQUENCE_FILE=/config/scenarios.yml
-
-  upf-sim:
-
-    build:
-
-      context: ./upf-sim
-
-      dockerfile: Dockerfile
-
-    environment:
-
-      NODE_ID:          ${SIM_NODE_ID:-sim-upf-01}
-
-      BASE_SESSIONS:    ${SIM_BASE_SESSIONS:-12000}
-
-      BYTES_PER_SESSION: ${SIM_BYTES_PER_SESSION:-1000}
-
-      SPIKE_MULTIPLIER: ${SIM_SPIKE_MULTIPLIER:-4.0}
-
-      RAMP_SECONDS:     ${SIM_RAMP_SECONDS:-120}
-
-    volumes:
-
-      - ./upf-sim/config/scenarios-example.yml:/config/scenarios.yml:ro
-
-    networks:
-
-      - metrics-backend
-
-      - scrape-net   # Prometheus reaches it via this network
-
-    restart: unless-stopped
-
-    deploy:
-
-      resources:
-
-        limits:
-
-          cpus: "0.25"
-
-          memory: 64M
-
-        reservations:
-
-          memory: 16M
-
-  # â"€â"€ vLLM model server â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  # ── vLLM model server â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
   # Serves Qwen3-8B via the OpenAI-compatible API on :8000 (internal only).
 
@@ -792,7 +667,7 @@ services:
 
       - ./models:/models
 
-      - ./ansh_out_15_06_2026.csv:/data/upf_dataset.csv:ro
+      - ./prometheus_full_export_20260622_115327.csv:/data/upf_dataset.csv:ro
 
     networks:
 
@@ -932,8 +807,6 @@ services:
 
       - vllm
 
-      - upf-sim
-
       - stl-sidecar
 
     environment:
@@ -1038,73 +911,9 @@ services:
 
           memory: 16M
 
-  # â"€â"€ Caddy (TLS-terminating reverse proxy) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  # ── Caddy (TLS-terminating reverse proxy) ──────────────────────────────────────
 
   # The only service that publishes ports to the host.
-
-  # Proxies /vm/* â†’ VictoriaMetrics and /minio/* â†’ MinIO console.
-
-  # Prometheus does NOT have an external-facing endpoint (use kubectl port-forward
-
-  # or a VPN for operator access).
-
-  # -- Grafana (metrics dashboards) -----------------------------------------------
-
-  # Provisioned with VictoriaMetrics datasource and BESS-UPF observability dashboard.
-
-  # Accessed via Caddy at /grafana/ -- no direct port exposure.
-
-  grafana:
-
-    image: grafana/grafana:11.0.0
-
-    environment:
-
-      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
-
-      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
-
-      GF_USERS_ALLOW_SIGN_UP: "false"
-
-      VM_AUTH_USERNAME: ${VM_AUTH_USERNAME}
-
-      VM_AUTH_PASSWORD: ${VM_AUTH_PASSWORD}
-
-    volumes:
-
-      - grafana-data:/var/lib/grafana
-
-      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
-
-      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
-
-    networks:
-
-      - metrics-backend
-
-    restart: unless-stopped
-
-    deploy:
-
-      resources:
-
-        limits:
-
-          cpus: "0.5"
-
-          memory: 256M
-
-        reservations:
-
-          memory: 64M
-
-
 
   caddy:
 
