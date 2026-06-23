@@ -4,3 +4,6 @@ certs/*.key
 certs/*.pem
 secrets/*.txt
 secrets/*.key
+
+# Large Prometheus data exports
+prometheus_full_export_*.csv
