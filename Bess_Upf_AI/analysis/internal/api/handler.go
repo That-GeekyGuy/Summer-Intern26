@@ -15,6 +15,7 @@ import (
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/simclient"
 	"bess.internal/upf-analysis/internal/temporal"
+	"bess.internal/upf-analysis/internal/validator"
 	"bess.internal/upf-analysis/internal/vmclient"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -36,6 +37,8 @@ type ChatResponse struct {
 	Anomalies    []detclient.AnomalyEvent `json:"anomalies,omitempty"`
 }
 
+const maxChatMessageBytes = 4096
+
 // Handler wires all HTTP routes.
 type Handler struct {
 	orch *llm.Orchestrator
@@ -43,14 +46,15 @@ type Handler struct {
 	det  *detclient.Client
 	sim  *simclient.Client
 	vm   *vmclient.Client
-	temp *temporal.Client // nil-safe — optional STL sidecar
-	m    *metrics.M       // nil-safe
+	temp *temporal.Client        // nil-safe — optional STL sidecar
+	val  *validator.Validator    // used to validate frontend /query requests
+	m    *metrics.M              // nil-safe
 	reg  prometheus.Gatherer
 	log  *slog.Logger
 }
 
-func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger) *Handler {
-	return &Handler{orch: orch, rca: rca, det: det, sim: sim, vm: vm, temp: temp, m: m, reg: reg, log: log}
+func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger) *Handler {
+	return &Handler{orch: orch, rca: rca, det: det, sim: sim, vm: vm, temp: temp, val: val, m: m, reg: reg, log: log}
 }
 
 // Register mounts all routes onto mux.
@@ -90,6 +94,10 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Message) == "" {
 		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Message) > maxChatMessageBytes {
+		http.Error(w, `{"error":"message exceeds maximum length"}`, http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -132,6 +140,16 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if q == "" {
 		http.Error(w, `{"error":"q parameter is required"}`, http.StatusBadRequest)
 		return
+	}
+	// Validate against allowlist and policy limits before forwarding to VictoriaMetrics.
+	// Instant queries use a 0 time range and 0 step — validator only checks the AST.
+	if h.val != nil {
+		if err := h.val.Validate(q, 0, 0); err != nil {
+			h.log.Warn("handleQuery rejected", "q", q, "reason", err)
+			b, _ := json.Marshal(map[string]string{"error": "query rejected by policy: " + err.Error()})
+			http.Error(w, string(b), http.StatusForbidden)
+			return
+		}
 	}
 	samples, err := h.vm.QueryInstant(r.Context(), q)
 	if err != nil {
