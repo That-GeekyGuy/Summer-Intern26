@@ -422,6 +422,82 @@ def forecast(req: ForecastRequest):
     )
 
 
+class IntervalsRequest(BaseModel):
+    channel: str                                 # logical channel name (for response tagging only)
+    context: list[float]                         # recent values (last N steps of that channel)
+    timestamps: list[str] | None = None          # ISO timestamps for context tail (optional)
+    horizon: str = "short"                       # "short" | "medium" | "long"
+
+
+class IntervalsResponse(BaseModel):
+    channel: str
+    available: bool
+    p10: list[float] | None = None
+    p50: list[float] | None = None
+    p90: list[float] | None = None
+    horizon: str = "short"
+    timestamps: list[str] | None = None
+    model_version: str = ""
+
+
+@app.post("/intervals", response_model=IntervalsResponse)
+def intervals(req: IntervalsRequest):
+    """
+    Return probabilistic prediction intervals (P10/P50/P90) for a single channel.
+    Simpler than /forecast: no breach detection, no trend, no STL hybrid.
+    Designed for frontend uncertainty-band rendering on any metric channel.
+    """
+    if not _state.available:
+        return IntervalsResponse(
+            channel=req.channel, available=False,
+            model_version="degraded", horizon=req.horizon,
+        )
+
+    context = np.array(req.context, dtype=np.float32)
+    if len(context) < 2:
+        return IntervalsResponse(
+            channel=req.channel, available=True,
+            model_version=_state.model_version, horizon=req.horizon,
+        )
+
+    context = context[-_state.context_length:]
+    horizon_key  = req.horizon if req.horizon in HORIZON_STEPS else "short"
+    total_steps  = HORIZON_STEPS[horizon_key]
+
+    if req.timestamps and len(req.timestamps) > 0:
+        try:
+            last_ts = datetime.fromisoformat(req.timestamps[-1].replace("Z", "+00:00"))
+        except Exception:
+            last_ts = datetime.now(timezone.utc)
+    else:
+        last_ts = datetime.now(timezone.utc)
+
+    short = _run_chronos_short(context, min(total_steps, CHRONOS_MAX_STEPS))
+
+    if total_steps > CHRONOS_MAX_STEPS:
+        short_std = (short["p90"] - short["p10"]) / 2.56
+        ext = _extrapolate(context, short["p50"], short_std, total_steps)
+        p10, p50, p90 = ext["p10"], ext["p50"], ext["p90"]
+    else:
+        p10, p50, p90 = short["p10"], short["p50"], short["p90"]
+
+    ts_out = [
+        (last_ts + timedelta(seconds=_state.resample_seconds * (i + 1))).isoformat()
+        for i in range(total_steps)
+    ]
+
+    return IntervalsResponse(
+        channel=req.channel,
+        available=True,
+        p10=[round(float(v), 4) for v in p10],
+        p50=[round(float(v), 4) for v in p50],
+        p90=[round(float(v), 4) for v in p90],
+        horizon=horizon_key,
+        timestamps=ts_out,
+        model_version=_state.model_version,
+    )
+
+
 @app.get("/health")
 def health():
     return {
