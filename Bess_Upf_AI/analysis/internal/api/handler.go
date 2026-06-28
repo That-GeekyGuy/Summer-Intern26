@@ -1,11 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -41,20 +44,28 @@ const maxChatMessageBytes = 4096
 
 // Handler wires all HTTP routes.
 type Handler struct {
-	orch *llm.Orchestrator
-	rca  *llm.RCAEngine
-	det  *detclient.Client
-	sim  *simclient.Client
-	vm   *vmclient.Client
-	temp *temporal.Client        // nil-safe — optional STL sidecar
-	val  *validator.Validator    // used to validate frontend /query requests
-	m    *metrics.M              // nil-safe
-	reg  prometheus.Gatherer
-	log  *slog.Logger
+	orch       *llm.Orchestrator
+	rca        *llm.RCAEngine
+	det        *detclient.Client
+	sim        *simclient.Client
+	vm         *vmclient.Client
+	temp       *temporal.Client     // nil-safe — optional STL sidecar
+	val        *validator.Validator // used to validate frontend /query requests
+	m          *metrics.M           // nil-safe
+	reg        prometheus.Gatherer
+	log        *slog.Logger
+	modelsDir  string
+	chronosURL string
+	chronosHTTP *http.Client
 }
 
-func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger) *Handler {
-	return &Handler{orch: orch, rca: rca, det: det, sim: sim, vm: vm, temp: temp, val: val, m: m, reg: reg, log: log}
+func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger, modelsDir, chronosURL string) *Handler {
+	return &Handler{
+		orch: orch, rca: rca, det: det, sim: sim, vm: vm, temp: temp, val: val, m: m, reg: reg, log: log,
+		modelsDir:   modelsDir,
+		chronosURL:  chronosURL,
+		chronosHTTP: &http.Client{Timeout: 30 * time.Second},
+	}
 }
 
 // Register mounts all routes onto mux.
@@ -75,6 +86,12 @@ func (h *Handler) Register(mux *http.ServeMux, authUser, authPass string, rl *Ra
 	// Temporal intelligence endpoints — routed through Caddy, require auth.
 	mux.Handle("GET /api/v1/temporal/analysis", auth(http.HandlerFunc(h.handleTemporalAnalysis)))
 	mux.Handle("GET /api/v1/temporal/hotzone", auth(http.HandlerFunc(h.handleTemporalHotzone)))
+
+	// Ablation benchmark report — static JSON produced by tools/train/ablation.py.
+	mux.Handle("GET /api/v1/benchmark", auth(http.HandlerFunc(h.handleBenchmark)))
+
+	// Chronos-2 uncertainty intervals proxy — calls internal Chronos sidecar.
+	mux.Handle("GET /api/v1/intervals", auth(http.HandlerFunc(h.handleIntervals)))
 
 	// Internal endpoint: called by detection service only, not routed through Caddy.
 	// No auth — this path is only reachable on the internal Docker network.
@@ -300,4 +317,99 @@ func (h *Handler) handleAnalyzeAnomaly(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"rca_report": report}) //nolint:errcheck
 }
+
+// handleBenchmark serves the ablation evaluation report written by tools/train/ablation.py.
+// The file is parsed and re-serialised (never streamed raw) to ensure only valid JSON is returned.
+// Security: this protects against a malformed file containing unexpected keys or values.
+func (h *Handler) handleBenchmark(w http.ResponseWriter, r *http.Request) {
+	path := filepath.Join(h.modelsDir, "ablation_report.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"available": false,
+				"message":   "ablation report not found — run tools/train/ablation.py first",
+			})
+			return
+		}
+		h.log.Error("benchmark read failed", "path", path, "err", err)
+		http.Error(w, `{"error":"internal error reading benchmark report"}`, http.StatusInternalServerError)
+		return
+	}
+	var report map[string]any
+	if err := json.Unmarshal(data, &report); err != nil {
+		h.log.Error("benchmark parse failed", "err", err)
+		http.Error(w, `{"error":"benchmark report is malformed JSON"}`, http.StatusInternalServerError)
+		return
+	}
+	report["available"] = true
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(report) //nolint:errcheck
+}
+
+// handleIntervals proxies a Chronos-2 uncertainty interval request.
+// It fetches recent VM data for the requested PromQL expression (context array)
+// then POSTs to the Chronos /intervals endpoint and returns P10/P50/P90 bands.
+// GET /api/v1/intervals?q=<promql>&horizon=<short|medium|long>
+func (h *Handler) handleIntervals(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		http.Error(w, `{"error":"q parameter required"}`, http.StatusBadRequest)
+		return
+	}
+	// Validate promql against allowlist before forwarding.
+	if h.val != nil {
+		if err := h.val.Validate(q, 0, 0); err != nil {
+			http.Error(w, `{"error":"query rejected by policy"}`, http.StatusForbidden)
+			return
+		}
+	}
+	horizon := r.URL.Query().Get("horizon")
+	if horizon == "" {
+		horizon = "short"
+	}
+
+	// Fetch last 60 minutes at 60s steps → up to 60 context points.
+	vals, err := h.vm.QueryRawValues(r.Context(), q, 60*time.Minute, 60*time.Second)
+	if err != nil || len(vals) == 0 {
+		// Chronos needs at least some context; fall back gracefully.
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"available": false, "channel": q}) //nolint:errcheck
+		return
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"channel": q,
+		"context": vals,
+		"horizon": horizon,
+	})
+
+	chronosReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		h.chronosURL+"/intervals", bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, `{"error":"chronos request failed"}`, http.StatusInternalServerError)
+		return
+	}
+	chronosReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := h.chronosHTTP.Do(chronosReq)
+	if err != nil {
+		h.log.Warn("chronos sidecar unavailable", "err", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"available": false, "channel": q}) //nolint:errcheck
+		return
+	}
+	defer resp.Body.Close()
+
+	var chronosResp map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&chronosResp); err != nil {
+		http.Error(w, `{"error":"invalid response from chronos"}`, http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(chronosResp) //nolint:errcheck
+}
+
 

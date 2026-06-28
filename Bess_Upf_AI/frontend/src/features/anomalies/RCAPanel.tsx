@@ -70,6 +70,25 @@ function channelLabel(key: string): string {
   return AI_CHANNEL_LABELS[key] ?? key.replace(/_/g, " ");
 }
 
+// ----- tier badge --------------------------------------------------------
+
+function tierInfo(eventType?: string, ruleName?: string): { label: string; color: string; bg: string } {
+  if (eventType === "reactive" || (ruleName && ruleName.toLowerCase().includes("zscore"))) {
+    return { label: "T1 · Z-score", color: "#94a3b8", bg: "rgba(148,163,184,0.12)" };
+  }
+  if (ruleName?.includes("random_forest") || ruleName?.includes("isolation_forest")) {
+    const which = ruleName.includes("rf") ? "RF" : "IF";
+    return { label: `T2a · ${which}`, color: "#60a5fa", bg: "rgba(96,165,250,0.12)" };
+  }
+  if (eventType === "ml") {
+    return { label: "T2b · MOMENT", color: "#a78bfa", bg: "rgba(167,139,250,0.12)" };
+  }
+  if (eventType === "predictive") {
+    return { label: "T3 · OLS Forecast", color: "#34d399", bg: "rgba(52,211,153,0.12)" };
+  }
+  return { label: ruleName ?? eventType ?? "Unknown", color: "var(--text-muted)", bg: "var(--bg-elevated)" };
+}
+
 // ----- sub-components --------------------------------------------------------
 
 function ConfidenceMeter({ value }: { value: number }) {
@@ -174,6 +193,27 @@ export function RCAPanel({ event }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Detection tier badge */}
+      {(() => {
+        const { label, color, bg } = tierInfo(event.event_type, event.rule_name);
+        return (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "3px 10px", borderRadius: 6,
+            background: bg, border: `1px solid ${color}`,
+            color, fontSize: "var(--text-2xs)", fontFamily: "var(--font-mono)", fontWeight: 700,
+            alignSelf: "flex-start",
+          }}>
+            {label}
+            {event.confidence != null && (
+              <span style={{ fontWeight: 400, opacity: 0.75 }}>
+                {(event.confidence * 100).toFixed(0)}% conf
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* AI badge + anomaly score */}
       {isAI && (

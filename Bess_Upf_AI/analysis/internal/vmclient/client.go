@@ -118,6 +118,67 @@ func (c *Client) QueryInstant(ctx context.Context, promql string) ([]InstantSamp
 	return out, nil
 }
 
+// QueryRawValues executes a PromQL range query and returns the flat float64
+// time-series summed across all matching label-sets at each timestep.
+// Used to build Chronos context arrays without the summarization overhead.
+func (c *Client) QueryRawValues(ctx context.Context, promql string, timeRange, step time.Duration) ([]float64, error) {
+	end := time.Now()
+	start := end.Add(-timeRange)
+	params := url.Values{
+		"query": {promql},
+		"start": {strconv.FormatInt(start.Unix(), 10)},
+		"end":   {strconv.FormatInt(end.Unix(), 10)},
+		"step":  {strconv.FormatFloat(step.Seconds(), 'f', 0, 64) + "s"},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.baseURL+"/api/v1/query_range?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.username != "" {
+		req.SetBasicAuth(c.username, c.password)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("query_raw: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("query_raw: HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Result []struct {
+				Values [][]any `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	if body.Status != "success" || len(body.Data.Result) == 0 {
+		return nil, nil
+	}
+	n := len(body.Data.Result[0].Values)
+	sums := make([]float64, n)
+	for _, series := range body.Data.Result {
+		for i, v := range series.Values {
+			if i >= n {
+				break
+			}
+			if len(v) == 2 {
+				if s, ok := v[1].(string); ok {
+					if f, err := strconv.ParseFloat(s, 64); err == nil {
+						sums[i] += f
+					}
+				}
+			}
+		}
+	}
+	return sums, nil
+}
+
 // QueryRange executes a PromQL range query and returns a compact summary.
 // At most maxSeries series are included; the rest are silently truncated.
 func (c *Client) QueryRange(ctx context.Context, promql string, timeRange, step time.Duration, maxSeries int) (*QueryResult, error) {

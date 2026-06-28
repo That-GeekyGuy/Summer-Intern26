@@ -226,3 +226,60 @@ export async function queryInstant(
   const qs = new URLSearchParams({ q: promql }).toString();
   return request<InstantQueryResponse>(`/api/v1/query?${qs}`, creds);
 }
+
+// ---- Ablation benchmark report --------------------------------------------
+
+export interface TierResult {
+  id: string;
+  label: string;
+  method?: string;
+  note?: string;
+  available: boolean;
+  precision?: number;
+  recall?: number;
+  f1?: number;
+  auc_roc?: number | null;
+  latency_p50_ms?: number;
+  tp?: number; fp?: number; fn?: number; tn?: number;
+}
+
+export interface BenchmarkReport {
+  available: boolean;
+  message?: string;
+  generated_at?: string;
+  dataset_hash?: string;
+  tiers?: TierResult[];
+  ensemble?: TierResult;
+}
+
+export async function fetchBenchmark(creds: Credentials): Promise<BenchmarkReport> {
+  try {
+    return await request<BenchmarkReport>("/api/v1/benchmark", creds);
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message.startsWith("HTTP 404")) {
+      return { available: false, message: "Run tools/train/ablation.py to generate the benchmark report." };
+    }
+    throw e;
+  }
+}
+
+// ---- Chronos-2 uncertainty intervals --------------------------------------
+
+export interface IntervalsResponse {
+  available: boolean;
+  channel: string;
+  p10?: number[];
+  p50?: number[];
+  p90?: number[];
+  horizon?: string;
+  timestamps?: string[];
+}
+
+export async function fetchIntervals(
+  creds: Credentials,
+  promql: string,
+  horizon = "short"
+): Promise<IntervalsResponse> {
+  const qs = new URLSearchParams({ q: promql, horizon }).toString();
+  return request<IntervalsResponse>(`/api/v1/intervals?${qs}`, creds);
+}

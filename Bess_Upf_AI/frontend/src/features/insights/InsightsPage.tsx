@@ -1,5 +1,6 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Credentials, fetchTemporalAnalysis, fetchHotzone, Regime, HourlyStat } from "../../api/client";
+import { Credentials, fetchTemporalAnalysis, fetchHotzone, fetchAnomalies, Regime, HourlyStat } from "../../api/client";
 
 interface Props { creds: Credentials; }
 
@@ -126,6 +127,79 @@ function CalendarCard({ analysis }: { analysis: ReturnType<typeof fetchTemporalA
   );
 }
 
+// ---- Channel co-activation matrix (proxy correlation from ML anomaly scores) ----
+
+const SHORT_LABELS: Record<string, string> = {
+  port_bytes_N3_rx_rate: "N3↓B", port_bytes_N6_tx_rate: "N6↑B",
+  port_pkts_N3_rx_rate:  "N3↓P", port_dropped_N3_rx_rate: "N3↓D",
+  port_dropped_N6_rx_rate: "N6↓D", pfcp_sessions_total: "PFCP",
+  pfcp_session_setup_rate: "SuR", dl_forwarding_efficiency: "DL↑E",
+  dl_throughput_efficiency: "DL↑T", drop_rate_percentage: "Drop%",
+};
+function shortLabel(k: string) { return SHORT_LABELS[k] ?? k.slice(0, 5); }
+
+function heatColor(v: number): string {
+  // v in [0,1]: 0=cool, 1=hot (co-activation strength)
+  const r = Math.round(59  + v * (239 - 59));
+  const g = Math.round(130 + v * (68  - 130));
+  const b = Math.round(246 + v * (68  - 246));
+  return `rgba(${r},${g},${b},${0.15 + v * 0.7})`;
+}
+
+function CorrelationMatrix({ channels, matrix }: { channels: string[]; matrix: number[][] }) {
+  const n = channels.length;
+  if (n < 2) return null;
+  return (
+    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "14px 18px" }}>
+      <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "var(--font-mono)", marginBottom: 12 }}>
+        Channel Co-Activation Matrix
+        <span style={{ marginLeft: 10, fontStyle: "italic", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+          (derived from ML anomaly channel scores — darker = co-activate more often)
+        </span>
+      </div>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: `56px repeat(${n}, 1fr)`,
+        gap: 1,
+        fontSize: 9,
+        fontFamily: "var(--font-mono)",
+      }}>
+        {/* Top header row */}
+        <div />
+        {channels.map(ch => (
+          <div key={ch} style={{ textAlign: "center", color: "var(--text-muted)", padding: "2px 0", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {shortLabel(ch)}
+          </div>
+        ))}
+        {/* Data rows */}
+        {channels.map((rowCh, r) => (
+          <>
+            <div key={`lbl-${rowCh}`} style={{ color: "var(--text-muted)", paddingRight: 6, textAlign: "right", display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+              {shortLabel(rowCh)}
+            </div>
+            {matrix[r].map((v, c) => (
+              <div key={c} title={`${shortLabel(rowCh)} × ${shortLabel(channels[c])}: ${v.toFixed(2)}`}
+                style={{
+                  background: heatColor(v),
+                  borderRadius: 2,
+                  height: 22,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: v > 0.5 ? "var(--text-primary)" : "transparent",
+                  fontSize: 8,
+                }}
+              >
+                {v > 0.5 ? v.toFixed(1) : ""}
+              </div>
+            ))}
+          </>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: "flex", gap: 8 }}>
@@ -166,6 +240,60 @@ export function InsightsPage({ creds }: Props) {
   });
 
   const sidecarDown = !!(aError || hError);
+
+  // Fetch recent ML anomaly events to derive channel co-activation matrix
+  const { data: anomalyData } = useQuery({
+    queryKey: ["anomalies-insights"],
+    queryFn: () => fetchAnomalies(creds),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const { channels, matrix } = useMemo(() => {
+    const mlEvents = (anomalyData?.anomalies ?? []).filter(e => e.event_type === "ml" && e.feature_contributions);
+    if (mlEvents.length < 2) return { channels: [], matrix: [] as number[][] };
+
+    // Collect all channel names
+    const chSet = new Set<string>();
+    const vectors: Record<string, number>[] = [];
+    for (const ev of mlEvents) {
+      try {
+        const raw = JSON.parse(ev.feature_contributions!);
+        const scores: Record<string, number> = Array.isArray(raw)
+          ? Object.fromEntries((raw as { name: string; importance: number }[]).map(x => [x.name, x.importance]))
+          : raw as Record<string, number>;
+        Object.keys(scores).forEach(k => chSet.add(k));
+        vectors.push(scores);
+      } catch { /* skip malformed */ }
+    }
+
+    const chs = Array.from(chSet).slice(0, 10); // cap at 10 for readability
+    if (chs.length < 2) return { channels: [], matrix: [] as number[][] };
+
+    // Build channel score vectors (0 if channel absent in event)
+    const vecs = vectors.map(sc => chs.map(ch => sc[ch] ?? 0));
+
+    // Compute co-activation matrix: normalised dot-product between channel activation vectors
+    const n = chs.length;
+    const mx: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+    for (const vec of vecs) {
+      const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
+      const nvec = vec.map(v => v / norm);
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          mx[r][c] += nvec[r] * nvec[c];
+        }
+      }
+    }
+    // Normalise to [0,1] by max off-diagonal
+    const maxOff = Math.max(...mx.flatMap((row, r) => row.filter((_, c) => c !== r))) || 1;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        mx[r][c] = r === c ? 1 : Math.min(1, mx[r][c] / maxOff);
+      }
+    }
+    return { channels: chs, matrix: mx };
+  }, [anomalyData]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "auto", padding: "16px 20px", gap: 20 }}>
@@ -272,6 +400,9 @@ export function InsightsPage({ creds }: Props) {
               {analysis && <CalendarCard analysis={analysis} />}
             </div>
           </div>
+
+          {/* Channel co-activation matrix */}
+          {channels.length >= 2 && <CorrelationMatrix channels={channels} matrix={matrix} />}
 
           {/* Regime interpretation guide */}
           <div style={{

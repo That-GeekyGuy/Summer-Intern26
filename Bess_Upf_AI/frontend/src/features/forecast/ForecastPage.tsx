@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { Credentials, fetchAnomalies, queryInstant, AnomalyEvent } from "../../api/client";
+import { Credentials, fetchAnomalies, queryInstant, fetchIntervals, AnomalyEvent, IntervalsResponse } from "../../api/client";
 import { useQuery, useQueries } from "@tanstack/react-query";
+import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { useAppStore } from "../../store/useAppStore";
 import { COPY } from "../../lib/copy";
 import { displayName, severityColor, fmtMetricVal } from "../../lib/metrics";
@@ -42,6 +43,45 @@ const FORECAST_METRICS = [
   },
 ] as const;
 
+// Converts IntervalsResponse arrays into recharts data objects.
+function toChartData(iv: IntervalsResponse | undefined) {
+  if (!iv?.available || !iv.p50?.length) return null;
+  return iv.p50.map((p50, i) => ({
+    i,
+    p10: iv.p10?.[i] ?? p50,
+    p50,
+    p90: iv.p90?.[i] ?? p50,
+  }));
+}
+
+function IntervalsChart({ iv }: { iv: IntervalsResponse | undefined }) {
+  const data = toChartData(iv);
+  if (!data) return null;
+  return (
+    <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+      <div style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>
+        Chronos-2 · 80% prediction interval
+      </div>
+      <ResponsiveContainer width="100%" height={64}>
+        <AreaChart data={data} margin={{ top: 2, right: 4, left: 4, bottom: 0 }}>
+          <XAxis dataKey="i" hide />
+          <Tooltip
+            contentStyle={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", fontSize: 10, padding: "4px 8px" }}
+            formatter={(v: number, name: string) => [v.toExponential(2), name.toUpperCase()]}
+            labelFormatter={() => ""}
+          />
+          {/* P90 area — upper bound */}
+          <Area type="monotone" dataKey="p90" stroke="none" fill="#3b82f6" fillOpacity={0.15} legendType="none" />
+          {/* P10 area — subtract lower band (bg color fill to create a band effect) */}
+          <Area type="monotone" dataKey="p10" stroke="none" fill="var(--bg-surface)" fillOpacity={1} legendType="none" />
+          {/* P50 median line */}
+          <Area type="monotone" dataKey="p50" stroke="#3b82f6" strokeWidth={1.5} fill="none" dot={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function barColor(pct: number): string {
   if (pct >= 90) return "var(--signal-critical)";
   if (pct >= 70) return "var(--signal-warning)";
@@ -79,6 +119,16 @@ export function ForecastPage({ creds }: Props) {
     return map;
   }, [dbData]);
 
+  // Chronos-2 P10/P50/P90 uncertainty intervals per metric (refreshed every 5 min)
+  const intervalQueries = useQueries({
+    queries: FORECAST_METRICS.map(m => ({
+      queryKey: ["intervals", m.metric],
+      queryFn: () => fetchIntervals(creds, m.promql),
+      staleTime: 5 * 60_000,
+      retry: 0,
+    })),
+  });
+
   const isFetching = metricQueries.some(q => q.isFetching) || dbFetching;
 
   return (
@@ -96,6 +146,7 @@ export function ForecastPage({ creds }: Props) {
         {FORECAST_METRICS.map((m, i) => {
           const renderNow = Date.now(); // single timestamp for this render pass
           const q = metricQueries[i];
+          const iv = intervalQueries[i]?.data;
           // Sum all returned samples (per-node metrics like pfcp_sessions_total return
           // one sample per UPF node; rate queries with sum() return a single sample).
           const samplesArr = q.data?.samples ?? [];
@@ -229,6 +280,9 @@ export function ForecastPage({ creds }: Props) {
                   ? COPY.forecast.summary(displayName(m.metric), trendPct, etaH > 0 ? etaH : 0)
                   : `${displayName(m.metric)} is within normal operating range.`}
               </p>
+
+              {/* Chronos-2 uncertainty bands */}
+              <IntervalsChart iv={iv} />
             </div>
           );
         })}

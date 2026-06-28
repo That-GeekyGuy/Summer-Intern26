@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { AnomalyEvent } from "../api/client";
 import { ChatMessage } from "../hooks/useChat";
 
-type ActiveView = "overview" | "anomalies" | "chat" | "forecast" | "insights" | "scenario";
+type ActiveView = "overview" | "anomalies" | "chat" | "forecast" | "insights" | "benchmark" | "scenario";
 
 interface ContextPanelState {
   type: "empty" | "event" | "chat" | "forecast";
