@@ -49,11 +49,83 @@ func OpenAuditLog(path string) (*AuditLog, error) {
 		return nil, fmt.Errorf("open audit sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	// WAL mode allows concurrent readers while a writer holds the lock.
+	// Required because the audit endpoint reads concurrently with LLM writes.
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set WAL mode: %w", err)
+	}
 	if _, err := db.Exec(auditSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate audit schema: %w", err)
 	}
 	return &AuditLog{db: db}, nil
+}
+
+// AuditRow is the read-side projection of query_audit — safe to serialise to JSON.
+// user_message and tool_args are truncated to prevent log scraping of user input.
+type AuditRow struct {
+	ID              int64  `json:"id"`
+	SessionID       string `json:"session_id"`
+	UserMessage     string `json:"user_message"` // truncated to 512 chars
+	ToolName        string `json:"tool_name"`
+	ToolArgs        string `json:"tool_args"` // truncated to 512 chars
+	ValidationError string `json:"validation_error,omitempty"`
+	ExecutionStatus string `json:"execution_status"`
+	RowCount        int    `json:"row_count"`
+	CreatedAt       int64  `json:"created_at"` // Unix seconds
+}
+
+// Query returns recent audit entries in reverse-chronological order.
+// toolName is an optional filter (empty = all). since is an optional Unix timestamp lower bound.
+func (a *AuditLog) Query(ctx context.Context, limit int, since int64, toolName string) ([]AuditRow, int, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	args := []any{since}
+	filter := "WHERE created_at >= ?"
+	if toolName != "" {
+		filter += " AND tool_name = ?"
+		args = append(args, toolName)
+	}
+
+	var total int
+	if err := a.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM query_audit "+filter, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count audit: %w", err)
+	}
+
+	rows, err := a.db.QueryContext(ctx,
+		"SELECT id, session_id, user_message, tool_name, tool_args, "+
+			"validation_error, execution_status, row_count, created_at "+
+			"FROM query_audit "+filter+
+			" ORDER BY created_at DESC LIMIT ?",
+		append(args, limit)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query audit: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AuditRow
+	for rows.Next() {
+		var r AuditRow
+		if err := rows.Scan(&r.ID, &r.SessionID, &r.UserMessage, &r.ToolName, &r.ToolArgs,
+			&r.ValidationError, &r.ExecutionStatus, &r.RowCount, &r.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		r.UserMessage = truncate(r.UserMessage, 512)
+		r.ToolArgs    = truncate(r.ToolArgs, 512)
+		out = append(out, r)
+	}
+	return out, total, rows.Err()
+}
+
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…"
 }
 
 // Log records an audit entry. Call for every tool invocation and every chat turn.

@@ -43,27 +43,32 @@ func (v *Validator) Validate(promql string, timeRange, step time.Duration) error
 	return v.walkAST(expr)
 }
 
-// walkAST visits every VectorSelector node in the expression tree.
-// It rejects selectors without an explicit metric name (fan-out prevention) and
-// rejects metric names absent from the allowlist.
+// walkAST visits every node in the expression tree checking:
+//   - VectorSelector: must have explicit metric name that is allowlisted
+//   - SubqueryExpr: inner step must be ≥ minStep (CPU amplification prevention)
 func (v *Validator) walkAST(expr parser.Expr) error {
 	var validationErr error
 	parser.Inspect(expr, func(node parser.Node, _ []parser.Node) error {
 		if validationErr != nil {
-			return validationErr // stop traversal early on first violation
-		}
-		vs, ok := node.(*parser.VectorSelector)
-		if !ok {
-			return nil
-		}
-		if vs.Name == "" {
-			// {label="value"} without a metric name can match every series — block it.
-			validationErr = errors.New("selector without explicit metric name is not permitted; use get_metric_metadata to list available metrics")
 			return validationErr
 		}
-		if !v.allowlist.IsAllowed(vs.Name) {
-			validationErr = fmt.Errorf("metric %q is not in the allowed list; use get_metric_metadata to see available metrics", vs.Name)
-			return validationErr
+		switch n := node.(type) {
+		case *parser.VectorSelector:
+			if n.Name == "" {
+				validationErr = errors.New("selector without explicit metric name is not permitted; use get_metric_metadata to list available metrics")
+				return validationErr
+			}
+			if !v.allowlist.IsAllowed(n.Name) {
+				validationErr = fmt.Errorf("metric %q is not in the allowed list; use get_metric_metadata to see available metrics", n.Name)
+				return validationErr
+			}
+		case *parser.SubqueryExpr:
+			// Subquery step controls inner resolution independently of the outer step.
+			// A small inner step over a long range causes CPU amplification.
+			if n.Step > 0 && n.Step < v.minStep {
+				validationErr = fmt.Errorf("subquery step %v is below minimum allowed %v", n.Step, v.minStep)
+				return validationErr
+			}
 		}
 		return nil
 	})

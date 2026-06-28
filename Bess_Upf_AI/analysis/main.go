@@ -155,6 +155,7 @@ func main() {
 	h := api.NewHandler(orch, rcaEngine, det, sim, vm, tempClient, val, m, reg, log,
 		env("MODELS_DIR", "/models"),
 		env("CHRONOS_URL", "http://chronos:8084"),
+		audit,
 	)
 	mux := http.NewServeMux()
 	h.Register(mux, env("ANALYSIS_AUTH_USER", "admin"), env("ANALYSIS_AUTH_PASSWORD", ""), rl)

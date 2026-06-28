@@ -17,6 +17,7 @@ import (
 	"bess.internal/upf-analysis/internal/llm"
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/simclient"
+	"bess.internal/upf-analysis/internal/store"
 	"bess.internal/upf-analysis/internal/temporal"
 	"bess.internal/upf-analysis/internal/validator"
 	"bess.internal/upf-analysis/internal/vmclient"
@@ -54,17 +55,19 @@ type Handler struct {
 	m          *metrics.M           // nil-safe
 	reg        prometheus.Gatherer
 	log        *slog.Logger
-	modelsDir  string
-	chronosURL string
+	modelsDir   string
+	chronosURL  string
 	chronosHTTP *http.Client
+	audit       *store.AuditLog // nil-safe
 }
 
-func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger, modelsDir, chronosURL string) *Handler {
+func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger, modelsDir, chronosURL string, audit *store.AuditLog) *Handler {
 	return &Handler{
 		orch: orch, rca: rca, det: det, sim: sim, vm: vm, temp: temp, val: val, m: m, reg: reg, log: log,
 		modelsDir:   modelsDir,
 		chronosURL:  chronosURL,
 		chronosHTTP: &http.Client{Timeout: 30 * time.Second},
+		audit:       audit,
 	}
 }
 
@@ -86,6 +89,9 @@ func (h *Handler) Register(mux *http.ServeMux, authUser, authPass string, rl *Ra
 	// Temporal intelligence endpoints — routed through Caddy, require auth.
 	mux.Handle("GET /api/v1/temporal/analysis", auth(http.HandlerFunc(h.handleTemporalAnalysis)))
 	mux.Handle("GET /api/v1/temporal/hotzone", auth(http.HandlerFunc(h.handleTemporalHotzone)))
+
+	// Structured audit log — last N LLM/tool interactions (auth-guarded, truncated).
+	mux.Handle("GET /api/v1/audit", auth(http.HandlerFunc(h.handleAudit)))
 
 	// Ablation benchmark report — static JSON produced by tools/train/ablation.py.
 	mux.Handle("GET /api/v1/benchmark", auth(http.HandlerFunc(h.handleBenchmark)))
@@ -316,6 +322,34 @@ func (h *Handler) handleAnalyzeAnomaly(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"rca_report": report}) //nolint:errcheck
+}
+
+// handleAudit returns recent structured audit log entries.
+// GET /api/v1/audit?limit=N&since=<unix>&tool=<name>
+// Returns last N LLM/tool interactions. user_message and tool_args are truncated to 512 chars.
+func (h *Handler) handleAudit(w http.ResponseWriter, r *http.Request) {
+	if h.audit == nil {
+		http.Error(w, `{"error":"audit log not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	since, _  := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	tool       := r.URL.Query().Get("tool")
+
+	entries, total, err := h.audit.Query(r.Context(), limit, since, tool)
+	if err != nil {
+		h.log.Error("audit query failed", "err", err)
+		http.Error(w, `{"error":"audit query failed"}`, http.StatusInternalServerError)
+		return
+	}
+	if entries == nil {
+		entries = []store.AuditRow{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		"entries": entries,
+		"total":   total,
+	})
 }
 
 // handleBenchmark serves the ablation evaluation report written by tools/train/ablation.py.
