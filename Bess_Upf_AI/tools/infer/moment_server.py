@@ -80,6 +80,9 @@ class _State:
     available: bool   = False
     error_msg: str    = ""
     channel_names: list[str] = []
+    # zero_shot_threshold: used when MOMENT encoder is available (primary path).
+    # threshold: used by trained MLP head (fine-tuned path / ablation).
+    zero_shot_threshold: float = 1.0
     threshold: float  = 1.0
     normal_mean: float = 0.0
     normal_std: float  = 1.0
@@ -110,21 +113,59 @@ def _statistical_features_np(window: np.ndarray) -> np.ndarray:
     return np.concatenate(feats, axis=0)
 
 
-def _embed_window(window: np.ndarray) -> np.ndarray:
-    """Compute embedding for a single window (n_channels, seq_len)."""
-    if _state.moment_model is not None:
-        try:
-            tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0)  # (1, c, t)
-            _, c, t = tensor.shape
-            with torch.no_grad():
-                mask = torch.ones(1, t, dtype=torch.bool)
-                out  = _state.moment_model(tensor, input_mask=mask)
-                emb  = out.reconstruction.reshape(1, -1)
-                return emb[0].numpy()
-        except Exception as e:
-            log.debug("MOMENT model embed failed: %s — using statistical features", e)
+def _moment_infer(window: np.ndarray) -> tuple[np.ndarray | None, np.ndarray]:
+    """
+    Run MOMENT-1-large on a single window.
 
-    return _statistical_features_np(window)
+    Returns (reconstruction, embedding) where:
+      reconstruction: (n_channels, seq_len) float32 — MOMENT's reconstructed input, or None on failure
+      embedding:      flat float32 array used by the optional trained head
+
+    The reconstruction is the primary zero-shot anomaly signal — no learned parameters.
+    The embedding is passed to ReconstructionAnomalyHead when fine-tuned weights exist.
+    """
+    if _state.moment_model is None:
+        return None, _statistical_features_np(window)
+
+    try:
+        tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0)  # (1, c, t)
+        _, c, t = tensor.shape
+        with torch.no_grad():
+            mask = torch.ones(1, t, dtype=torch.bool)
+            out  = _state.moment_model(tensor, input_mask=mask)
+
+        # out.reconstruction shape: (1, n_channels, seq_len) or (1, seq_len, n_channels).
+        # Normalise to (n_channels, seq_len).
+        recon_raw = out.reconstruction
+        recon_np  = recon_raw.numpy() if hasattr(recon_raw, "numpy") else np.array(recon_raw, dtype=np.float32)
+        recon_np  = recon_np[0]  # strip batch dim → (n_channels, seq_len) or (seq_len, n_channels)
+        if recon_np.shape[0] == t and recon_np.shape[-1] == c:
+            recon_np = recon_np.T  # (seq_len, n_channels) → (n_channels, seq_len)
+
+        emb = recon_np.reshape(-1)
+        return recon_np.astype(np.float32), emb
+
+    except Exception as e:
+        log.debug("MOMENT model infer failed: %s — using statistical features", e)
+        return None, _statistical_features_np(window)
+
+
+def _zero_shot_score(
+    window: np.ndarray,
+    reconstruction: np.ndarray,
+    ch_names: list[str],
+) -> tuple[float, dict[str, float]]:
+    """
+    Zero-shot anomaly score: MSE(window, MOMENT_reconstruction) per channel.
+
+    No learned parameters — anomalous inputs (unseen at pre-training) yield
+    high reconstruction error, equivalent to high perplexity in language models.
+    """
+    diff    = window - reconstruction          # (n_channels, seq_len)
+    ch_mse  = (diff ** 2).mean(axis=-1)       # (n_channels,)
+    total   = float(ch_mse.mean())
+    scores  = {name: round(float(ch_mse[i]), 8) for i, name in enumerate(ch_names[:len(ch_mse)])}
+    return total, scores
 
 
 def _load_models():
@@ -145,6 +186,15 @@ def _load_models():
         _state.normal_std   = float(thresh_data.get("normal_std", 1.0))
         _state.emb_dim      = int(thresh_data.get("embedding_dim", 0))
         _state.channel_names = json.loads(CHANNEL_PATH.read_text())
+        # zero_shot_threshold: if not stored, derive from normal stats (mean + 3σ).
+        # train_moment.py should calibrate and write this; the fallback keeps the
+        # sidecar functional before retraining.
+        if "zero_shot_threshold" in thresh_data:
+            _state.zero_shot_threshold = float(thresh_data["zero_shot_threshold"])
+        else:
+            _state.zero_shot_threshold = _state.normal_mean + 3.0 * max(_state.normal_std, 1e-6)
+            log.info("zero_shot_threshold not in threshold file — using normal_mean+3σ=%.6f",
+                     _state.zero_shot_threshold)
 
         if _state.emb_dim <= 0:
             _state.error_msg = "embedding_dim=0 in threshold file — model not trained"
@@ -230,50 +280,64 @@ def detect(req: DetectRequest):
     seq_len = len(req.channels[0])
     window  = np.array(req.channels, dtype=np.float32)  # (n_channels, seq_len)
 
-    # Standardize per channel (z-score, same as training)
+    # Standardize per channel (z-score, matching training pipeline)
     for ch_idx in range(n_channels):
         std = float(window[ch_idx].std())
         if std > 1e-9:
             window[ch_idx] = (window[ch_idx] - window[ch_idx].mean()) / std
 
-    # Compute embedding
-    emb = _embed_window(window)  # (emb_dim,)
-
-    # Compute anomaly score via reconstruction error
-    if _state.head is not None:
-        with torch.no_grad():
-            t = torch.tensor(emb, dtype=torch.float32).unsqueeze(0)
-            score = float(_state.head.reconstruction_error(t).item())
-    else:
-        # Fallback: z-score of embedding from normal distribution
-        norm_score = (emb - _state.normal_mean) / (max(_state.normal_std, 1e-9))
-        score = float(np.abs(norm_score).mean())
-
-    anomaly  = score >= _state.threshold
-    confidence = _clamp(1.0 - math.exp(-max(0.0, score - _state.threshold) / max(_state.normal_std, 1e-9)), 0.0, 1.0)
-
-    # Per-channel scores (approximate: channel variance contribution × total score)
     ch_names = req.channel_names or _state.channel_names
-    ch_var   = window.var(axis=-1)  # (n_channels,)
-    total_var = float(ch_var.sum()) + 1e-9
-    ch_scores = {
-        name: round(float((ch_var[i] / total_var) * score), 6)
-        for i, name in enumerate(ch_names[:n_channels])
-    }
 
-    top_threshold = _state.threshold * 2.0
-    top_channels  = [name for name, s in sorted(ch_scores.items(), key=lambda x: -x[1])
-                     if s >= top_threshold]
+    # ── Primary path: zero-shot MOMENT reconstruction error ───────────────────
+    # Research contribution: MSE(input, MOMENT_reconstruction) — no learned params.
+    # MOMENT was pre-trained on 27B time-series tokens; anomalous UPF patterns
+    # (unseen in pre-training) produce high reconstruction error.
+    reconstruction, emb = _moment_infer(window)
+
+    if reconstruction is not None and reconstruction.shape == window.shape:
+        score, ch_scores = _zero_shot_score(window, reconstruction, ch_names)
+        threshold_used   = _state.zero_shot_threshold
+        scoring_path     = "zero-shot"
+    elif _state.head is not None:
+        # ── Secondary path: fine-tuned MLP head (ablation / fallback) ─────────
+        with torch.no_grad():
+            t     = torch.tensor(emb, dtype=torch.float32).unsqueeze(0)
+            score = float(_state.head.reconstruction_error(t).item())
+        ch_var    = window.var(axis=-1)
+        total_var = float(ch_var.sum()) + 1e-9
+        ch_scores = {name: round(float((ch_var[i] / total_var) * score), 6)
+                     for i, name in enumerate(ch_names[:n_channels])}
+        threshold_used = _state.threshold
+        scoring_path   = "fine-tuned"
+    else:
+        # ── Tertiary: statistical z-score (no MOMENT, no head) ────────────────
+        norm_score = (emb - _state.normal_mean) / max(_state.normal_std, 1e-9)
+        score      = float(np.abs(norm_score).mean())
+        ch_var     = window.var(axis=-1)
+        total_var  = float(ch_var.sum()) + 1e-9
+        ch_scores  = {name: round(float((ch_var[i] / total_var) * score), 6)
+                      for i, name in enumerate(ch_names[:n_channels])}
+        threshold_used = _state.threshold
+        scoring_path   = "statistical"
+
+    anomaly    = score >= threshold_used
+    confidence = _clamp(
+        1.0 - math.exp(-max(0.0, score - threshold_used) / max(_state.normal_std, 1e-6)),
+        0.0, 1.0,
+    )
+
+    top_channels = [name for name, s in sorted(ch_scores.items(), key=lambda x: -x[1])
+                    if s >= threshold_used * 0.5]
 
     return DetectResponse(
         available=True,
         anomaly=anomaly,
         anomaly_score=round(score, 6),
-        threshold=round(_state.threshold, 6),
+        threshold=round(threshold_used, 6),
         channel_scores=ch_scores,
         top_anomalous_channels=top_channels[:5],
         confidence=round(confidence, 4),
-        model_version=_state.model_version,
+        model_version=f"{_state.model_version}@{scoring_path}",
     )
 
 
