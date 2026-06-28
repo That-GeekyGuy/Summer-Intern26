@@ -52,25 +52,34 @@ RF_N_TREES  = int(os.getenv("RF_N_TREES", "100"))
 TRAIN_RATIO = 0.80
 
 
-def _load_dataset() -> pd.DataFrame:
-    path = MODELS_DIR / "dataset.parquet"
-    if not path.exists():
-        log.error("dataset.parquet not found — run prepare_dataset.py first")
-        sys.exit(1)
-    df = pd.read_parquet(str(path))
+def _load_dataset() -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """
+    Load pre-split train/eval parquets written by prepare_dataset.py's
+    _stratified_episode_split(). Falls back to time-split on dataset.parquet
+    if the pre-split files are absent (e.g. old dataset).
+    """
     feature_path = MODELS_DIR / "feature_columns.json"
     if not feature_path.exists():
         log.error("feature_columns.json not found — run prepare_dataset.py first")
         sys.exit(1)
     feature_cols = json.loads(feature_path.read_text())
-    return df, feature_cols
 
+    train_path = MODELS_DIR / "dataset_train.parquet"
+    eval_path  = MODELS_DIR / "dataset_eval.parquet"
 
-def _time_split(df: pd.DataFrame, ratio: float):
-    """Split by time (first ratio fraction = train, rest = eval). No shuffle."""
-    df = df.sort_values("timestamp").reset_index(drop=True)
-    split_idx = int(len(df) * ratio)
-    return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
+    if train_path.exists() and eval_path.exists():
+        log.info("loading pre-split dataset_train.parquet + dataset_eval.parquet")
+        return pd.read_parquet(str(train_path)), pd.read_parquet(str(eval_path)), feature_cols
+
+    # ponytail: legacy fallback — remove once all envs have been retrained
+    log.warning("pre-split files absent — falling back to time-ordered split on dataset.parquet")
+    path = MODELS_DIR / "dataset.parquet"
+    if not path.exists():
+        log.error("dataset.parquet not found — run prepare_dataset.py first")
+        sys.exit(1)
+    df = pd.read_parquet(str(path)).sort_values("timestamp").reset_index(drop=True)
+    split_idx = int(len(df) * TRAIN_RATIO)
+    return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy(), feature_cols
 
 
 def _maybe_load_tier1_events(db_path: str | None) -> dict[str, list]:
@@ -99,13 +108,16 @@ def _maybe_load_tier1_events(db_path: str | None) -> dict[str, list]:
 def train(detection_db: str | None = None):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    df, FEATURE_COLS = _load_dataset()
-    log.info("loaded %d rows, %d features", len(df), len(FEATURE_COLS))
+    df_train, df_eval, FEATURE_COLS = _load_dataset()
+    log.info("train: %d rows  eval: %d rows  features: %d",
+             len(df_train), len(df_eval), len(FEATURE_COLS))
 
     # ── Filter transition rows ────────────────────────────────────────────────
-    df = df[df["label"] != "transition"].copy()
-    log.info("after dropping transitions: %d rows", len(df))
+    df_train = df_train[df_train["label"] != "transition"].copy()
+    df_eval  = df_eval[df_eval["label"]   != "transition"].copy()
 
+    # Use combined for label inventory / warnings
+    df = pd.concat([df_train, df_eval], ignore_index=True)
     label_counts = df["label"].value_counts().to_dict()
     warnings = []
     for lbl, cnt in label_counts.items():
@@ -113,14 +125,11 @@ def train(detection_db: str | None = None):
             warnings.append(f"Scenario '{lbl}' has only {cnt} rows — model is unreliable for this class")
             log.warning("⚠ %s", warnings[-1])
 
-    # ── Time split ────────────────────────────────────────────────────────────
-    df_train, df_eval = _time_split(df, TRAIN_RATIO)
-    log.info("train: %d rows  eval: %d rows", len(df_train), len(df_eval))
-
-    # Verify all scenarios appear in eval (flag if not)
+    # Verify all scenarios appear in eval (stratified split guarantees this; flag if somehow absent)
+    eval_labels = set(df_eval["label"].unique())
     for lbl in label_counts:
-        if lbl != "normal" and lbl not in df_eval["label"].values:
-            warnings.append(f"Scenario '{lbl}' does not appear in eval set (only one window in dataset)")
+        if lbl != "normal" and lbl not in eval_labels:
+            warnings.append(f"Scenario '{lbl}' absent from eval set — episode too short for split")
             log.warning("⚠ %s", warnings[-1])
 
     X_train = df_train[FEATURE_COLS].values.astype(float)

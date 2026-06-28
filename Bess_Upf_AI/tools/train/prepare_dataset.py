@@ -505,6 +505,74 @@ def build_chronos_series(df: pd.DataFrame, uoi_col: str) -> pd.DataFrame:
 
 # ── Legacy dataset output (for existing Tier 2 server.py) ────────────────────
 
+def _stratified_episode_split(
+    df: pd.DataFrame, ratio: float, out_dir: Path
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """
+    Scenario-aware stratified split.
+
+    Each contiguous block of anomaly rows is an "episode". The trailing
+    (1-ratio) fraction of every episode goes to eval, the rest to train.
+    Normal rows use a standard time-ordered split. This guarantees every
+    episode appears in both partitions, fixing 0% anomaly recall caused by
+    a pure time split when all anomaly windows fall in the first 80%.
+    """
+    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    train_parts: list[pd.DataFrame] = []
+    eval_parts:  list[pd.DataFrame] = []
+
+    normal_df = df[df["scenario_id"] == 0]
+    split_idx = int(len(normal_df) * ratio)
+    train_parts.append(normal_df.iloc[:split_idx])
+    eval_parts.append(normal_df.iloc[split_idx:])
+
+    episode_stats: list[dict] = []
+    for ep_id in sorted(df[df["scenario_id"] > 0]["scenario_id"].unique()):
+        ep = df[df["scenario_id"] == ep_id]
+        n       = len(ep)
+        n_eval  = max(1, int(n * (1 - ratio)))
+        n_train = n - n_eval
+        train_parts.append(ep.iloc[:n_train])
+        eval_parts.append(ep.iloc[n_train:])
+        episode_stats.append({
+            "episode_id": int(ep_id),
+            "total_rows": n,
+            "n_train":    n_train,
+            "n_eval":     n_eval,
+            "ts_start":   str(ep["timestamp"].iloc[0]),
+            "ts_end":     str(ep["timestamp"].iloc[-1]),
+        })
+
+    df_train = pd.concat(train_parts).sort_values("timestamp").reset_index(drop=True)
+    df_eval  = pd.concat(eval_parts).sort_values("timestamp").reset_index(drop=True)
+
+    pq.write_table(pa.Table.from_pandas(df_train), str(out_dir / "dataset_train.parquet"))
+    pq.write_table(pa.Table.from_pandas(df_eval),  str(out_dir / "dataset_eval.parquet"))
+
+    anom_train = int((df_train["label"] != "normal").sum())
+    anom_eval  = int((df_eval["label"]  != "normal").sum())
+    total_anom = anom_train + anom_eval
+
+    report = {
+        "generated_at":          datetime.now(timezone.utc).isoformat(),
+        "split_ratio":           ratio,
+        "n_episodes":            len(episode_stats),
+        "n_train":               len(df_train),
+        "n_eval":                len(df_eval),
+        "anomaly_rows_train":    anom_train,
+        "anomaly_rows_eval":     anom_eval,
+        "anomaly_eval_fraction": round(anom_eval / total_anom, 4) if total_anom > 0 else 0.0,
+        "episodes":              episode_stats,
+    }
+    (out_dir / "split_report.json").write_text(json.dumps(report, indent=2))
+    log.info(
+        "stratified split → train=%d  eval=%d  anomaly_in_eval=%d  episodes=%d",
+        len(df_train), len(df_eval), anom_eval, len(episode_stats),
+    )
+    return df_train, df_eval, report
+
+
 def build_legacy_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     """
     Reproduce the feature engineering from the original prepare_dataset.py
@@ -578,7 +646,14 @@ def build_legacy_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     else:
         w["label"] = "normal"
 
-    return w[FEATURE_COLS + ["label", "timestamp"]], FEATURE_COLS
+    # Episode IDs: each contiguous block of anomaly rows gets a unique integer ID.
+    # scenario_id=0 means normal. Used by _stratified_episode_split to ensure every
+    # episode appears in both train and eval, fixing 0% recall from pure time splits.
+    is_anom = w["label"] != "normal"
+    ep_start = is_anom & (~is_anom.shift(1, fill_value=False))
+    w["scenario_id"] = np.where(is_anom, ep_start.cumsum(), 0).astype(int)
+
+    return w[FEATURE_COLS + ["label", "scenario_id", "timestamp"]], FEATURE_COLS
 
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
@@ -704,6 +779,12 @@ def run(source: str = "local"):
     feat_path = MODELS_DIR / "feature_columns.json"
     feat_path.write_text(json.dumps(feature_cols, indent=2))
 
+    # ── 10b. Scenario-aware stratified split ──────────────────────────────────
+    # Splits legacy_df into dataset_train.parquet + dataset_eval.parquet such that
+    # every anomaly episode appears in both partitions. Pure time-split puts all
+    # episodes in train (0% eval recall) when episodes are short vs. dataset length.
+    _, _, split_report = _stratified_episode_split(legacy_df, TRAIN_RATIO, MODELS_DIR)
+
     # ── 11. Channel names for MOMENT ─────────────────────────────────────────
     (MODELS_DIR / "moment_channel_names.json").write_text(json.dumps(channel_names, indent=2))
     log.info("saved moment_channel_names.json  channels=%d", len(channel_names))
@@ -742,6 +823,7 @@ def run(source: str = "local"):
             "note": "Traffic channels use STL residuals; Go runtime channels use raw values.",
         },
         "warnings": warnings,
+        "stratified_split": split_report,
     }
     profile_path = OUTPUT_DIR / "profile_report.json"
     profile_path.write_text(json.dumps(profile, indent=2))
