@@ -122,7 +122,7 @@ CADDY_HOSTNAME=localhost
 CADDY_ADMIN_USER=admin
 # bcrypt hash of "localdev123".  Regenerate:
 #   docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'newpass'
-CADDY_ADMIN_PASS_HASH=$2a$14$NKdud2KXF7//qIAX0A.zlOpgewpi69/N5ipDSk5.OKIKJay2kBia6
+CADDY_ADMIN_PASS_HASH=$$2a$$14$$NKdud2KXF7//qIAX0A.zlOpgewpi69/N5ipDSk5.OKIKJay2kBia6
 
 # ── TLS ───────────────────────────────────────────────────────────────────────
 TLS_CERT_FILE=/certs/server.crt
