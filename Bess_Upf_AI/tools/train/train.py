@@ -237,9 +237,9 @@ def train(detection_db: str | None = None):
         first_rf_ts = df_eval["timestamp"].iloc[fired_rf[0]] if len(fired_rf) > 0 else None
 
         earliness[scenario] = {
-            "start_ts": int(scenario_start_ts),
-            "if_seconds_after_start":  int(first_if_ts - scenario_start_ts) if first_if_ts else None,
-            "rf_seconds_after_start":  int(first_rf_ts - scenario_start_ts) if first_rf_ts else None,
+            "start_ts": int(scenario_start_ts.timestamp()),
+            "if_seconds_after_start":  int((first_if_ts - scenario_start_ts).total_seconds()) if first_if_ts else None,
+            "rf_seconds_after_start":  int((first_rf_ts - scenario_start_ts).total_seconds()) if first_rf_ts else None,
         }
 
     # ── Metadata / model card ────────────────────────────────────────────────

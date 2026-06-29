@@ -52,11 +52,12 @@ log = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-REPO_ROOT    = Path(__file__).parent.parent.parent
-DATA_DIR     = Path(__file__).parent / "data"
-CSV_PATH     = REPO_ROOT / "prometheus_full_export_20260622_115327.csv"
-MODELS_DIR   = Path(os.getenv("MODELS_DIR", str(REPO_ROOT / "models")))
-OUTPUT_DIR   = DATA_DIR
+REPO_ROOT         = Path(__file__).parent.parent.parent
+DATA_DIR          = Path(__file__).parent / "data"
+CSV_PATH          = REPO_ROOT / "prometheus_full_export_20260622_115327.csv"
+SYNTHETIC_PARQUET = DATA_DIR / "synthetic_dataset.parquet"
+MODELS_DIR        = Path(os.getenv("MODELS_DIR", str(REPO_ROOT / "models")))
+OUTPUT_DIR        = DATA_DIR
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -363,7 +364,7 @@ def find_col(df: pd.DataFrame, *substrings: str) -> str | None:
 
 # ── STL residual extraction ───────────────────────────────────────────────────
 
-def apply_stl_residuals(df: pd.DataFrame, channel_map: dict[str, str]) -> tuple[pd.DataFrame, dict]:
+def apply_stl_residuals(df: pd.DataFrame, channel_map: dict[str, str], period: int = STL_PERIOD) -> tuple[pd.DataFrame, dict]:
     """
     For each traffic channel, fit STL and replace the raw column with its residual component.
     Residuals capture "how much does this metric deviate from its seasonal norm?" which is
@@ -397,12 +398,12 @@ def apply_stl_residuals(df: pd.DataFrame, channel_map: dict[str, str]) -> tuple[
             series = series.ffill(limit=FFILL_SLOW_STEPS).bfill(limit=FFILL_SLOW_STEPS).fillna(0.0)
 
         n = len(series)
-        if n < STL_PERIOD * 2:
-            log.warning("STL skip '%s': only %d rows, need >= %d", logical_name, n, STL_PERIOD * 2)
+        if n < period * 2:
+            log.warning("STL skip '%s': only %d rows, need >= %d", logical_name, n, period * 2)
             continue
 
         try:
-            stl = STL(series.values, period=STL_PERIOD, seasonal=7, robust=True)
+            stl = STL(series.values, period=period, seasonal=7, robust=True)
             result = stl.fit()
             residual = result.resid
 
@@ -663,23 +664,42 @@ def run(source: str = "local"):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── 1. Load ───────────────────────────────────────────────────────────────
+    synthetic_source = source == "synthetic"
+
     if source == "minio":
         df = load_minio()
+    elif synthetic_source:
+        if not SYNTHETIC_PARQUET.exists():
+            log.error(
+                "synthetic_dataset.parquet not found at %s — run generate_synthetic_data.py first",
+                SYNTHETIC_PARQUET,
+            )
+            sys.exit(1)
+        df = pd.read_parquet(str(SYNTHETIC_PARQUET))
+        if "timestamp" not in df.columns:
+            log.error("synthetic parquet missing 'timestamp' column")
+            sys.exit(1)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        log.info("synthetic dataset loaded: %d rows, %d columns", len(df), len(df.columns))
     else:
         if not CSV_PATH.exists():
-            log.error("CSV not found at %s — pass --source=minio to use MinIO", CSV_PATH)
+            log.error("CSV not found at %s — pass --source=minio or --source=synthetic", CSV_PATH)
             sys.exit(1)
         df = load_csv(CSV_PATH)
 
-    # ── 2. Drop metadata columns ──────────────────────────────────────────────
-    df = drop_metadata_cols(df)
+    if not synthetic_source:
+        # ── 2. Drop metadata columns ──────────────────────────────────────────
+        df = drop_metadata_cols(df)
 
-    # ── 3. Resample + rate conversion ─────────────────────────────────────────
-    df = resample_and_rate(df)
-    log.info("after resample: %d rows", len(df))
+        # ── 3. Resample + rate conversion ─────────────────────────────────────
+        df = resample_and_rate(df)
+        log.info("after resample: %d rows", len(df))
 
-    # ── 4. Forward-fill slow channels ─────────────────────────────────────────
-    df = ffill_slow_channels(df)
+        # ── 4. Forward-fill slow channels ─────────────────────────────────────
+        df = ffill_slow_channels(df)
+    else:
+        # Synthetic data is already at 15s cadence with rates pre-computed; no NaN
+        log.info("synthetic source: skipping resample/rate-conversion/ffill steps")
 
     # ── 5. Time-based split point (for label calibration) ────────────────────
     n = len(df)
@@ -702,9 +722,17 @@ def run(source: str = "local"):
     log.info("binary labels: normal=%d  anomaly=%d  (%.1f%% anomalous)", n_normal, n_anomaly, anomaly_frac * 100)
 
     # ── 7. STL residuals for traffic channels ────────────────────────────────
-    # Replace raw channel values with STL residuals — captures seasonal deviations
-    # more clearly than raw rates for MOMENT reconstruction.
-    df, stl_quality = apply_stl_residuals(df, MOMENT_CHANNELS)
+    # Auto-select STL period: weekly (672 steps = 7 days × 96 steps/day) when
+    # dataset spans ≥ 14 days; daily (96 steps) otherwise.
+    span_days = (df["timestamp"].iloc[-1] - df["timestamp"].iloc[0]).days
+    stl_period_effective = 672 if span_days >= 14 else STL_PERIOD
+    if stl_period_effective != STL_PERIOD:
+        log.info(
+            "STL period auto-upgraded: %d steps (weekly) for %d-day dataset",
+            stl_period_effective, span_days,
+        )
+
+    df, stl_quality = apply_stl_residuals(df, MOMENT_CHANNELS, period=stl_period_effective)
     if stl_quality:
         log.info("STL residuals applied to %d channels", len(stl_quality))
     else:
@@ -816,8 +844,8 @@ def run(source: str = "local"):
             "horizon":      CHRONOS_HORIZON,
         },
         "stl_residuals": {
-            "period_steps":    STL_PERIOD,
-            "period_seconds":  STL_PERIOD * RESAMPLE_SECONDS,
+            "period_steps":    stl_period_effective,
+            "period_seconds":  stl_period_effective * RESAMPLE_SECONDS,
             "channels_fitted": list(stl_quality.keys()),
             "fit_quality_r2":  stl_quality,
             "note": "Traffic channels use STL residuals; Go runtime channels use raw values.",
@@ -840,9 +868,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prepare TSFM + legacy ML dataset")
     parser.add_argument(
         "--source",
-        choices=["local", "minio"],
+        choices=["local", "minio", "synthetic"],
         default="local",
-        help="Data source: 'local' reads prometheus_full_export_20260622_115327.csv, 'minio' reads from MinIO Parquet store",
+        help=(
+            "Data source: "
+            "'local' reads prometheus_full_export_20260622_115327.csv, "
+            "'minio' reads from MinIO Parquet store, "
+            "'synthetic' reads tools/train/data/synthetic_dataset.parquet "
+            "(generated by generate_synthetic_data.py)"
+        ),
     )
     args = parser.parse_args()
     run(source=args.source)

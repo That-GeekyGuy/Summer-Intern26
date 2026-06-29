@@ -1,0 +1,28 @@
+# Python 3.8 compatible requirements for running training scripts directly on server.
+# Docker containers (tools/Dockerfile) use Python 3.12 and requirements.txt instead.
+#
+# Key differences from requirements.txt:
+#   pandas: capped at 2.0.3 (last release supporting Python 3.8)
+#   scikit-learn: capped at 1.3.2 (1.4+ requires Python 3.9+)
+#   numpy: capped at 1.24.4 (numpy 1.26 is 3.9+)
+#   statsmodels: 0.14.x supports 3.8
+#   pyarrow: 14.x is last stable for 3.8
+#
+# Install on bare server:
+#   pip install -r tools/requirements-py38.txt
+#
+# Note: MOMENT and Chronos fine-tuning (train_moment.py, train_chronos.py)
+# require PyTorch — install separately:
+#   pip install torch==2.1.2+cpu -f https://download.pytorch.org/whl/torch_stable.html
+#   pip install transformers==4.40.2 chronos-forecasting
+
+boto3>=1.34,<1.35
+botocore>=1.34,<1.35
+pyarrow>=14.0,<15.0
+pandas>=2.0.0,<2.1.0
+numpy>=1.24.0,<1.25.0
+scikit-learn>=1.3.0,<1.4.0
+joblib>=1.3,<1.5
+fastapi>=0.111,<0.120
+uvicorn[standard]>=0.29,<0.30
+statsmodels>=0.14.0,<0.15.0

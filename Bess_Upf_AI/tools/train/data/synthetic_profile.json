@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-06-29T02:12:07.304668+00:00",
+  "n_rows": 2102400,
+  "start": "2026-01-01 00:00:00+00:00",
+  "end": "2026-12-31 23:59:45+00:00",
+  "cadence_seconds": 15,
+  "anomaly_fraction": 0.0404,
+  "anomaly_counts_by_scenario": {
+    "maintenance": 20063,
+    "traffic_spike": 18569,
+    "memory_pressure": 15954,
+    "session_overload": 15287,
+    "datapath_fault": 15005
+  },
+  "columns": [
+    "port_bytes_count{dir=rx_iface=N3_synthetic}",
+    "port_bytes_count{dir=tx_iface=N6_synthetic}",
+    "port_bytes_count{dir=rx_iface=N6_synthetic}",
+    "port_bytes_count{dir=tx_iface=N3_synthetic}",
+    "port_packets_count{dir=rx_iface=N3_synthetic}",
+    "port_packets_count{dir=rx_iface=N6_synthetic}",
+    "port_dropped_count{dir=rx_iface=N3_synthetic}",
+    "port_dropped_count{dir=rx_iface=N6_synthetic}",
+    "pfcp_sessions_total{synthetic}",
+    "pfcp_messages_total{direction=Incoming_message_type=Session Establishment_synthetic}",
+    "dl_throughput_efficiency_packet{synthetic}",
+    "dl_throughput_efficiency_rate{synthetic}",
+    "drop_rate_percentage{synthetic}",
+    "tsi_value{synthetic}",
+    "go_goroutines{synthetic}",
+    "go_memstats_heap_alloc_bytes{synthetic}",
+    "go_gc_duration_seconds_count{synthetic}",
+    "scenario_id"
+  ],
+  "note": "Wide-format pre-processed parquet. All rate columns already in /sec units \u2014 use prepare_dataset.py --source=synthetic to skip CSV pivot and counter diff."
+}
