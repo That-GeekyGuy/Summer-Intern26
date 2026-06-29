@@ -33,7 +33,8 @@ func (v *Validator) Validate(promql string, timeRange, step time.Duration) error
 	if timeRange > v.maxTimeRange {
 		return fmt.Errorf("time range %v exceeds maximum allowed %v", timeRange, v.maxTimeRange)
 	}
-	if step < v.minStep {
+	// step == 0 means instant query (no step parameter) — skip the floor check.
+	if step > 0 && step < v.minStep {
 		return fmt.Errorf("step %v is below minimum allowed %v", step, v.minStep)
 	}
 	expr, err := parser.ParseExpr(promql)
