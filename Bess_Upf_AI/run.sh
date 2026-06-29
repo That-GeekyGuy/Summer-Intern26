@@ -179,10 +179,13 @@ ENVEOF
     info ".env written."
 fi
 
-# Load .env into current shell
+# Load .env into current shell.
+# set +u: bcrypt hashes ($2a$14$...) contain $2/$14 which look like positional params to bash -u.
 set -a
+set +u
 # shellcheck disable=SC1091
 source .env
+set -u
 set +a
 
 # ─────────────────────────────────────────────────────────────────────────────
