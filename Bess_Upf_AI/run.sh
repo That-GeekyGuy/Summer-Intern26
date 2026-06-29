@@ -179,18 +179,18 @@ ENVEOF
     info ".env written."
 fi
 
-# Load .env into current shell.
-# Use a regex loop instead of `source .env` to handle:
-#   - bcrypt hashes ($2a$14$...) which bash -u mistakes for unbound positional params
-#   - multi-word values (VLLM_EXTRA_ARGS=--quantization bitsandbytes ...) which source
-#     misparses as `VAR=first_word` + tries to exec the rest as a command
-while IFS= read -r _line || [[ -n "$_line" ]]; do
-    [[ "$_line" =~ ^[[:space:]]*# ]] && continue   # skip comments
-    [[ -z "${_line// }" ]] && continue              # skip blank lines
-    if [[ "$_line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-        export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
-    fi
-done < .env
+# Read only the vars run.sh itself needs from .env.
+# Do NOT mass-export .env into bash: MSYS on Windows converts Unix absolute paths
+# (e.g. /certs/server.key) to Windows paths in the process env, and Docker Compose
+# gives process env priority over .env, so Caddy ends up with a garbled path.
+# Docker Compose reads .env directly for all container env vars — no bash involvement.
+_env_get() { grep -m1 "^$1=" .env 2>/dev/null | cut -d= -f2-; }
+CADDY_HOSTNAME="$(_env_get CADDY_HOSTNAME)"
+CADDY_HOSTNAME="${CADDY_HOSTNAME:-localhost}"
+HF_TOKEN="$(_env_get HF_TOKEN)"
+HF_TOKEN="${HF_TOKEN:-CHANGE_ME_hf_token}"
+OLLAMA_MODEL="$(_env_get OLLAMA_MODEL)"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:3b}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3 — Dev TLS certificates
