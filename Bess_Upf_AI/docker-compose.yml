@@ -662,8 +662,6 @@ services:
 
       - ./models:/models
 
-      - ./prometheus_full_export_20260622_115327.csv:/data/upf_dataset.csv:ro
-
     networks:
 
       - metrics-backend

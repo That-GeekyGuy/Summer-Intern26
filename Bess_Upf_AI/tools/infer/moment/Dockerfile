@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies
 # momentfm is optional — sidecar degrades gracefully if unavailable
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --timeout 300 \
     fastapi==0.111.0 \
     uvicorn[standard]==0.29.0 \
     torch==2.3.0+cpu \

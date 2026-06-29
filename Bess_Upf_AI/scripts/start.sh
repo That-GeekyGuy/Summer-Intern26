@@ -68,7 +68,12 @@ else
     COMPOSE_FILES="${COMPOSE_BASE} -f docker-compose.cpu.yml"
     OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:3b}"
 
-    total_ram_kb=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+    # /proc/meminfo is Linux-only; skip RAM warning on Windows/macOS
+    if [[ -f /proc/meminfo ]]; then
+        total_ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    else
+        total_ram_kb=0
+    fi
     total_ram_gb=$(( total_ram_kb / 1024 / 1024 ))
     info "Mode: CPU  →  Ollama  model=${OLLAMA_MODEL}  RAM=${total_ram_gb}GB"
     if (( total_ram_gb > 0 && total_ram_gb < 8 )); then
@@ -98,13 +103,15 @@ if [[ "$MODE" == "cpu" ]]; then
     info "Waiting for Ollama to be ready..."
     retries=24
     while (( retries-- > 0 )); do
-        if docker compose exec vllm ollama list &>/dev/null 2>&1; then
+        # shellcheck disable=SC2086
+        if docker compose ${COMPOSE_FILES} exec vllm ollama list &>/dev/null 2>&1; then
             break
         fi
         sleep 5
     done
     info "Pulling ${OLLAMA_MODEL} (first run downloads ~2 GB)..."
-    docker compose exec vllm ollama pull "${OLLAMA_MODEL}"
+    # shellcheck disable=SC2086
+    docker compose ${COMPOSE_FILES} exec vllm ollama pull "${OLLAMA_MODEL}"
     info "Ollama model ready."
 fi
 

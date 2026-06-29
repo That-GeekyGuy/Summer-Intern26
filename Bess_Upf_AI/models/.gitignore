@@ -1,8 +1,10 @@
-# Model artifacts are populated at runtime by train.py (docker compose run ml-infer python train/train.py).
-# They are stored in the models-data Docker volume and must never be committed to git.
-*.joblib
+# Dataset files — large, regenerable from raw Prometheus data, never commit.
 *.parquet
-scaler_params.json
-feature_columns.json
-metadata.json
+
+# STL/split debug artifacts — large, not needed at inference time.
+split_report.json
 training_report.md
+
+# All other model artifacts (*.joblib, *.pt, *.json) ARE committed.
+# random_forest.joblib (1.2 GB) is tracked via Git LFS — see /.gitattributes.
+# Run: git lfs install && git lfs pull

@@ -219,7 +219,7 @@ docker compose -f docker-compose.yml -f dev/docker-compose.yml up --build -d
 │   └── temporal/
 │       └── stl_service.py            # FastAPI sidecar: STL decomposition → /hotzone, /refit
 │
-├── models/                           # Trained artifact store (gitignored)
+├── models/                           # Trained artifact store (committed; random_forest.joblib via Git LFS)
 │   ├── moment_head.pt                # MOMENT anomaly detection head weights
 │   ├── moment_threshold.json         # calibrated detection threshold (from calibration set)
 │   ├── moment_channel_names.json
@@ -235,41 +235,66 @@ docker compose -f docker-compose.yml -f dev/docker-compose.yml up --build -d
 
 ### Prerequisites
 
-- Docker Desktop or Docker Engine + Compose v2
-- NVIDIA GPU with ≥ 8 GB VRAM (for vLLM — see model sizing below if GPU is unavailable)
-- `openssl` (for dev cert generation)
+| Tool | Required | Notes |
+|---|---|---|
+| Docker Desktop / Engine + Compose v2 | Yes | |
+| `openssl` | Yes | Bundled with Git for Windows |
+| `git lfs` | Yes | https://git-lfs.github.com |
+| NVIDIA GPU ≥ 8 GB VRAM | No | Falls back to CPU/Ollama automatically |
 
-### First-time setup
+### One-command setup
 
+**Linux / macOS / Windows Git Bash:**
 ```bash
-# 1. Clone and enter the repo
 git clone <repo-url> && cd Bess_Upf_AI
-
-# 2. Create .env from template and fill in every CHANGE_ME value
-cp .env.example .env
-$EDITOR .env
-
-# 3. Generate a Caddy bcrypt hash for CADDY_ADMIN_PASS_HASH
-docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'your_admin_password'
-# Copy the output into .env → CADDY_ADMIN_PASS_HASH
-
-# 4. Generate dev TLS certificates (browser will show a warning — see TLS section)
-bash scripts/gen-dev-certs.sh
-
-# 5a. Production (external Prometheus) — core stack only
-#     Set PROM_SCRAPE_TARGET=<your-prometheus-host>:<port> in .env first
-docker compose up --build -d
-
-# 5b. Local dev (built-in simulator) — core stack + dev services
-docker compose -f docker-compose.yml -f dev/docker-compose.yml up --build -d
-
-# 6. Check all services are healthy
-docker compose ps
+bash run.sh
 ```
 
-On first startup, vLLM downloads the model weights (~5 GB for Qwen3-8B INT4). Watch progress with `docker compose logs -f vllm`.
+**Windows PowerShell / pwsh:**
+```powershell
+git clone <repo-url>; cd Bess_Upf_AI
+pwsh run.ps1
+```
 
-The `moment-sidecar`, `chronos-sidecar`, and `stl-sidecar` download their weights on first start into the shared `hf-cache` volume (MOMENT-1-large ≈ 4 GB, chronos-t5-small ≈ 2 GB).
+`run.sh` / `run.ps1` handle everything:
+
+1. Check prerequisites
+2. Generate `.env` with dev defaults (skips if exists)
+3. Generate dev TLS certificates (skips if exist)
+4. Pull model artifacts via `git lfs pull` (`random_forest.joblib` 1.2 GB)
+5. Detect GPU → select vLLM or Ollama; auto-size model by VRAM
+6. Ask whether to include dev services (upf-sim + Prometheus + Grafana)
+7. `docker compose up --build -d`
+8. Pull Ollama model on first run (CPU mode, ~2 GB)
+9. Print all access URLs and credentials
+
+#### GPU VRAM tier selection (automatic)
+
+| VRAM | Model | Max context |
+|---|---|---|
+| ≥ 24 GB | Qwen/Qwen3-14B FP16 | 8 192 tokens |
+| 13–23 GB | Qwen/Qwen3-8B FP16 | 8 192 tokens |
+| 8–12 GB | Qwen/Qwen3-8B INT4 | 3 200 tokens |
+| < 8 GB / no GPU | Ollama `qwen2.5:3b` (CPU) | — |
+
+On first startup, vLLM downloads model weights (~5–14 GB). Track: `docker compose logs -f vllm`.
+
+The `moment-sidecar`, `chronos-sidecar`, and `stl-sidecar` download weights on first start into the shared `hf-cache` volume (MOMENT-1-large ≈ 4 GB, chronos-t5-small ≈ 2 GB).
+
+#### Flags
+
+```bash
+bash run.sh --dev      # always include dev services (no prompt)
+bash run.sh --no-dev   # skip dev services
+```
+```powershell
+pwsh run.ps1 -Dev      # always include dev services
+pwsh run.ps1 -NoDev    # skip dev services
+```
+
+#### Production (external Prometheus)
+
+Edit `.env` after first run: set `PROM_SCRAPE_TARGET=10.0.1.5:9090`, then `bash run.sh --no-dev`. VictoriaMetrics federation-scrapes your external Prometheus.
 
 ### Verify the stack
 
