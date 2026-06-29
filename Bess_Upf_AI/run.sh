@@ -180,13 +180,17 @@ ENVEOF
 fi
 
 # Load .env into current shell.
-# set +u: bcrypt hashes ($2a$14$...) contain $2/$14 which look like positional params to bash -u.
-set -a
-set +u
-# shellcheck disable=SC1091
-source .env
-set -u
-set +a
+# Use a regex loop instead of `source .env` to handle:
+#   - bcrypt hashes ($2a$14$...) which bash -u mistakes for unbound positional params
+#   - multi-word values (VLLM_EXTRA_ARGS=--quantization bitsandbytes ...) which source
+#     misparses as `VAR=first_word` + tries to exec the rest as a command
+while IFS= read -r _line || [[ -n "$_line" ]]; do
+    [[ "$_line" =~ ^[[:space:]]*# ]] && continue   # skip comments
+    [[ -z "${_line// }" ]] && continue              # skip blank lines
+    if [[ "$_line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+        export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+    fi
+done < .env
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3 — Dev TLS certificates
