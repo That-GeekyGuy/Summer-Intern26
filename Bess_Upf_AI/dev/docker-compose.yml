@@ -39,7 +39,7 @@ services:
   upf-sim:
 
     build:
-      context: upf-sim
+      context: ./upf-sim
       dockerfile: Dockerfile
 
     environment:
@@ -50,7 +50,7 @@ services:
       RAMP_SECONDS:      ${SIM_RAMP_SECONDS:-120}
 
     volumes:
-      - upf-sim/config/scenarios-example.yml:/config/scenarios.yml:ro
+      - ./upf-sim/config/scenarios-example.yml:/config/scenarios.yml:ro
 
     networks:
       - scrape-net    # Prometheus scrapes it here
@@ -82,8 +82,8 @@ services:
       - /tmp
 
     volumes:
-      - config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - config/prometheus/targets:/etc/prometheus/targets:ro
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/targets:/etc/prometheus/targets:ro
       - prometheus-data:/prometheus
 
     command:
@@ -133,8 +133,8 @@ services:
 
     volumes:
       - grafana-data:/var/lib/grafana
-      - config/grafana/provisioning:/etc/grafana/provisioning:ro
-      - config/grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
 
     networks:
       - metrics-backend
