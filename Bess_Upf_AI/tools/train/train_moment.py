@@ -490,11 +490,18 @@ def train(data_dir: Path, models_dir: Path):
         plot_path = None
 
     # ── Training report ───────────────────────────────────────────────────────
-    moment_beats_tier1 = eval_metrics["f1"] > 0.70
-    ch_auc_table = "\n".join(
-        f"  {name:<35s} AUC={auc:.4f}"
-        for name, auc in zip(channel_names, channel_aucs_eval)
-    )
+    if moment_beats_tier1:
+        explanation = "MOMENT provides reliable anomaly detection with strong multivariate correlation."
+    else:
+        explanation = (
+            f"With only {n_windows} windows, MOMENT's statistical reconstruction may be under-trained.\n"
+            "**However, MOMENT still adds value that Tier 1 z-score cannot provide:**\n"
+            "1. **Multivariate correlation** — detects anomalies requiring joint deviation across channels\n"
+            "2. **Channel attribution** — pinpoints which interface (N3 rx drops, session rate) is anomalous\n"
+            "3. **Context-aware** — 512-step (~128-min) history captures slow-building trends\n"
+            "4. **Early warning** — per-window scores fire before threshold breach (see earliness below)\n\n"
+            "Recommendation: accumulate more data (30+ days of real traffic) for improved training."
+        )
 
     report_section = f"""## MOMENT-1-large (Reconstruction-Based Anomaly Detection)
 
@@ -544,16 +551,7 @@ Generated: {datetime.now(timezone.utc).isoformat()}
 
 **{"Yes" if moment_beats_tier1 else "No"} — F1={eval_metrics['f1']:.4f} {"exceeds" if moment_beats_tier1 else "does not exceed"} 0.70 threshold.**
 
-{"MOMENT provides reliable anomaly detection with strong multivariate correlation." if moment_beats_tier1 else f"""
-With only {n_windows} windows, MOMENT's statistical reconstruction may be under-trained.
-**However, MOMENT still adds value that Tier 1 z-score cannot provide:**
-1. **Multivariate correlation** — detects anomalies requiring joint deviation across channels
-2. **Channel attribution** — pinpoints which interface (N3 rx drops, session rate) is anomalous
-3. **Context-aware** — 512-step (~128-min) history captures slow-building trends
-4. **Early warning** — per-window scores fire before threshold breach (see earliness below)
-
-Recommendation: accumulate more data (30+ days of real traffic) for improved training.
-"""}
+{explanation}
 
 ### Per-Channel AUC (Eval Set)
 

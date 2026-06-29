@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-29T02:19:41.835243+00:00",
+  "generated_at": "2026-06-29T07:54:10.383789+00:00",
   "source": "synthetic",
   "raw_rows": 2102400,
   "resampled_rows": 2102400,
@@ -47,7 +47,7 @@
   },
   "warnings": [],
   "stratified_split": {
-    "generated_at": "2026-06-29T02:18:08.867600+00:00",
+    "generated_at": "2026-06-29T07:53:59.731367+00:00",
     "split_ratio": 0.8,
     "n_episodes": 64169,
     "n_train": 1670401,

@@ -1,3 +1,5 @@
 # Track large model artifacts via Git LFS.
 # Run `git lfs install` once, then `git lfs pull` on a fresh clone.
 models/random_forest.joblib filter=lfs diff=lfs merge=lfs -text
+*.parquet filter=lfs diff=lfs merge=lfs -text
+*.npz filter=lfs diff=lfs merge=lfs -text

@@ -193,7 +193,7 @@ def train(detection_db: str | None = None):
     # ── Model B: Random Forest classifier ────────────────────────────────────
     log.info("training RF on %d rows (%d anomaly, %d normal)",
              len(X_train_sc), y_train_bin.sum(), (y_train_bin == 0).sum())
-    clf_rf = RandomForestClassifier(n_estimators=RF_N_TREES, random_state=42, n_jobs=-1)
+    clf_rf = RandomForestClassifier(n_estimators=RF_N_TREES, max_depth=15, max_samples=0.2, random_state=42, n_jobs=-1)
     clf_rf.fit(X_train_sc, y_train_bin)
 
     y_pred_rf   = clf_rf.predict(X_eval_sc)
