@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 TRAIN_RATIO  = 0.80
-BATCH_SIZE   = 4      # small because we have few windows
+BATCH_SIZE   = 16     # GPU: 16 windows fit easily in 8 GB VRAM (was 2 on CPU)
 LR           = 1e-3
 EPOCHS       = 50
 EARLY_STOP   = 10
@@ -98,6 +98,35 @@ class ReconstructionAnomalyHead(nn.Module):
 
 
 # ── MOMENT encoder (frozen) ───────────────────────────────────────────────────
+
+
+def get_moment_embeddings_cached(windows: np.ndarray, device: str, cache_path: Path) -> np.ndarray:
+    """
+    Load embeddings from cache if available and windows shape matches.
+    Otherwise compute fresh embeddings and save to cache.
+    This avoids re-running the expensive 1.39 GB T5 encoder on every train run.
+    """
+    if cache_path.exists():
+        try:
+            cached = np.load(str(cache_path))
+            if cached["embeddings"].shape[0] == windows.shape[0]:
+                log.info("✓ Loading MOMENT embeddings from cache (%s) — skipping encoder pass", cache_path)
+                return cached["embeddings"]
+            else:
+                log.info("Cache window count mismatch (%d cached vs %d current) — recomputing",
+                         cached["embeddings"].shape[0], windows.shape[0])
+        except Exception as e:
+            log.warning("Cache load failed (%s) — recomputing embeddings", e)
+
+    log.info("Computing MOMENT embeddings (will be cached for future runs) …")
+    embeddings = get_moment_embeddings(windows, device)
+    try:
+        np.savez_compressed(str(cache_path), embeddings=embeddings)
+        log.info("✓ Embeddings cached to %s — next run will be fast", cache_path)
+    except Exception as e:
+        log.warning("Failed to save embedding cache: %s", e)
+    return embeddings
+
 
 def get_moment_embeddings(windows: np.ndarray, device: str) -> np.ndarray:
     """
@@ -316,9 +345,9 @@ def train(data_dir: Path, models_dir: Path):
         warnings.append(msg)
         log.warning("⚠ %s", msg)
 
-    # ── Compute MOMENT embeddings (frozen encoder) ────────────────────────────
-    log.info("computing MOMENT embeddings for all windows (encoder frozen) …")
-    all_embeddings = get_moment_embeddings(windows, device)  # (n_windows, emb_dim)
+    # ── Compute MOMENT embeddings (frozen encoder) — cached after first run ────
+    emb_cache_path = data_dir / "moment_embeddings_cache.npz"
+    all_embeddings = get_moment_embeddings_cached(windows, device, emb_cache_path)  # (n_windows, emb_dim)
     emb_dim = all_embeddings.shape[1]
     log.info("embedding dim: %d", emb_dim)
 
@@ -490,6 +519,7 @@ def train(data_dir: Path, models_dir: Path):
         plot_path = None
 
     # ── Training report ───────────────────────────────────────────────────────
+    moment_beats_tier1 = eval_metrics["f1"] > 0.70
     if moment_beats_tier1:
         explanation = "MOMENT provides reliable anomaly detection with strong multivariate correlation."
     else:
@@ -502,6 +532,11 @@ def train(data_dir: Path, models_dir: Path):
             "4. **Early warning** — per-window scores fire before threshold breach (see earliness below)\n\n"
             "Recommendation: accumulate more data (30+ days of real traffic) for improved training."
         )
+
+    ch_lines = []
+    for name, auc in zip(channel_names, channel_aucs_eval):
+        ch_lines.append(f"  {name:35s} AUC={auc:.4f}")
+    ch_auc_table = "\n".join(ch_lines)
 
     report_section = f"""## MOMENT-1-large (Reconstruction-Based Anomaly Detection)
 
@@ -617,11 +652,18 @@ def _write_minimal_outputs(models_dir: Path, channel_names: list, threshold: flo
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train MOMENT anomaly head (linear probing)")
-    parser.add_argument("--data-dir",   default="train/data",  help="Directory with moment_windows.npz")
-    parser.add_argument("--models-dir", default="../models",    help="Directory to write model artifacts")
+    parser.add_argument("--data-dir",      default="train/data", help="Directory with moment_windows.npz")
+    parser.add_argument("--models-dir",    default="../models",   help="Directory to write model artifacts")
+    parser.add_argument("--force-retrain", action="store_true",   help="Delete embedding cache and retrain from scratch")
     args = parser.parse_args()
 
     data_dir   = Path(args.data_dir)
     models_dir = Path(args.models_dir)
+
+    if args.force_retrain:
+        cache = data_dir / "moment_embeddings_cache.npz"
+        if cache.exists():
+            cache.unlink()
+            log.info("--force-retrain: deleted embedding cache %s", cache)
 
     train(data_dir, models_dir)

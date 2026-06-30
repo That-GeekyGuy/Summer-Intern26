@@ -1,34 +1,34 @@
 
 ## MOMENT-1-large (Reconstruction-Based Anomaly Detection)
 
-Generated: 2026-06-22T09:58:12.072442+00:00
+Generated: 2026-06-30T03:52:34.926816+00:00
 
 ### Architecture
 
 - Model: MOMENT-1-large (AutonLab/MOMENT-1-large)
 - Task: Reconstruction-based anomaly detection
-- Strategy: **Linear probing** (encoder frozen) â€” full fine-tuning NOT used
-  - Reason: ~618 MOMENT windows available (need >>500 for stable fine-tuning)
+- Strategy: **Linear probing** (encoder frozen) — full fine-tuning NOT used
+  - Reason: ~16422 MOMENT windows available (need >>500 for stable fine-tuning)
   - Decision: frozen encoder with reconstruction head prevents overfitting
-- Anomaly head: Reconstruction MLP (input_dim=84 â†’ 128 â†’ 64 â†’ input_dim)
-- Embedding: 84-dim statistical/patch features per window
+- Anomaly head: Reconstruction MLP (input_dim=7168 → 128 → 64 → input_dim)
+- Embedding: 7168-dim statistical/patch features per window
 
 ### Dataset
 
 | Metric | Value |
 |---|---|
-| Total windows | 618 |
-| Train windows | 494 |
-| Eval windows | 124 |
-| Anomaly fraction | 11.5% |
+| Total windows | 16422 |
+| Train windows | 13137 |
+| Eval windows | 3285 |
+| Anomaly fraction | 24.7% |
 | Channels | 14 |
 | Sequence length | 512 steps (128 min at 15s cadence) |
 
 ### Threshold Calibration
 
-- Threshold = mean(0.0338) + 3Ã—std(0.1682) = **0.5385**
-- False positive rate on normal training windows: **1.42%**
-- Methodology: calibrated on normal (uoi_binary=0) training windows only â€” no eval leakage
+- Threshold = mean(0.1221) + 3×std(0.2340) = **0.8241**
+- False positive rate on normal training windows: **1.25%**
+- Methodology: calibrated on normal (uoi_binary=0) training windows only — no eval leakage
 
 ### Evaluation Metrics
 
@@ -40,41 +40,39 @@ Generated: 2026-06-22T09:58:12.072442+00:00
 | FP Rate | 0.0000 |
 | True Positives | 0 |
 | False Positives | 0 |
-| False Negatives | 0 |
-| True Negatives | 124 |
+| False Negatives | 759 |
+| True Negatives | 2526 |
 
 ### Does MOMENT outperform Tier 1 z-score?
 
-**No â€” F1=0.0000 does not exceed 0.70 threshold.**
+**No — F1=0.0000 does not exceed 0.70 threshold.**
 
-
-With only 618 windows, MOMENT's statistical reconstruction may be under-trained.
+With only 16422 windows, MOMENT's statistical reconstruction may be under-trained.
 **However, MOMENT still adds value that Tier 1 z-score cannot provide:**
-1. **Multivariate correlation** â€” detects anomalies requiring joint deviation across channels
-2. **Channel attribution** â€” pinpoints which interface (N3 rx drops, session rate) is anomalous
-3. **Context-aware** â€” 512-step (~128-min) history captures slow-building trends
-4. **Early warning** â€” per-window scores fire before threshold breach (see earliness below)
+1. **Multivariate correlation** — detects anomalies requiring joint deviation across channels
+2. **Channel attribution** — pinpoints which interface (N3 rx drops, session rate) is anomalous
+3. **Context-aware** — 512-step (~128-min) history captures slow-building trends
+4. **Early warning** — per-window scores fire before threshold breach (see earliness below)
 
 Recommendation: accumulate more data (30+ days of real traffic) for improved training.
-
 
 ### Per-Channel AUC (Eval Set)
 
 ```
-  port_bytes_N3_rx_rate               AUC=nan
-  port_bytes_N6_tx_rate               AUC=nan
-  port_pkts_N3_rx_rate                AUC=nan
-  port_dropped_N3_rx_rate             AUC=nan
-  port_dropped_N6_rx_rate             AUC=nan
-  pfcp_sessions_total                 AUC=nan
-  pfcp_session_setup_rate             AUC=nan
-  dl_throughput_efficiency            AUC=nan
-  dl_throughput_efficiency_rate       AUC=nan
-  drop_rate_percentage                AUC=nan
-  tsi_value                           AUC=nan
-  go_goroutines                       AUC=nan
-  go_heap_alloc_bytes                 AUC=nan
-  gc_pressure_rate                    AUC=nan
+  port_bytes_N3_rx_rate               AUC=0.9305
+  port_bytes_N6_tx_rate               AUC=0.9334
+  port_pkts_N3_rx_rate                AUC=0.9339
+  port_dropped_N3_rx_rate             AUC=0.9204
+  port_dropped_N6_rx_rate             AUC=0.9223
+  pfcp_sessions_total                 AUC=0.9302
+  pfcp_session_setup_rate             AUC=0.9327
+  dl_throughput_efficiency            AUC=0.3519
+  dl_throughput_efficiency_rate       AUC=0.3598
+  drop_rate_percentage                AUC=0.9188
+  tsi_value                           AUC=0.9313
+  go_goroutines                       AUC=0.5466
+  go_heap_alloc_bytes                 AUC=0.5388
+  gc_pressure_rate                    AUC=0.5492
 ```
 
 *Higher AUC = that channel's reconstruction error better separates anomalies from normal.*
@@ -83,7 +81,7 @@ Recommendation: accumulate more data (30+ days of real traffic) for improved tra
 
 | Metric | Value |
 |---|---|
-| Episodes analyzed | 0 |
+| Episodes analyzed | 266 |
 | Episodes detected | 0 |
 | Mean earliness | N/A |
 | Median earliness | N/A |
@@ -93,12 +91,12 @@ Recommendation: accumulate more data (30+ days of real traffic) for improved tra
 
 ### Warnings
 
-- âš  DATA SUFFICIENCY: only 0 overload episodes in eval set (< 3)
+- No warnings
 
 
 ## Chronos-2 (UOI Value Forecasting)
 
-Generated: 2026-06-22T09:58:25.823777+00:00
+Generated: 2026-06-30T02:04:08.022839+00:00
 
 ### Architecture
 
@@ -111,19 +109,19 @@ Generated: 2026-06-22T09:58:25.823777+00:00
 ### Training Data
 
 - Series: uoi_value (forward-filled from ~90s cadence to 15s)
-- Total rows: 52104
-- Train rows: 41683
-- Eval rows:  10421
-- Train pairs: 4116
-- Eval pairs:  521
+- Total rows: 2102400
+- Train rows: 1681920
+- Eval rows:  420480
+- Train pairs: 168139
+- Eval pairs:  21024
 
 ### Zero-Shot vs Fine-Tuned Comparison
 
 | Metric | Zero-Shot | Fine-Tuned |
 |---|---|---|
-| WQL (lower=better) | 0.0 | N/A |
-| MIS (80% interval) | 0.0 | N/A |
-| Calibration (80% cov) | 0.2033 | N/A |
+| WQL (lower=better) | 0.033691 | N/A |
+| MIS (80% interval) | 0.4836 | N/A |
+| Calibration (80% cov) | 0.4238 | N/A |
 
 **Decision: Zero-shot model used.**
 Fine-tuning did not improve WQL by ≥ 5% — zero-shot model retained.
@@ -132,15 +130,15 @@ Fine-tuning did not improve WQL by ≥ 5% — zero-shot model retained.
 
 | Metric | Value |
 |---|---|
-| WQL | 0.0 |
-| MIS (80% interval) | 0.0 |
-| 80% Interval Calibration | 0.2033 |
+| WQL | 0.033691 |
+| MIS (80% interval) | 0.4836 |
+| 80% Interval Calibration | 0.4238 |
 
 ### Breach Detection
 
 | Metric | Value |
 |---|---|
-| UOI breach threshold | 0.2240 (75th percentile of training series) |
+| UOI breach threshold | 0.3335 (75th percentile of training series) |
 | Mean breach ETA | None min |
 | Median breach ETA | None min |
 | Mean breach probability | 0.0 |
@@ -158,12 +156,12 @@ Fine-tuning did not improve WQL by ≥ 5% — zero-shot model retained.
 ### What breach_probability means
 
 `breach_probability` is the fraction of Chronos-2's 20 Monte Carlo sample paths
-in which uoi_value exceeds 0.2240 at least once in the 20-step horizon.
+in which uoi_value exceeds 0.3335 at least once in the 20-step horizon.
 
 - **< 0.4**: Low confidence — do not display breach ETA, report as "low"
 - **0.4 – 0.7**: Medium confidence — display with uncertainty
 - **> 0.7**: High confidence — escalate to critical, show breach countdown
 
 This is an empirically calibrated heuristic. The 80% prediction interval calibration
-(target ≈ 80%, actual = 0.2033) indicates moderate reliability.
+(target ≈ 80%, actual = 0.4238) indicates moderate reliability.
 

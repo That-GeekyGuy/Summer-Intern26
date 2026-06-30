@@ -334,6 +334,8 @@ services:
 
     image: vllm/vllm-openai:v0.7.3
 
+    runtime: nvidia
+
     environment:
 
       HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN}
@@ -341,6 +343,10 @@ services:
       VLLM_USE_V1: "0"
 
       HF_HUB_ENABLE_HF_TRANSFER: "0"
+
+      NVIDIA_VISIBLE_DEVICES: all
+
+      CUDA_VISIBLE_DEVICES: "0"
 
     command:
 
@@ -393,6 +399,16 @@ services:
         limits:
 
           memory: 12G
+
+        reservations:
+
+          devices:
+
+            - driver: nvidia
+
+              count: 1
+
+              capabilities: [gpu]
 
 
 
@@ -494,6 +510,8 @@ services:
 
       dockerfile: infer/moment/Dockerfile
 
+    runtime: nvidia
+
     environment:
 
       MODEL_VARIANT:  ${MOMENT_VARIANT:-MOMENT-1-large}
@@ -511,6 +529,12 @@ services:
       PORT:           "8083"
 
       HF_HOME:        /hf-cache
+
+      NVIDIA_VISIBLE_DEVICES: all
+
+      CUDA_VISIBLE_DEVICES: "0"
+
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:512
 
     volumes:
 
@@ -542,9 +566,19 @@ services:
 
         limits:
 
-          memory: 4G
+          memory: 6G
 
-          cpus: "2"
+          cpus: "4"
+
+        reservations:
+
+          devices:
+
+            - driver: nvidia
+
+              count: 1
+
+              capabilities: [gpu]
 
 
 
@@ -566,9 +600,11 @@ services:
 
       dockerfile: infer/chronos/Dockerfile
 
+    runtime: nvidia
+
     environment:
 
-      MODEL_PATH:         /models/chronos
+      MODEL_PATH:         /models/chronos_finetuned
 
       METADATA_PATH:      /models/chronos_metadata.json
 
@@ -579,8 +615,16 @@ services:
       PORT:               "8084"
 
       HF_HOME:             /hf-cache
+
       TRANSFORMERS_OFFLINE: "1"
+
       HF_DATASETS_OFFLINE:  "1"
+
+      NVIDIA_VISIBLE_DEVICES: all
+
+      CUDA_VISIBLE_DEVICES: "0"
+
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:512
 
     volumes:
 
@@ -612,9 +656,19 @@ services:
 
         limits:
 
-          memory: 2G
+          memory: 4G
 
-          cpus: "1"
+          cpus: "4"
+
+        reservations:
+
+          devices:
+
+            - driver: nvidia
+
+              count: 1
+
+              capabilities: [gpu]
 
 
 

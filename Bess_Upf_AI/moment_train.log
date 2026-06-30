@@ -1,0 +1,178 @@
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.1.1
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+INFO device: cuda
+INFO windows: (16422, 14, 512)  anomaly_fraction=24.7%
+INFO split: train=13137  eval=3285
+INFO Computing MOMENT embeddings (will be cached for future runs) ΓÇª
+/usr/local/lib/python3.10/dist-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+INFO loading MOMENT-1-large encoder (frozen) ΓÇª
+
+pytorch_model.bin:   0%|          | 0.00/1.39G [00:00<?, ?B/s]
+pytorch_model.bin:   1%|          | 10.5M/1.39G [00:02<04:44, 4.83MB/s]
+pytorch_model.bin:   2%|ΓûÅ         | 21.0M/1.39G [00:03<03:08, 7.23MB/s]
+pytorch_model.bin:   2%|ΓûÅ         | 31.5M/1.39G [00:04<02:39, 8.50MB/s]
+pytorch_model.bin:   3%|ΓûÄ         | 41.9M/1.39G [00:05<02:55, 7.65MB/s]
+pytorch_model.bin:   4%|Γûì         | 52.4M/1.39G [00:06<02:49, 7.86MB/s]
+pytorch_model.bin:   5%|Γûì         | 62.9M/1.39G [00:08<03:02, 7.25MB/s]
+pytorch_model.bin:   5%|Γûî         | 73.4M/1.39G [00:10<03:00, 7.28MB/s]
+pytorch_model.bin:   6%|Γûî         | 83.9M/1.39G [00:11<03:03, 7.09MB/s]
+pytorch_model.bin:   7%|Γûï         | 94.4M/1.39G [00:12<02:45, 7.82MB/s]
+pytorch_model.bin:   8%|Γûè         | 105M/1.39G [00:14<02:53, 7.36MB/s] 
+pytorch_model.bin:   8%|Γûè         | 115M/1.39G [00:15<02:54, 7.26MB/s]
+pytorch_model.bin:   9%|Γûë         | 126M/1.39G [00:16<02:37, 8.02MB/s]
+pytorch_model.bin:  10%|Γûë         | 136M/1.39G [00:17<02:26, 8.54MB/s]
+pytorch_model.bin:  11%|Γûê         | 147M/1.39G [00:19<02:52, 7.19MB/s]
+pytorch_model.bin:  11%|ΓûêΓûÅ        | 157M/1.39G [00:20<02:33, 7.98MB/s]
+pytorch_model.bin:  12%|ΓûêΓûÅ        | 168M/1.39G [00:22<02:52, 7.06MB/s]
+pytorch_model.bin:  13%|ΓûêΓûÄ        | 178M/1.39G [00:24<02:53, 6.96MB/s]
+pytorch_model.bin:  14%|ΓûêΓûÄ        | 189M/1.39G [00:28<04:22, 4.56MB/s]
+pytorch_model.bin:  14%|ΓûêΓûì        | 199M/1.39G [00:29<03:41, 5.35MB/s]
+pytorch_model.bin:  15%|ΓûêΓûî        | 210M/1.39G [00:30<03:16, 5.98MB/s]
+pytorch_model.bin:  16%|ΓûêΓûî        | 220M/1.39G [00:31<02:57, 6.58MB/s]
+pytorch_model.bin:  17%|ΓûêΓûï        | 231M/1.39G [00:33<02:42, 7.13MB/s]
+pytorch_model.bin:  17%|ΓûêΓûï        | 241M/1.39G [00:34<02:22, 8.05MB/s]
+pytorch_model.bin:  18%|ΓûêΓûè        | 252M/1.39G [00:35<02:22, 7.97MB/s]
+pytorch_model.bin:  19%|ΓûêΓûë        | 262M/1.39G [00:36<02:08, 8.76MB/s]
+pytorch_model.bin:  20%|ΓûêΓûë        | 273M/1.39G [00:37<01:59, 9.35MB/s]
+pytorch_model.bin:  20%|ΓûêΓûê        | 283M/1.39G [00:38<01:48, 10.1MB/s]
+pytorch_model.bin:  21%|ΓûêΓûê        | 294M/1.39G [00:39<01:49, 10.0MB/s]
+pytorch_model.bin:  22%|ΓûêΓûêΓûÅ       | 304M/1.39G [00:40<01:46, 10.2MB/s]
+pytorch_model.bin:  23%|ΓûêΓûêΓûÄ       | 315M/1.39G [00:41<01:40, 10.6MB/s]
+pytorch_model.bin:  23%|ΓûêΓûêΓûÄ       | 325M/1.39G [00:42<01:42, 10.3MB/s]
+pytorch_model.bin:  24%|ΓûêΓûêΓûì       | 336M/1.39G [00:43<01:51, 9.40MB/s]
+pytorch_model.bin:  25%|ΓûêΓûêΓûì       | 346M/1.39G [00:44<01:48, 9.58MB/s]
+pytorch_model.bin:  26%|ΓûêΓûêΓûî       | 357M/1.39G [00:45<01:53, 9.07MB/s]
+pytorch_model.bin:  26%|ΓûêΓûêΓûï       | 367M/1.39G [00:47<01:55, 8.85MB/s]
+pytorch_model.bin:  27%|ΓûêΓûêΓûï       | 377M/1.39G [00:49<02:23, 7.02MB/s]
+pytorch_model.bin:  28%|ΓûêΓûêΓûè       | 388M/1.39G [00:50<02:15, 7.35MB/s]
+pytorch_model.bin:  29%|ΓûêΓûêΓûë       | 398M/1.39G [00:51<02:01, 8.10MB/s]
+pytorch_model.bin:  30%|ΓûêΓûêΓûë       | 409M/1.39G [00:53<02:22, 6.86MB/s]
+pytorch_model.bin:  30%|ΓûêΓûêΓûê       | 419M/1.39G [00:55<02:19, 6.91MB/s]
+pytorch_model.bin:  31%|ΓûêΓûêΓûê       | 430M/1.39G [00:56<02:12, 7.21MB/s]
+pytorch_model.bin:  32%|ΓûêΓûêΓûêΓûÅ      | 440M/1.39G [01:00<03:16, 4.81MB/s]
+pytorch_model.bin:  33%|ΓûêΓûêΓûêΓûÄ      | 451M/1.39G [01:01<02:40, 5.81MB/s]
+pytorch_model.bin:  33%|ΓûêΓûêΓûêΓûÄ      | 461M/1.39G [01:02<02:20, 6.60MB/s]
+pytorch_model.bin:  34%|ΓûêΓûêΓûêΓûì      | 472M/1.39G [01:03<01:57, 7.80MB/s]
+pytorch_model.bin:  35%|ΓûêΓûêΓûêΓûì      | 482M/1.39G [01:04<01:44, 8.68MB/s]
+pytorch_model.bin:  36%|ΓûêΓûêΓûêΓûî      | 493M/1.39G [01:05<01:39, 9.00MB/s]
+pytorch_model.bin:  36%|ΓûêΓûêΓûêΓûï      | 503M/1.39G [01:06<01:34, 9.30MB/s]
+pytorch_model.bin:  37%|ΓûêΓûêΓûêΓûï      | 514M/1.39G [01:07<01:34, 9.23MB/s]
+pytorch_model.bin:  38%|ΓûêΓûêΓûêΓûè      | 524M/1.39G [01:08<01:42, 8.41MB/s]
+pytorch_model.bin:  39%|ΓûêΓûêΓûêΓûè      | 535M/1.39G [01:10<01:56, 7.28MB/s]
+pytorch_model.bin:  39%|ΓûêΓûêΓûêΓûë      | 545M/1.39G [01:11<01:51, 7.55MB/s]
+pytorch_model.bin:  40%|ΓûêΓûêΓûêΓûê      | 556M/1.39G [01:13<01:47, 7.74MB/s]
+pytorch_model.bin:  41%|ΓûêΓûêΓûêΓûê      | 566M/1.39G [01:14<01:48, 7.54MB/s]
+pytorch_model.bin:  42%|ΓûêΓûêΓûêΓûêΓûÅ     | 577M/1.39G [01:15<01:41, 7.97MB/s]
+pytorch_model.bin:  42%|ΓûêΓûêΓûêΓûêΓûÅ     | 587M/1.39G [01:16<01:34, 8.45MB/s]
+pytorch_model.bin:  43%|ΓûêΓûêΓûêΓûêΓûÄ     | 598M/1.39G [01:17<01:28, 8.92MB/s]
+pytorch_model.bin:  44%|ΓûêΓûêΓûêΓûêΓûì     | 608M/1.39G [01:19<01:28, 8.76MB/s]
+pytorch_model.bin:  45%|ΓûêΓûêΓûêΓûêΓûì     | 619M/1.39G [01:20<01:31, 8.39MB/s]
+pytorch_model.bin:  45%|ΓûêΓûêΓûêΓûêΓûî     | 629M/1.39G [01:22<01:35, 7.93MB/s]
+pytorch_model.bin:  46%|ΓûêΓûêΓûêΓûêΓûî     | 640M/1.39G [01:23<01:30, 8.24MB/s]
+pytorch_model.bin:  47%|ΓûêΓûêΓûêΓûêΓûï     | 650M/1.39G [01:24<01:28, 8.30MB/s]
+pytorch_model.bin:  48%|ΓûêΓûêΓûêΓûêΓûè     | 661M/1.39G [01:25<01:25, 8.52MB/s]
+pytorch_model.bin:  48%|ΓûêΓûêΓûêΓûêΓûè     | 671M/1.39G [01:26<01:23, 8.51MB/s]
+pytorch_model.bin:  49%|ΓûêΓûêΓûêΓûêΓûë     | 682M/1.39G [01:27<01:21, 8.69MB/s]
+pytorch_model.bin:  50%|ΓûêΓûêΓûêΓûêΓûë     | 692M/1.39G [01:29<01:17, 8.97MB/s]
+pytorch_model.bin:  51%|ΓûêΓûêΓûêΓûêΓûê     | 703M/1.39G [01:33<02:21, 4.83MB/s]
+pytorch_model.bin:  51%|ΓûêΓûêΓûêΓûêΓûêΓûÅ    | 713M/1.39G [01:34<02:03, 5.46MB/s]
+pytorch_model.bin:  52%|ΓûêΓûêΓûêΓûêΓûêΓûÅ    | 724M/1.39G [01:36<01:50, 5.97MB/s]
+pytorch_model.bin:  53%|ΓûêΓûêΓûêΓûêΓûêΓûÄ    | 734M/1.39G [01:37<01:36, 6.74MB/s]
+pytorch_model.bin:  54%|ΓûêΓûêΓûêΓûêΓûêΓûÄ    | 744M/1.39G [01:38<01:27, 7.34MB/s]
+pytorch_model.bin:  54%|ΓûêΓûêΓûêΓûêΓûêΓûì    | 755M/1.39G [01:39<01:20, 7.85MB/s]
+pytorch_model.bin:  55%|ΓûêΓûêΓûêΓûêΓûêΓûî    | 765M/1.39G [01:40<01:18, 7.91MB/s]
+pytorch_model.bin:  56%|ΓûêΓûêΓûêΓûêΓûêΓûî    | 776M/1.39G [01:42<01:16, 7.93MB/s]
+pytorch_model.bin:  57%|ΓûêΓûêΓûêΓûêΓûêΓûï    | 786M/1.39G [01:43<01:11, 8.43MB/s]
+pytorch_model.bin:  58%|ΓûêΓûêΓûêΓûêΓûêΓûè    | 797M/1.39G [01:44<01:02, 9.37MB/s]
+pytorch_model.bin:  58%|ΓûêΓûêΓûêΓûêΓûêΓûè    | 807M/1.39G [01:45<01:05, 8.77MB/s]
+pytorch_model.bin:  59%|ΓûêΓûêΓûêΓûêΓûêΓûë    | 818M/1.39G [01:46<01:08, 8.24MB/s]
+pytorch_model.bin:  60%|ΓûêΓûêΓûêΓûêΓûêΓûë    | 828M/1.39G [01:48<01:06, 8.41MB/s]
+pytorch_model.bin:  61%|ΓûêΓûêΓûêΓûêΓûêΓûê    | 839M/1.39G [01:49<01:13, 7.47MB/s]
+pytorch_model.bin:  61%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûÅ   | 849M/1.39G [01:51<01:11, 7.53MB/s]
+pytorch_model.bin:  62%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûÅ   | 860M/1.39G [01:53<01:26, 6.06MB/s]
+pytorch_model.bin:  63%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûÄ   | 870M/1.39G [01:54<01:17, 6.67MB/s]
+pytorch_model.bin:  64%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûÄ   | 881M/1.39G [01:56<01:07, 7.43MB/s]
+pytorch_model.bin:  64%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûì   | 891M/1.39G [01:56<00:58, 8.43MB/s]
+pytorch_model.bin:  65%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûî   | 902M/1.39G [01:57<00:52, 9.29MB/s]
+pytorch_model.bin:  66%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûî   | 912M/1.39G [01:58<00:48, 9.68MB/s]
+pytorch_model.bin:  67%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûï   | 923M/1.39G [01:59<00:46, 9.93MB/s]
+pytorch_model.bin:  67%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûï   | 933M/1.39G [02:00<00:43, 10.3MB/s]
+pytorch_model.bin:  68%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûè   | 944M/1.39G [02:02<00:48, 9.13MB/s]
+pytorch_model.bin:  69%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûë   | 954M/1.39G [02:05<01:14, 5.82MB/s]
+pytorch_model.bin:  70%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûë   | 965M/1.39G [02:06<01:01, 6.83MB/s]
+pytorch_model.bin:  70%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûê   | 975M/1.39G [02:07<00:56, 7.28MB/s]
+pytorch_model.bin:  71%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûê   | 986M/1.39G [02:08<00:46, 8.56MB/s]
+pytorch_model.bin:  72%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÅ  | 996M/1.39G [02:09<00:41, 9.28MB/s]
+pytorch_model.bin:  73%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÄ  | 1.01G/1.39G [02:10<00:38, 9.77MB/s]
+pytorch_model.bin:  73%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÄ  | 1.02G/1.39G [02:11<00:36, 10.2MB/s]
+pytorch_model.bin:  74%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûì  | 1.03G/1.39G [02:12<00:35, 10.0MB/s]
+pytorch_model.bin:  75%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûì  | 1.04G/1.39G [02:13<00:37, 9.16MB/s]
+pytorch_model.bin:  76%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûî  | 1.05G/1.39G [02:14<00:35, 9.37MB/s]
+pytorch_model.bin:  76%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûï  | 1.06G/1.39G [02:15<00:33, 9.80MB/s]
+pytorch_model.bin:  77%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûï  | 1.07G/1.39G [02:17<00:39, 7.99MB/s]
+pytorch_model.bin:  78%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûè  | 1.08G/1.39G [02:18<00:39, 7.72MB/s]
+pytorch_model.bin:  79%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûè  | 1.09G/1.39G [02:20<00:40, 7.34MB/s]
+pytorch_model.bin:  79%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûë  | 1.10G/1.39G [02:21<00:36, 7.87MB/s]
+pytorch_model.bin:  80%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê  | 1.11G/1.39G [02:22<00:32, 8.35MB/s]
+pytorch_model.bin:  81%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê  | 1.12G/1.39G [02:23<00:28, 9.41MB/s]
+pytorch_model.bin:  82%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÅ | 1.13G/1.39G [02:24<00:26, 9.64MB/s]
+pytorch_model.bin:  82%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÅ | 1.14G/1.39G [02:25<00:26, 9.07MB/s]
+pytorch_model.bin:  83%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÄ | 1.15G/1.39G [02:26<00:26, 8.90MB/s]
+pytorch_model.bin:  84%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûì | 1.16G/1.39G [02:28<00:24, 8.93MB/s]
+pytorch_model.bin:  85%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûì | 1.17G/1.39G [02:29<00:26, 7.94MB/s]
+pytorch_model.bin:  86%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûî | 1.18G/1.39G [02:31<00:28, 7.13MB/s]
+pytorch_model.bin:  86%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûï | 1.20G/1.39G [02:32<00:23, 8.07MB/s]
+pytorch_model.bin:  87%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûï | 1.21G/1.39G [02:33<00:22, 8.08MB/s]
+pytorch_model.bin:  88%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûè | 1.22G/1.39G [02:34<00:18, 9.29MB/s]
+pytorch_model.bin:  89%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûè | 1.23G/1.39G [02:38<00:28, 5.53MB/s]
+pytorch_model.bin:  89%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûë | 1.24G/1.39G [02:39<00:22, 6.53MB/s]
+pytorch_model.bin:  90%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê | 1.25G/1.39G [02:40<00:18, 7.27MB/s]
+pytorch_model.bin:  91%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê | 1.26G/1.39G [02:41<00:16, 7.59MB/s]
+pytorch_model.bin:  92%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÅ| 1.27G/1.39G [02:42<00:14, 7.93MB/s]
+pytorch_model.bin:  92%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÅ| 1.28G/1.39G [02:43<00:12, 8.54MB/s]
+pytorch_model.bin:  93%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûÄ| 1.29G/1.39G [02:44<00:10, 9.24MB/s]
+pytorch_model.bin:  94%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûì| 1.30G/1.39G [02:45<00:08, 10.0MB/s]
+pytorch_model.bin:  95%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûì| 1.31G/1.39G [02:46<00:07, 9.62MB/s]
+pytorch_model.bin:  95%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûî| 1.32G/1.39G [02:47<00:06, 10.2MB/s]
+pytorch_model.bin:  96%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûî| 1.33G/1.39G [02:48<00:05, 9.53MB/s]
+pytorch_model.bin:  97%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûï| 1.34G/1.39G [02:49<00:04, 9.82MB/s]
+pytorch_model.bin:  98%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûè| 1.35G/1.39G [02:50<00:03, 9.64MB/s]
+pytorch_model.bin:  98%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûè| 1.36G/1.39G [02:52<00:02, 9.33MB/s]
+pytorch_model.bin:  99%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûë| 1.37G/1.39G [02:53<00:01, 9.49MB/s]
+pytorch_model.bin: 100%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûë| 1.38G/1.39G [02:54<00:00, 8.55MB/s]
+pytorch_model.bin: 100%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê| 1.39G/1.39G [02:54<00:00, 8.56MB/s]
+pytorch_model.bin: 100%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê| 1.39G/1.39G [02:54<00:00, 7.92MB/s]
+INFO Setting d_model to 1024
+INFO Initializing pre-trained transformer from google/flan-t5-large.
+INFO Enabling gradient checkpointing.
+INFO MOMENT embeddings computed via model forward pass
+INFO Γ£ô Embeddings cached to tools/train/data/moment_embeddings_cache.npz ΓÇö next run will be fast
+INFO embedding dim: 7168
+INFO training reconstruction head on 9846 normal windows ΓÇª
+INFO epoch 10/50  loss=0.141610  best=0.136732
+INFO epoch 20/50  loss=0.171460  best=0.131127
+INFO early stopping at epoch 25
+INFO threshold=1.755719 (mean=0.140953 + 3├ùstd=0.538255)  FP_rate_on_train_normal=0.54%
+INFO eval: F1=0.0000  precision=0.0000  recall=0.0000  FP_rate=0.0000
+Traceback (most recent call last):
+  File "/app/tools/train/train_moment.py", line 663, in <module>
+    train(data_dir, models_dir)
+  File "/app/tools/train/train_moment.py", line 457, in train
+    channel_aucs_eval  = per_channel_auc(channel_scores_all[n_train:], eval_labels) if n_eval > 1 else [0.5] * n_ch
+  File "/app/tools/train/train_moment.py", line 230, in per_channel_auc
+    from sklearn.metrics import roc_auc_score
+ModuleNotFoundError: No module named 'sklearn'
