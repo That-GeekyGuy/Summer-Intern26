@@ -23,8 +23,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")

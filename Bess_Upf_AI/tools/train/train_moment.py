@@ -28,7 +28,6 @@ Usage:
 import argparse
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -324,9 +323,9 @@ def train(data_dir: Path, models_dir: Path):
     n_train = int(n_windows * TRAIN_RATIO)
     n_eval  = n_windows - n_train
 
-    train_windows = windows[:n_train]
+    windows[:n_train]
     train_labels  = labels[:n_train]
-    eval_windows  = windows[n_train:]
+    windows[n_train:]
     eval_labels   = labels[n_train:]
 
     log.info("split: train=%d  eval=%d", n_train, n_eval)
@@ -353,8 +352,8 @@ def train(data_dir: Path, models_dir: Path):
 
     train_emb  = torch.tensor(all_embeddings[:n_train], dtype=torch.float32)
     eval_emb   = torch.tensor(all_embeddings[n_train:], dtype=torch.float32)
-    train_lbl  = torch.tensor(train_labels, dtype=torch.float32)
-    eval_lbl   = torch.tensor(eval_labels, dtype=torch.float32)
+    torch.tensor(train_labels, dtype=torch.float32)
+    torch.tensor(eval_labels, dtype=torch.float32)
 
     # ── Reconstruction-based anomaly head (trained on normal only) ───────────
     # Use reconstruction error as anomaly score — same principle as MOMENT spec

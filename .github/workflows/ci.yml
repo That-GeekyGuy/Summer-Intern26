@@ -37,7 +37,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install ruff
-      - run: ruff check tools pipeline serve mitigation
+      # pipeline/serve/mitigation are v2 stubs, added in Phase 1
+      - run: ruff check tools
         working-directory: Bess_Upf_AI
 
   frontend:

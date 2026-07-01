@@ -25,8 +25,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -142,7 +140,6 @@ def predict_chronos(pipeline, context: np.ndarray, n_samples: int = 20,
         return _naive_baseline_predict(context, horizon)
 
     try:
-        from chronos import ChronosPipeline
         ctx_tensor = torch.tensor(context, dtype=torch.float32).unsqueeze(0)  # (1, context_len)
         with torch.no_grad():
             forecast = pipeline.predict(
@@ -242,7 +239,7 @@ def fine_tune_chronos(pipeline, train_pairs: list, val_pairs: list,
         return None
 
     try:
-        import transformers
+        import transformers  # noqa: F401  # availability probe only
     except ImportError:
         log.warning("transformers not installed — skipping fine-tuning")
         return None

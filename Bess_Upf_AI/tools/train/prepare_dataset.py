@@ -579,7 +579,6 @@ def build_legacy_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     Reproduce the feature engineering from the original prepare_dataset.py
     so the existing ml-infer sidecar continues to work unchanged.
     """
-    SCRAPE_DT = RESAMPLE_SECONDS
     EPSILON   = 1e-9
     ROLLING_W = 20  # 5 min at 15s
 

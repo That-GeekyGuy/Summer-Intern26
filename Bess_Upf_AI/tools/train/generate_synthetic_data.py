@@ -192,7 +192,7 @@ def _apply_anomaly(
     """In-place anomaly injection with smooth Hanning ramp-in/ramp-out."""
     length = end - start + 1
     env = _hanning_envelope(length)
-    rows = slice(start, end + 1)
+    slice(start, end + 1)
 
     if scenario == 1:  # session_overload
         df.loc[start:end, "pfcp_sessions_total{synthetic}"] *= (1 + 2.0 * env)

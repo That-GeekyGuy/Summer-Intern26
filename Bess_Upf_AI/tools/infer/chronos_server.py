@@ -46,7 +46,7 @@ STL_PROFILES_PATH = Path(os.getenv("STL_PROFILES_PATH", "/models/stl_profiles.js
 HOST              = os.getenv("HOST", "0.0.0.0")
 PORT              = int(os.getenv("PORT", "8084"))
 
-# Chronos-t5-small has a practical prediction limit of ~64 steps.
+# Chronos-t5-large has a practical prediction limit of ~64 steps.
 # Beyond that we switch to extrapolation + STL hybrid.
 CHRONOS_MAX_STEPS = 64
 
@@ -136,20 +136,22 @@ def _load_models():
             zero_shot_marker = MODEL_PATH / "zero_shot_marker.json"
             if zero_shot_marker.exists():
                 log.info("zero-shot marker found — loading base model")
-                model_id = "amazon/chronos-t5-small"
+                model_id = "amazon/chronos-t5-large"
             elif (MODEL_PATH / "config.json").exists():
                 model_id = str(MODEL_PATH)
                 log.info("loading fine-tuned checkpoint from %s", model_id)
             else:
-                model_id = "amazon/chronos-t5-small"
+                model_id = "amazon/chronos-t5-large"
                 log.info("no checkpoint found — loading base model")
 
+            device_map = "cuda" if torch.cuda.is_available() else "cpu"
+            torch_dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float32
             _state.pipeline = ChronosPipeline.from_pretrained(
                 model_id,
-                device_map="cpu",
-                torch_dtype=torch.float32,
+                device_map=device_map,
+                torch_dtype=torch_dtype,
             )
-            _state.model_version = f"chronos-t5-small@{model_id}"
+            _state.model_version = f"chronos-t5-large@{model_id}"
             log.info("Chronos pipeline loaded from '%s'", model_id)
 
         except ImportError:
@@ -221,10 +223,10 @@ def _run_chronos_short(context: np.ndarray, steps: int) -> dict:
         d = _naive_baseline_predict(context, capped)
         return d
     return {
-        "p10":     np.percentile(samples, 10, axis=0),
-        "p50":     np.percentile(samples, 50, axis=0),
-        "p90":     np.percentile(samples, 90, axis=0),
-        "samples": samples,
+        "p10":     np.maximum(0.0, np.percentile(samples, 10, axis=0)),
+        "p50":     np.maximum(0.0, np.percentile(samples, 50, axis=0)),
+        "p90":     np.maximum(0.0, np.percentile(samples, 90, axis=0)),
+        "samples": np.maximum(0.0, samples),
     }
 
 
@@ -247,14 +249,14 @@ def _extrapolate(context: np.ndarray, short_p50: np.ndarray, short_std: np.ndarr
     extrap_p50 = np.array([last_median + slope * (i + 1) for i in range(extrap_steps)], dtype=np.float32)
     extrap_spread = np.array([base_std * math.sqrt(i + 1) for i in range(extrap_steps)], dtype=np.float32)
 
-    full_p50 = np.concatenate([short_p50, extrap_p50])
-    full_p10 = np.concatenate([short_p50 - 1.28 * short_std, extrap_p50 - 1.28 * extrap_spread])
-    full_p90 = np.concatenate([short_p50 + 1.28 * short_std, extrap_p50 + 1.28 * extrap_spread])
+    full_p50 = np.maximum(0.0, np.concatenate([short_p50, extrap_p50]))
+    full_p10 = np.maximum(0.0, np.concatenate([short_p50 - 1.28 * short_std, extrap_p50 - 1.28 * extrap_spread]))
+    full_p90 = np.maximum(0.0, np.concatenate([short_p50 + 1.28 * short_std, extrap_p50 + 1.28 * extrap_spread]))
 
     # Build synthetic samples for breach probability
     n_samples = 20
     rng = np.random.default_rng()
-    samples = np.stack([full_p50 + rng.normal(0, np.concatenate([short_std, extrap_spread])) for _ in range(n_samples)])
+    samples = np.maximum(0.0, np.stack([full_p50 + rng.normal(0, np.concatenate([short_std, extrap_spread])) for _ in range(n_samples)]))
 
     return {"p10": full_p10, "p50": full_p50, "p90": full_p90, "samples": samples}
 
@@ -307,23 +309,22 @@ def _stl_hybrid(context: np.ndarray, short_result: dict, total_steps: int,
     extrap_p50 = np.array(extrap_p50, dtype=np.float32)
     extrap_spread = np.array(extrap_spread, dtype=np.float32)
 
-    full_p50 = np.concatenate([short_result["p50"], extrap_p50])
-    full_p10 = np.concatenate([
+    full_p50 = np.maximum(0.0, np.concatenate([short_result["p50"], extrap_p50]))
+    full_p10 = np.maximum(0.0, np.concatenate([
         short_result["p10"],
         extrap_p50 - 1.28 * extrap_spread,
-    ])
-    full_p90 = np.concatenate([
+    ]))
+    full_p90 = np.maximum(0.0, np.concatenate([
         short_result["p90"],
         extrap_p50 + 1.28 * extrap_spread,
-    ])
+    ]))
 
     rng = np.random.default_rng()
-    samples = np.stack([full_p50 + rng.normal(0, np.concatenate([
+    samples = np.maximum(0.0, np.stack([full_p50 + rng.normal(0, np.concatenate([
         (short_result["p90"] - short_result["p10"]) / 2.56,
         extrap_spread,
-    ])) for _ in range(20)])
+    ])) for _ in range(20)]))
 
-    method = "stl_hybrid" if uoi_profile else "trend_extrapolation"
     note = (
         "6h forecast uses STL seasonal baseline + Chronos-2 near-term trend correction. "
         "Uncertainty grows with forecast horizon. Only the first 5 min (20 steps) "
