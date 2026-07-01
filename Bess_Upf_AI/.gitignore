@@ -8,3 +8,6 @@ secrets/*.key
 # Large data exports / working CSVs
 prometheus_full_export_*.csv
 ansh_out*.csv
+
+# Training / working logs
+*.log
