@@ -124,7 +124,10 @@ def build_message(
         if any(key.startswith(p) for p in _COUNTER_PREFIXES):
             rate = compute_rate(key, value, ts, prev_state)
             if rate is not None:
-                rate_key = key.replace("process_cpu_seconds_total", "process_cpu") + "_rate"
+                if key == "process_cpu_seconds_total":
+                    rate_key = "process_cpu_rate"
+                else:
+                    rate_key = key + "_rate"
                 msg[rate_key] = rate
 
     return msg
@@ -136,31 +139,39 @@ def main() -> None:
 
     prev_state: dict[str, tuple[float, float]] = {}
 
-    while True:
-        tick_start = time.time()
-        try:
-            resp = requests.get(UPF_SIM_METRICS, timeout=5.0)
-            resp.raise_for_status()
+    try:
+        while True:
+            tick_start = time.time()
+            try:
+                resp = requests.get(UPF_SIM_METRICS, timeout=5.0)
+                resp.raise_for_status()
 
-            metrics, upf_id = parse_prometheus_text(resp.text)
-            if upf_id is None:
-                log.warning("No node_id label in metrics — skipping tick")
-            else:
-                msg = build_message(metrics, upf_id, tick_start, prev_state)
-                producer.produce(
-                    "upf.metrics.raw",
-                    key=upf_id.encode(),
-                    value=json.dumps(msg).encode(),
-                )
-                producer.flush()
+                metrics, upf_id = parse_prometheus_text(resp.text)
+                if upf_id is None:
+                    log.warning("No node_id label in metrics — skipping tick")
+                else:
+                    msg = build_message(metrics, upf_id, tick_start, prev_state)
+                    try:
+                        payload = json.dumps(msg, allow_nan=False).encode()
+                    except ValueError:
+                        log.warning("Skipping tick for %s — metrics contain NaN/Inf", upf_id)
+                        continue
+                    producer.produce(
+                        "upf.metrics.raw",
+                        key=upf_id.encode(),
+                        value=payload,
+                    )
+                    producer.flush()
 
-        except requests.RequestException as exc:
-            log.warning("Scrape failed: %s — backing off 5s", exc)
-            time.sleep(5.0)
-            continue
+            except requests.RequestException as exc:
+                log.warning("Scrape failed: %s — backing off 5s", exc)
+                time.sleep(5.0)
+                continue
 
-        elapsed = time.time() - tick_start
-        time.sleep(max(0.0, SCRAPE_INTERVAL - elapsed))
+            elapsed = time.time() - tick_start
+            time.sleep(max(0.0, SCRAPE_INTERVAL - elapsed))
+    finally:
+        producer.flush()
 
 
 if __name__ == "__main__":
