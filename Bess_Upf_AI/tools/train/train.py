@@ -204,7 +204,7 @@ def train(detection_db: str | None = None):
         roc_rf = float("nan")
 
     rf_report = classification_report(y_eval_bin, y_pred_rf, target_names=["normal", "anomaly"], labels=[0, 1])
-    rf_cm = confusion_matrix(y_eval_bin, y_pred_rf, labels=[0, 1]).tolist()
+    confusion_matrix(y_eval_bin, y_pred_rf, labels=[0, 1]).tolist()
 
     # Feature importances (top 10 for report)
     feat_importance = sorted(
@@ -217,7 +217,7 @@ def train(detection_db: str | None = None):
 
     # ── Earliness analysis ────────────────────────────────────────────────────
     # For each scenario window in eval, find seconds from start to first detection
-    tier1_events = _maybe_load_tier1_events(detection_db)
+    _maybe_load_tier1_events(detection_db)
     earliness: dict[str, dict] = {}
 
     scenarios_in_eval = df_eval[df_eval["label"] != "normal"]["label"].unique()

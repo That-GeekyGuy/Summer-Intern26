@@ -31,7 +31,6 @@ import torch
 import torch.nn as nn
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
@@ -197,13 +196,11 @@ def _load_models():
                      _state.zero_shot_threshold)
 
         if _state.emb_dim <= 0:
-            _state.error_msg = "embedding_dim=0 in threshold file — model not trained"
-            log.warning("MOMENT sidecar: %s", _state.error_msg)
-            # Still start degraded — sidecar is functional but cannot score
-            return
+            log.warning("MOMENT sidecar: embedding_dim=0 in threshold file — trained head will not be loaded")
+            # We don't return here! We still want to load the MOMENT encoder for zero-shot mode.
 
         # Load head weights
-        if MODEL_PATH.exists():
+        if _state.emb_dim > 0 and MODEL_PATH.exists():
             head = ReconstructionAnomalyHead(input_dim=_state.emb_dim)
             state_dict = torch.load(str(MODEL_PATH), map_location="cpu", weights_only=True)
             head.load_state_dict(state_dict)
@@ -211,7 +208,7 @@ def _load_models():
             _state.head = head
             log.info("MOMENT anomaly head loaded (emb_dim=%d)", _state.emb_dim)
         else:
-            log.warning("MOMENT head weights not found at %s — using threshold-only mode", MODEL_PATH)
+            log.warning("MOMENT head weights not loaded (emb_dim=0 or file missing) — using zero-shot mode")
 
         # Try loading MOMENT encoder (optional — degrades gracefully)
         try:
@@ -277,7 +274,7 @@ def detect(req: DetectRequest):
                               threshold=_state.threshold, channel_scores={},
                               top_anomalous_channels=[], confidence=0.0)
 
-    seq_len = len(req.channels[0])
+    len(req.channels[0])
     window  = np.array(req.channels, dtype=np.float32)  # (n_channels, seq_len)
 
     # Standardize per channel (z-score, matching training pipeline)
@@ -321,8 +318,9 @@ def detect(req: DetectRequest):
         scoring_path   = "statistical"
 
     anomaly    = score >= threshold_used
+    dist       = abs(score - threshold_used)
     confidence = _clamp(
-        1.0 - math.exp(-max(0.0, score - threshold_used) / max(_state.normal_std, 1e-6)),
+        1.0 - math.exp(-dist / max(_state.normal_std, 1e-6)),
         0.0, 1.0,
     )
 

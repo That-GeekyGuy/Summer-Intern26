@@ -44,7 +44,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -54,7 +54,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
-from calendar_context import get_calendar_context, format_calendar_prompt_section
+from calendar_context import get_calendar_context
 from regime_classifier import (
     REGIME_CHANNELS, classify_regime, build_hourly_forecast,
     find_peak_trough_hours, minutes_to_next_event,
@@ -275,7 +275,7 @@ def _fit_stl_for_series(name: str, series: pd.Series, period: int) -> Optional[d
         mask = (hours == h)
         if mask.sum() == 0:
             continue
-        vals = result.seasonal[mask]
+        result.seasonal[mask]
         raw_vals = series.values[mask]
         residuals = result.resid[mask]
 
@@ -638,8 +638,8 @@ def analysis():
 
     # Deviation from seasonal for sessions
     h_key = str(current_hour)
-    session_mean = session_profile.get("hourly_means", {}).get(h_key, 0.0)
-    session_std  = session_profile.get("hourly_stds",  {}).get(h_key, 1.0)
+    session_profile.get("hourly_means", {}).get(h_key, 0.0)
+    session_profile.get("hourly_stds",  {}).get(h_key, 1.0)
 
     # Hot zone forecast
     hz = hotzone()

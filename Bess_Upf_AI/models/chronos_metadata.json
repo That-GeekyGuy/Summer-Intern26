@@ -1,21 +1,21 @@
 {
-  "generated_at": "2026-06-22T09:58:25.823273+00:00",
+  "generated_at": "2026-06-30T02:04:08.008181+00:00",
   "base_model": "amazon/chronos-t5-small",
   "context_length": 512,
   "forecast_horizon": 20,
   "resample_seconds": 15,
-  "uoi_threshold": 0.2240159833333333,
+  "uoi_threshold": 0.33351824432611465,
   "use_finetuned": false,
   "zero_shot_metrics": {
-    "wql": 0.0,
-    "mis": 0.0,
-    "calibration": 0.2033
+    "wql": 0.033691,
+    "mis": 0.4836,
+    "calibration": 0.4238
   },
   "finetuned_metrics": null,
   "final_metrics": {
-    "wql": 0.0,
-    "mis": 0.0,
-    "calibration": 0.2033
+    "wql": 0.033691,
+    "mis": 0.4836,
+    "calibration": 0.4238
   },
   "breach_metrics": {
     "mean_breach_eta_minutes": null,
@@ -32,5 +32,5 @@
     0.5,
     0.9
   ],
-  "breach_threshold_uoi": 0.2240159833333333
+  "breach_threshold_uoi": 0.33351824432611465
 }

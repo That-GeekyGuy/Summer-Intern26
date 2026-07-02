@@ -25,8 +25,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,7 +44,7 @@ TRAIN_RATIO      = 0.80
 LR               = 1e-4
 EPOCHS           = 20
 EARLY_STOP       = 5
-BATCH_SIZE       = 32
+BATCH_SIZE       = 64    # GPU: doubled from 32 on CPU
 MIN_WQL_IMPROVEMENT = 0.05  # fine-tune must beat zero-shot by this fraction
 
 
@@ -120,7 +118,7 @@ def load_chronos_pipeline(model_path: str | None = None):
         log.info("loading Chronos pipeline from '%s' …", path)
         pipeline = ChronosPipeline.from_pretrained(
             path,
-            device_map="cpu",
+            device_map="auto",   # auto-selects CUDA if available, falls back to CPU
             torch_dtype=torch.float32,
         )
         log.info("Chronos pipeline loaded")
@@ -142,7 +140,6 @@ def predict_chronos(pipeline, context: np.ndarray, n_samples: int = 20,
         return _naive_baseline_predict(context, horizon)
 
     try:
-        from chronos import ChronosPipeline
         ctx_tensor = torch.tensor(context, dtype=torch.float32).unsqueeze(0)  # (1, context_len)
         with torch.no_grad():
             forecast = pipeline.predict(
@@ -242,7 +239,7 @@ def fine_tune_chronos(pipeline, train_pairs: list, val_pairs: list,
         return None
 
     try:
-        import transformers
+        import transformers  # noqa: F401  # availability probe only
     except ImportError:
         log.warning("transformers not installed — skipping fine-tuning")
         return None
@@ -398,6 +395,38 @@ def compute_earliness_vs_tier3(eval_pairs: list, pipeline, uoi_threshold: float,
     }
 
 
+# ── Cached evaluation helper ─────────────────────────────────────────────────
+
+def evaluate_pipeline_cached(pipeline, eval_pairs: list, horizon: int, cache_path: Path) -> dict:
+    """
+    Run zero-shot evaluation and cache the result metrics.
+    On subsequent runs with the same number of eval pairs, reloads from cache
+    instead of running 21,024 transformer inference calls again (saves hours).
+    """
+    if cache_path.exists():
+        try:
+            cached = np.load(str(cache_path), allow_pickle=True)
+            if int(cached["n_pairs"]) == len(eval_pairs):
+                metrics = {k: float(v) for k, v in cached["metrics"].item().items()}
+                log.info("✓ Loaded zero-shot metrics from cache (%s) — skipping %d inferences",
+                         cache_path, len(eval_pairs))
+                return metrics
+            else:
+                log.info("Cache pair count mismatch (%d cached vs %d current) — recomputing",
+                         int(cached["n_pairs"]), len(eval_pairs))
+        except Exception as e:
+            log.warning("Cache load failed (%s) — recomputing zero-shot evaluation", e)
+
+    log.info("Running zero-shot evaluation on %d pairs (will be cached for future runs) …", len(eval_pairs))
+    metrics = evaluate_pipeline(pipeline, eval_pairs, horizon)
+    try:
+        np.savez_compressed(str(cache_path), n_pairs=len(eval_pairs), metrics=np.array(metrics))
+        log.info("✓ Zero-shot metrics cached to %s — next run will skip this step", cache_path)
+    except Exception as e:
+        log.warning("Failed to save zero-shot cache: %s", e)
+    return metrics
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def train(data_dir: Path, models_dir: Path):
@@ -453,9 +482,10 @@ def train(data_dir: Path, models_dir: Path):
     # ── Load zero-shot pipeline ───────────────────────────────────────────────
     pipeline = load_chronos_pipeline()
 
-    # ── Zero-shot evaluation ──────────────────────────────────────────────────
+    # ── Zero-shot evaluation ─────────────────────────────────────────────
     log.info("=== ZERO-SHOT evaluation ===")
-    zs_metrics = evaluate_pipeline(pipeline, eval_pairs, FORECAST_HORIZON)
+    zs_cache = data_dir / "chronos_zeroshot_cache.npz"
+    zs_metrics = evaluate_pipeline_cached(pipeline, eval_pairs, FORECAST_HORIZON, zs_cache)
     log.info("zero-shot: WQL=%.6f  MIS=%.4f  calibration=%.4f",
              zs_metrics["wql"], zs_metrics["mis"], zs_metrics["calibration"])
 
@@ -634,8 +664,16 @@ This is an empirically calibrated heuristic. The 80% prediction interval calibra
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Chronos-2 for uoi_value forecasting")
-    parser.add_argument("--data-dir",   default="train/data", help="Directory with chronos_train.parquet")
-    parser.add_argument("--models-dir", default="../models",   help="Directory to write model artifacts")
+    parser.add_argument("--data-dir",      default="train/data", help="Directory with chronos_train.parquet")
+    parser.add_argument("--models-dir",    default="../models",   help="Directory to write model artifacts")
+    parser.add_argument("--force-retrain", action="store_true",   help="Delete zero-shot cache and re-evaluate from scratch")
     args = parser.parse_args()
 
+    if args.force_retrain:
+        cache = Path(args.data_dir) / "chronos_zeroshot_cache.npz"
+        if cache.exists():
+            cache.unlink()
+            log.info("--force-retrain: deleted zero-shot cache %s", cache)
+
     train(Path(args.data_dir), Path(args.models_dir))
+

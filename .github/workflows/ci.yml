@@ -1,0 +1,55 @@
+name: ci
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Bess_Upf_AI/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "Bess_Upf_AI/**"
+      - ".github/workflows/ci.yml"
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        svc: [analysis, detection, export-job, upf-sim]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: build + vet + test
+        working-directory: Bess_Upf_AI/${{ matrix.svc }}
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./... -count=1
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      # pipeline/serve/mitigation are v2 stubs, added in Phase 1
+      - run: ruff check tools
+        working-directory: Bess_Upf_AI
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: build
+        working-directory: Bess_Upf_AI/frontend
+        run: |
+          npm ci
+          npm run build

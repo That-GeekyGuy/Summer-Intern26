@@ -1,8 +1,8 @@
 {
-  "threshold": 0.5385096222162247,
-  "normal_mean": 0.033844396471977234,
-  "normal_std": 0.16822174191474915,
-  "fp_rate_train": 0.014184397163120567,
+  "threshold": 0.8241285160183907,
+  "normal_mean": 0.12214850634336472,
+  "normal_std": 0.23399333655834198,
+  "fp_rate_train": 0.012492382693479586,
   "n_sigma": 3,
-  "embedding_dim": 84
+  "embedding_dim": 7168
 }
