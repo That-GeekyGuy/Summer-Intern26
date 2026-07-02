@@ -82,9 +82,11 @@ func (h *Handler) Register(mux *http.ServeMux, authUser, authPass string, rl *Ra
 
 	mux.Handle("POST /api/v1/chat", auth(http.HandlerFunc(h.handleChat)))
 	mux.Handle("GET /api/v1/query", auth(http.HandlerFunc(h.handleQuery)))
+	mux.Handle("GET /api/v1/pulse", auth(http.HandlerFunc(h.handlePulse)))
 	mux.Handle("GET /api/v1/anomalies", auth(http.HandlerFunc(h.handleAnomalies)))
 	mux.Handle("GET /api/v1/scenario", auth(http.HandlerFunc(h.handleScenarioGet)))
 	mux.Handle("POST /api/v1/scenario", auth(http.HandlerFunc(h.handleScenarioPost)))
+	mux.Handle("GET /api/v1/health", auth(http.HandlerFunc(h.handleAggregatedHealth)))
 
 	// Temporal intelligence endpoints — routed through Caddy, require auth.
 	mux.Handle("GET /api/v1/temporal/analysis", auth(http.HandlerFunc(h.handleTemporalAnalysis)))
@@ -107,6 +109,50 @@ func (h *Handler) Register(mux *http.ServeMux, authUser, authPass string, rl *Ra
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+}
+
+func (h *Handler) handleAggregatedHealth(w http.ResponseWriter, r *http.Request) {
+    // Basic implementation: check if components are non-nil for status, 
+    // real implementation would ping them.
+	status := map[string]string{
+		"analysis": "ok",
+		"prometheus": "ok",
+		"vm": "ok",
+		"detection": "ok",
+		"llm": "ok",
+		"sim": "ok",
+	}
+	if h.vm == nil { status["vm"] = "down" }
+	if h.det == nil { status["detection"] = "down" }
+	if h.sim == nil { status["sim"] = "down" }
+	if h.rca == nil { status["llm"] = "down" }
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status) //nolint:errcheck
+}
+
+func (h *Handler) handlePulse(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+    sessions, _ := h.vm.QueryInstant(ctx, `sum(pfcp_sessions_total{job="upf"})`)
+    n3rx, _ := h.vm.QueryInstant(ctx, `sum(rate(port_bytes_count{job="upf",dir="rx",iface="N3"}[1m]))`)
+    n6tx, _ := h.vm.QueryInstant(ctx, `sum(rate(port_bytes_count{job="upf",dir="tx",iface="N6"}[1m]))`)
+    drops, _ := h.vm.QueryInstant(ctx, `sum(rate(port_dropped_count{job="upf"}[1m]))`)
+    
+    sumValues := func(samples []vmclient.InstantSample) float64 {
+        sum := 0.0
+        for _, s := range samples {
+            sum += s.Value
+        }
+        return sum
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]float64{
+        "sessions": sumValues(sessions),
+        "n3rx":     sumValues(n3rx),
+        "n6tx":     sumValues(n6tx),
+        "drops":    sumValues(drops),
+    })
 }
 
 func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {

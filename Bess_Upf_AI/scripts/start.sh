@@ -39,17 +39,17 @@ configure_for_gpu() {
 
     if (( vram_gb >= 24 )); then
         info "≥ 24 GB → Qwen/Qwen3-14B FP16 (max_len 8192)"
-        export VLLM_MODEL="Qwen/Qwen3-14B"
+        export VLLM_MODEL="Qwen/Qwen2.5-14B-Instruct"
         export VLLM_MAX_MODEL_LEN="8192"
         export VLLM_GPU_MEM_UTIL="0.90"
     elif (( vram_gb >= 13 )); then
         info "13–23 GB → Qwen/Qwen3-8B FP16 (max_len 8192)"
-        export VLLM_MODEL="Qwen/Qwen3-8B"
+        export VLLM_MODEL="Qwen/Qwen2.5-7B-Instruct"
         export VLLM_MAX_MODEL_LEN="8192"
         export VLLM_GPU_MEM_UTIL="0.90"
     elif (( vram_gb >= 8 )); then
         info "8–12 GB → Qwen/Qwen3-8B INT4 (max_len 3200)"
-        export VLLM_MODEL="Qwen/Qwen3-8B"
+        export VLLM_MODEL="Qwen/Qwen2.5-7B-Instruct"
         export VLLM_MAX_MODEL_LEN="3200"
         export VLLM_GPU_MEM_UTIL="0.90"
     else

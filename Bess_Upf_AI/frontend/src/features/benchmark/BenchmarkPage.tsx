@@ -113,60 +113,69 @@ export function BenchmarkPage({ creds }: Props) {
   const ensemble = data.ensemble;
 
   return (
-    <div style={{ padding: "20px 24px", overflow: "auto", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: "var(--text-lg)", fontWeight: 700 }}>
-          Tier Ablation Benchmark
-        </h2>
-        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
-          T1 → T2a → T2b · zero-shot · fine-tuned · ensemble
-        </span>
-      </div>
+    <div style={{ display: "flex", height: "100%", overflow: "hidden", padding: 16, gap: 16 }}>
+      {/* Bento Container */}
+      <div style={{
+        display: "flex", flexDirection: "column", flex: 1, overflow: "auto", padding: 32, gap: 24,
+        background: "var(--bg-surface)",
+        borderRadius: "var(--radius)",
+        border: "1px solid var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexShrink: 0 }}>
+          <h2 style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: "var(--text-xl)", fontWeight: 700, color: "var(--text-primary)" }}>
+            Tier Ablation Benchmark
+          </h2>
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+            T1 → T2a → T2b · zero-shot · fine-tuned · ensemble
+          </span>
+        </div>
 
-      <div style={{ display: "flex", gap: 24, marginBottom: 16, fontSize: "var(--text-2xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-        {data.generated_at && <span>Generated: {new Date(data.generated_at).toLocaleString()}</span>}
-        {data.dataset_hash && <span>Dataset hash: {data.dataset_hash}</span>}
-      </div>
+        <div style={{ display: "flex", gap: 24, fontSize: "var(--text-xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+          {data.generated_at && <span>Generated: {new Date(data.generated_at).toLocaleString()}</span>}
+          {data.dataset_hash && <span>Dataset hash: {data.dataset_hash}</span>}
+        </div>
 
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>
-              {["Tier", "Method", "Precision", "Recall", "F1", "AUC-ROC", "Latency P50", ""].map(h => (
-                <th key={h} style={{
-                  padding: "8px 14px",
-                  textAlign: (h === "Tier" || h === "Method" || h === "") ? "left" : "right",
-                  fontSize: "var(--text-2xs)", color: "var(--text-muted)", fontWeight: 600,
-                  textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "var(--font-mono)",
-                }}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {tiers.map(t => <TierRow key={t.id} tier={t} />)}
-            {ensemble?.available && (
-              <tr style={{ background: "rgba(124,58,237,0.05)", borderTop: "2px solid var(--border)", fontWeight: 700 }}>
-                <td style={{ padding: "9px 14px", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", color: "#a78bfa" }}>{ensemble.id}</td>
-                <td style={{ padding: "9px 14px", fontSize: "var(--text-xs)", color: "#a78bfa" }}>{ensemble.label}</td>
-                <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}>{pct(ensemble.precision)}</td>
-                <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}>{pct(ensemble.recall)}</td>
-                <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", color: f1Color(ensemble.f1) }}>{pct(ensemble.f1)}</td>
-                <td colSpan={3} style={{ padding: "9px 14px", fontSize: "var(--text-2xs)", color: "var(--text-muted)", fontStyle: "italic" }}>
-                  {ensemble.note}
-                </td>
+        <div style={{ background: "var(--bg-base)", border: "1px solid var(--border)", borderRadius: 24, overflow: "hidden", boxShadow: "var(--shadow-soft)" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "var(--bg-surface)", borderBottom: "1px solid var(--border)" }}>
+                {["Tier", "Method", "Precision", "Recall", "F1", "AUC-ROC", "Latency P50", ""].map(h => (
+                  <th key={h} style={{
+                    padding: "16px 20px",
+                    textAlign: (h === "Tier" || h === "Method" || h === "") ? "left" : "right",
+                    fontSize: "var(--text-xs)", color: "var(--text-muted)", fontWeight: 600,
+                    textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "var(--font-mono)",
+                  }}>
+                    {h}
+                  </th>
+                ))}
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {tiers.map(t => <TierRow key={t.id} tier={t} />)}
+              {ensemble?.available && (
+                <tr style={{ background: "rgba(124,58,237,0.05)", borderTop: "2px solid var(--border)", fontWeight: 700 }}>
+                  <td style={{ padding: "16px 20px", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)", color: "#a78bfa" }}>{ensemble.id}</td>
+                  <td style={{ padding: "16px 20px", fontSize: "var(--text-sm)", color: "#a78bfa" }}>{ensemble.label}</td>
+                  <td style={{ padding: "16px 20px", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }}>{pct(ensemble.precision)}</td>
+                  <td style={{ padding: "16px 20px", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }}>{pct(ensemble.recall)}</td>
+                  <td style={{ padding: "16px 20px", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)", color: f1Color(ensemble.f1) }}>{pct(ensemble.f1)}</td>
+                  <td colSpan={3} style={{ padding: "16px 20px", fontSize: "var(--text-xs)", color: "var(--text-muted)", fontStyle: "italic" }}>
+                    {ensemble.note}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      <div style={{ marginTop: 16, fontSize: "var(--text-2xs)", color: "var(--text-muted)", lineHeight: 1.7, maxWidth: 680 }}>
-        <strong>T2b-zs</strong> (MOMENT Zero-Shot) evaluated on all windows — no train contamination (zero-shot uses no learned params).{" "}
-        <strong>T2a</strong> / <strong>T2b-ft</strong> evaluated on stratified eval split (P1.1 episode-aware split).{" "}
-        Click a tier row to expand TP / FP / FN / TN counts.{" "}
-        Latency is pure Python on CPU; Go production path is ~10× faster.
+        <div style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.7, maxWidth: 680, background: "var(--bg-base)", padding: "16px 20px", borderRadius: 16, border: "1px solid var(--border)" }}>
+          <strong>T2b-zs</strong> (MOMENT Zero-Shot) evaluated on all windows — no train contamination (zero-shot uses no learned params).{" "}
+          <strong>T2a</strong> / <strong>T2b-ft</strong> evaluated on stratified eval split (P1.1 episode-aware split).{" "}
+          Click a tier row to expand TP / FP / FN / TN counts.{" "}
+          Latency is pure Python on CPU; Go production path is ~10× faster.
+        </div>
       </div>
     </div>
   );

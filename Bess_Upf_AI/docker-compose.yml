@@ -352,7 +352,7 @@ services:
 
       - --model
 
-      - ${VLLM_MODEL:-Qwen/Qwen3-8B}
+      - ${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
 
       - --quantization
 
@@ -558,7 +558,7 @@ services:
 
       retries: 3
 
-      start_period: 60s
+      start_period: 180s
 
     deploy:
 
@@ -648,7 +648,7 @@ services:
 
       retries: 3
 
-      start_period: 60s
+      start_period: 120s
 
     deploy:
 

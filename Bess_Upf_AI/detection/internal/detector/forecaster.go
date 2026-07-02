@@ -78,19 +78,14 @@ func (f *Forecaster) evalTarget(ctx context.Context, t ForecastTarget, start, no
 		labelsJSON, _ := json.Marshal(s.Labels)
 		labelsStr := string(labelsJSON)
 
-		a, b, r2 := olsLinearFit(s.Values)
+		a, b, r2 := olsLinearFit(s.Values, s.Timestamps)
 		if math.IsNaN(a) || math.IsNaN(b) {
 			continue
 		}
 
-		n := float64(len(s.Values))
-		// Use the nominal query step (30 s) rather than reconstructing it from
-		// the actual sample count. VM can return fewer points than expected when
-		// there are gaps, making the reconstructed step diverge from the real one
-		// and producing wrong stepsAhead / xCross values.
-		const nominalStep = 30 * time.Second
-		stepsAhead := float64(f.horizon) / float64(nominalStep)
-		predictedAtHorizon := a + b*(n-1+stepsAhead)
+		x_now := float64(now.UnixMilli()-s.Timestamps[0]) / 1000.0
+		x_horizon := x_now + f.horizon.Seconds()
+		predictedAtHorizon := a + b*x_horizon
 		currentValue := s.Values[len(s.Values)-1]
 
 		sev := t.Severity
@@ -121,10 +116,9 @@ func (f *Forecaster) evalTarget(ctx context.Context, t ForecastTarget, start, no
 		if t.Capacity > 0 && b > 0 {
 			// Solve: a + b*x_cross = capacity  →  x_cross = (capacity - a) / b
 			xCross := (t.Capacity - a) / b
-			if xCross > n-1 { // crossing is in the future relative to the series
-				crossingTime := now.Add(time.Duration(float64(nominalStep) * (xCross - (n - 1))))
-				unix := crossingTime.Unix()
-				crossingUnix = &unix
+			if xCross > x_now { // crossing is in the future
+				crossingTime := s.Timestamps[0]/1000 + int64(xCross)
+				crossingUnix = &crossingTime
 			}
 		}
 
@@ -166,18 +160,19 @@ func (f *Forecaster) evalTarget(ctx context.Context, t ForecastTarget, start, no
 	return inserted, nil
 }
 
-// olsLinearFit fits y = a + b*x using OLS where x is 0-based sample index.
-// Using sample index instead of raw timestamps avoids float64 cancellation.
+// olsLinearFit fits y = a + b*x using OLS where x is elapsed seconds since the first sample.
 // Returns (intercept, slope, R²). NaN values indicate a degenerate series.
-func olsLinearFit(values []float64) (a, b, r2 float64) {
+func olsLinearFit(values []float64, timestamps []int64) (a, b, r2 float64) {
 	n := float64(len(values))
 	if n < 2 {
 		return math.NaN(), math.NaN(), 0
 	}
 
 	var sumX, sumY, sumXY, sumX2 float64
+	t0 := float64(timestamps[0]) / 1000.0
+
 	for i, v := range values {
-		x := float64(i)
+		x := (float64(timestamps[i]) / 1000.0) - t0
 		sumX += x
 		sumY += v
 		sumXY += x * v
@@ -195,15 +190,16 @@ func olsLinearFit(values []float64) (a, b, r2 float64) {
 	meanY := sumY / n
 	var ssTot, ssRes float64
 	for i, v := range values {
+		x := (float64(timestamps[i]) / 1000.0) - t0
 		diff := v - meanY
 		ssTot += diff * diff
-		res := v - (a + b*float64(i))
+		res := v - (a + b*x)
 		ssRes += res * res
 	}
 	if ssTot < 1e-10 {
 		r2 = 0 // constant series: R² undefined, report zero confidence
 	} else {
-		r2 = math.Max(0, 1-ssRes/ssTot)
+		r2 = 1 - ssRes/ssTot
 	}
 	return a, b, r2
 }

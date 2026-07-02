@@ -4,10 +4,11 @@ import { POLL_INTERVALS, PULSE_WINDOW_SEC } from "../../lib/constants";
 
 interface PulsePoint { t: number; v: number; }
 
-// Session capacity thresholds for pfcp_sessions_total (unitless count).
-// Adjust these to match your UPF deployment's actual limits.
-const WARN_THRESHOLD = 15_000;
-const CRIT_THRESHOLD = 18_000;
+// Session capacity thresholds for pfcp_sessions_total.
+// Sim baseline: ~1 M sessions (diurnal ±30 %) → 700 k – 1.3 M
+// Spike scenario: 4 M sessions; capacity ceiling: 2 M per node.
+const WARN_THRESHOLD = 1_500_000;  // 75 % of per-node capacity
+const CRIT_THRESHOLD = 1_800_000;  // 90 % of per-node capacity
 
 interface Props { creds: Credentials; }
 
@@ -81,7 +82,7 @@ export function PulseStrip({ creds }: Props) {
       }}
     >
       {/* Tinted wash behind the sparkline */}
-      <div style={{ position: "absolute", inset: 0, background: color, opacity: 0.07 }} />
+      <div style={{ position: "absolute", inset: 0, background: `linear-gradient(90deg, transparent, ${color}33)` }} />
 
       {/* Sparkline */}
       {sparkPath && (
@@ -90,10 +91,10 @@ export function PulseStrip({ creds }: Props) {
             d={sparkPath}
             fill="none"
             stroke={color}
-            strokeWidth={1.5}
+            strokeWidth={2}
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity={0.85}
+            opacity={1}
           />
         </svg>
       )}

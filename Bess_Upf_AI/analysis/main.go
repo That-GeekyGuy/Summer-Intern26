@@ -38,7 +38,13 @@ func mustDuration(s string, fallback time.Duration) time.Duration {
 }
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	var logLevel slog.Level
+	if level := env("LOG_LEVEL", "INFO"); level != "" {
+		if err := logLevel.UnmarshalText([]byte(level)); err != nil {
+			logLevel = slog.LevelInfo
+		}
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
 	// ── SQLite audit log ──────────────────────────────────────────────────────
 	audit, err := store.OpenAuditLog(env("SQLITE_PATH", "/data/audit.db"))
@@ -116,7 +122,7 @@ func main() {
 	// ── LLM client + orchestrator ─────────────────────────────────────────────
 	llmClient := llm.NewClient(
 		env("VLLM_URL", "http://vllm:8000"),
-		env("VLLM_MODEL", "Qwen/Qwen3-8B"),
+		env("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
 	)
 	orch := llm.NewOrchestrator(llm.OrchestratorConfig{
 		LLM:        llmClient,
@@ -151,7 +157,7 @@ func main() {
 	}
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	rl := api.NewRateLimiter(60, time.Minute)
+	rl := api.NewRateLimiter(600, time.Minute)
 	h := api.NewHandler(orch, rcaEngine, det, sim, vm, tempClient, val, m, reg, log,
 		env("MODELS_DIR", "/models"),
 		env("CHRONOS_URL", "http://chronos:8084"),

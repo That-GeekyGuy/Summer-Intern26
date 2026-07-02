@@ -8,7 +8,7 @@ export function useAnomalies(
 ) {
   return useQuery({
     queryKey: ["anomalies", opts.since, opts.severity, opts.metric],
-    queryFn: () => fetchAnomalies(creds!, opts.since, opts.severity),
+    queryFn: () => fetchAnomalies(creds!, opts.since, opts.severity, opts.metric),
     enabled: !!creds,
     refetchInterval: POLL_INTERVALS.anomalies,
     staleTime: POLL_INTERVALS.anomalies / 2,

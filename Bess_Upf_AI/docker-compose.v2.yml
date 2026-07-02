@@ -1,0 +1,79 @@
+version: "3.8"
+
+networks:
+  v2-net:
+    driver: bridge
+
+volumes:
+  redpanda-data:
+  ray-data:
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.2.19
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks:
+      - v2-net
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  serve:
+    build:
+      context: ./serve
+      dockerfile: Dockerfile
+    environment:
+      - MODELS_DIR=/models
+    volumes:
+      - ./models:/models:ro
+    networks:
+      - v2-net
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  pipeline:
+    build:
+      context: ./pipeline
+      dockerfile: Dockerfile
+    environment:
+      - KAFKA_BROKER=redpanda:9092
+      - RAY_SERVE_URL=http://serve:8000
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - v2-net
+
+  mitigation:
+    build:
+      context: ./mitigation
+      dockerfile: Dockerfile
+    environment:
+      - KAFKA_BROKER=redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - v2-net

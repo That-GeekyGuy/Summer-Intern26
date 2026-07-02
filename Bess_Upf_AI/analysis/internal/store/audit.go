@@ -1,4 +1,4 @@
-﻿package store
+package store
 
 import (
 	"context"
@@ -44,11 +44,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_created   ON query_audit(created_at DESC);
 
 // OpenAuditLog opens (or creates) the SQLite audit database at path.
 func OpenAuditLog(path string) (*AuditLog, error) {
+	// Enable WAL mode and busy_timeout in the connection string
+	if !strings.Contains(path, "?") {
+		path += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open audit sqlite: %w", err)
 	}
-	db.SetMaxOpenConns(1)
 	// WAL mode allows concurrent readers while a writer holds the lock.
 	// Required because the audit endpoint reads concurrently with LLM writes.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {

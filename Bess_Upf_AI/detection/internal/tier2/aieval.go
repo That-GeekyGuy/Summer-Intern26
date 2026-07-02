@@ -100,6 +100,13 @@ func (c *circularBuffer) snapshot() []float64 {
 	return out
 }
 
+// isFull returns true if the buffer has been completely filled.
+func (c *circularBuffer) isFull() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.full
+}
+
 // staleCount returns how many trailing steps have the same value (staleness indicator).
 func (c *circularBuffer) staleCount() int {
 	c.mu.Lock()
@@ -108,7 +115,10 @@ func (c *circularBuffer) staleCount() int {
 		return 0
 	}
 	// Check the last chronosStaleSteps values
-	check := min(c.size, chronosStaleSteps+1)
+	check := c.size
+	if chronosStaleSteps+1 < c.size {
+		check = chronosStaleSteps + 1
+	}
 	last := c.data[(c.head-1+c.size)%c.size]
 	count := 0
 	for i := 1; i < check; i++ {
@@ -120,13 +130,6 @@ func (c *circularBuffer) staleCount() int {
 		}
 	}
 	return count
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // ----- HTTP request/response types for sidecars ---------------------------------
@@ -292,30 +295,32 @@ func (a *AIEvaluator) Push(ctx context.Context, ts time.Time) (remaining int) {
 
 	start := now.Add(-lookback)
 
+	var wg sync.WaitGroup
+	wg.Add(len(queries))
 	for _, cq := range queries {
-		series, err := a.vm.QueryRange(ctx, cq.query, start, now, step)
-		if err != nil || len(series) == 0 {
-			a.channelBuffers[cq.idx].push(0.0)
-			continue
-		}
-		// Sum across all returned series (VM may return one series per UPF node
-		// for per-node metrics like pfcp_sessions_total or port_bytes_count).
-		// Summing here matches the training data which was generated from cluster-
-		// aggregated PromQL queries (sum(...)).
-		var val float64
-		for _, s := range series {
-			if cq.kind == "rate" && len(s.Values) >= 2 {
-				dt := step.Seconds()
-				delta := s.Values[len(s.Values)-1] - s.Values[len(s.Values)-2]
-				if delta >= 0 && dt > 0 {
-					val += delta / dt
-				}
-			} else if len(s.Values) >= 1 {
-				val += s.Values[len(s.Values)-1]
+		go func(cq channelQuery) {
+			defer wg.Done()
+			series, err := a.vm.QueryRange(ctx, cq.query, start, now, step)
+			if err != nil || len(series) == 0 {
+				a.channelBuffers[cq.idx].push(0.0)
+				return
 			}
-		}
-		a.channelBuffers[cq.idx].push(val)
+			var val float64
+			for _, s := range series {
+				if cq.kind == "rate" && len(s.Values) >= 2 {
+					dt := step.Seconds()
+					delta := s.Values[len(s.Values)-1] - s.Values[len(s.Values)-2]
+					if delta >= 0 && dt > 0 {
+						val += delta / dt
+					}
+				} else if len(s.Values) >= 1 {
+					val += s.Values[len(s.Values)-1]
+				}
+			}
+			a.channelBuffers[cq.idx].push(val)
+		}(cq)
 	}
+	wg.Wait()
 
 	// ----- uoi_value for Chronos -----------------------------------------------
 	uoiSeries, err := a.vm.QueryRange(ctx, `uoi_value`, start, now, step)
@@ -332,7 +337,7 @@ func (a *AIEvaluator) Push(ctx context.Context, ts time.Time) (remaining int) {
 	a.tsMu.Unlock()
 
 	// Count remaining warm-up steps
-	if !a.channelBuffers[0].full {
+	if !a.channelBuffers[0].isFull() {
 		written := a.tsIdx
 		if written < momentWindowSize {
 			return momentWindowSize - written
@@ -397,12 +402,10 @@ func (a *AIEvaluator) Run(ctx context.Context, now time.Time) {
 	var chronosResp *chronosForecastResponse
 
 	uoiSnap := a.uoiBuffer.snapshot()
-	uoiStale := a.uoiBuffer.staleCount() >= chronosStaleSteps
-	if uoiStale {
-		a.log.Warn("tier-2 AI: uoi_value stale — skipping Chronos forecast",
-			"stale_steps", a.uoiBuffer.staleCount())
-	} else if uoiSnap != nil {
-		chronosResp, err = a.callChronos(ctx, uoiSnap, now)
+	tsSnap := a.tsSnapshot()
+	
+	if uoiSnap != nil && tsSnap != nil {
+		chronosResp, err = a.callChronos(ctx, uoiSnap, tsSnap)
 		if err != nil {
 			a.log.Warn("tier-2 AI: Chronos sidecar error — continuing without forecast", "err", err)
 		}
@@ -506,13 +509,24 @@ func (a *AIEvaluator) callMOMENT(ctx context.Context, channels [][]float64) (*mo
 	return &r, nil
 }
 
-func (a *AIEvaluator) callChronos(ctx context.Context, uoiContext []float64, now time.Time) (*chronosForecastResponse, error) {
-	// Build timestamp strings for the context window
-	tss := make([]string, len(uoiContext))
-	step := 15 * time.Second
-	contextStart := now.Add(-time.Duration(len(uoiContext)) * step)
-	for i := range tss {
-		tss[i] = contextStart.Add(time.Duration(i) * step).UTC().Format(time.RFC3339)
+// tsSnapshot returns the timestamp buffer in chronological order.
+func (a *AIEvaluator) tsSnapshot() []time.Time {
+	a.tsMu.Lock()
+	defer a.tsMu.Unlock()
+	if a.tsIdx < momentWindowSize {
+		return nil
+	}
+	out := make([]time.Time, momentWindowSize)
+	head := a.tsIdx % momentWindowSize
+	copy(out[:momentWindowSize-head], a.tsBuf[head:])
+	copy(out[momentWindowSize-head:], a.tsBuf[:head])
+	return out
+}
+
+func (a *AIEvaluator) callChronos(ctx context.Context, uoiContext []float64, tsContext []time.Time) (*chronosForecastResponse, error) {
+	tss := make([]string, len(tsContext))
+	for i, t := range tsContext {
+		tss[i] = t.UTC().Format(time.RFC3339)
 	}
 
 	req := chronosForecastRequest{
@@ -569,7 +583,8 @@ func (a *AIEvaluator) callBrain2RCA(ctx context.Context, event AITier2Event) (st
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{Timeout: analysisRCATimeout}).Do(httpReq)
+	// Reuse a.httpClient instead of creating a new one
+	resp, err := a.httpClient.Do(httpReq)
 	if err != nil {
 		return "", err
 	}
