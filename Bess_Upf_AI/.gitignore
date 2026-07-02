@@ -17,3 +17,10 @@ models/*.joblib
 models/*.pt
 tools/train/data/*.parquet
 tools/train/data/*.npz
+
+# Ignore generated output and cache
+graphify-out/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
