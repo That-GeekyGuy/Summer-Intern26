@@ -16,6 +16,8 @@ log = logging.getLogger(__name__)
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "redpanda:9092")
 RAY_SERVE_URL = os.getenv("RAY_SERVE_URL", "http://serve:8000")
 
+_session = requests.Session()
+
 
 def _parse(raw_msg) -> dict:
     return json.loads(raw_msg.value)
@@ -34,7 +36,7 @@ def _window_mapper(
 def _call_detect(keyed: tuple[str, tuple[dict, list]]) -> dict | None:
     upf_id, (msg, channels_array) = keyed
     try:
-        resp = requests.post(
+        resp = _session.post(
             f"{RAY_SERVE_URL}/detect",
             json={"channels": channels_array, "channel_names": ML_CHANNELS},
             timeout=5.0,
@@ -42,18 +44,18 @@ def _call_detect(keyed: tuple[str, tuple[dict, list]]) -> dict | None:
         resp.raise_for_status()
         result: dict = resp.json()
     except Exception as exc:
-        log.warning("detect call failed for %s: %s", upf_id, exc)
+        log.error("detect call failed for %s: %s", upf_id, exc, exc_info=True)
         result = {"anomaly": False, "anomaly_score": 0.0}
 
     result["upf_id"] = upf_id
-    result["ts"] = msg["ts"]
+    result["ts"] = msg.get("ts")
     return result if result.get("anomaly") else None
 
 
 def _to_sink_msg(result: dict) -> KafkaSinkMessage:
     return KafkaSinkMessage(
         key=result["upf_id"].encode(),
-        value=json.dumps(result).encode(),
+        value=json.dumps(result, allow_nan=False).encode(),
     )
 
 
@@ -68,19 +70,18 @@ raw = op.input(
 parsed = op.map("parse", raw, _parse)
 keyed = op.key_on("key-by-upf", parsed, lambda m: m["upf_id"])
 
-# stateful_map: (state | None, value) -> (new_state, output | None)
+# stateful_map suppresses None outputs — window not yet full
 windowed = op.stateful_map("window", keyed, _window_mapper)
 
-# filter_map drops None (window not yet full for that upf_id)
-snapshots = op.filter_map("drop-incomplete", windowed, lambda kv: kv[1])
-
-detections = op.map("detect", snapshots, _call_detect)
+detections = op.map("detect", windowed, _call_detect)
 
 # filter_map drops None (_call_detect returns None when anomaly=False)
 anomalies = op.filter_map("anomaly-only", detections, lambda x: x)
 
+anomaly_msgs = op.map("to-sink-msg", anomalies, _to_sink_msg)
+
 op.output(
     "kafka-out",
-    anomalies,
+    anomaly_msgs,
     KafkaSink(brokers=[KAFKA_BROKER], topic="upf.anomalies.critical"),
 )
