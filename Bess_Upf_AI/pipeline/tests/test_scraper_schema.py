@@ -69,8 +69,8 @@ def test_parse_port_bytes_tx():
 def test_parse_port_pkts():
     from pipeline.scrape_to_kafka import parse_prometheus_text
     result, _ = parse_prometheus_text(SAMPLE_PROM_TEXT)
-    assert "port_pkts_N3_rx" in result
-    assert "port_pkts_N6_tx" in result
+    assert result["port_pkts_N3_rx"] == 8901234.0
+    assert result["port_pkts_N6_tx"] == 7812345.0
 
 
 def test_parse_port_dropped():
