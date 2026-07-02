@@ -7,6 +7,8 @@ networks:
 volumes:
   redpanda-data:
   ray-data:
+  clickhouse-data:
+  bytewax-data:
 
 services:
   redpanda:
@@ -60,6 +62,10 @@ services:
     environment:
       - KAFKA_BROKER=redpanda:9092
       - RAY_SERVE_URL=http://serve:8000
+      - BYTEWAX_CHECKPOINT_DIR=/data/bytewax-checkpoint
+      - SCRAPE_INTERVAL_SECS=1.0
+    volumes:
+      - bytewax-data:/data
     depends_on:
       redpanda:
         condition: service_healthy
@@ -77,3 +83,28 @@ services:
         condition: service_healthy
     networks:
       - v2-net
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-chuser}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-localdev123}
+      CLICKHOUSE_DB: bess_upf
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./config/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - v2-net
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          memory: 512M
