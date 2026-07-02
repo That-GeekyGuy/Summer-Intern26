@@ -1,9 +1,14 @@
-import os
+# pipeline/app.py
 import json
 import logging
-from collections import deque
+import os
+
 import requests
-from confluent_kafka import Consumer, Producer
+import bytewax.operators as op
+from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
+from bytewax.dataflow import Dataflow
+
+from pipeline.window import WindowState, ML_CHANNELS
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -11,59 +16,71 @@ log = logging.getLogger(__name__)
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "redpanda:9092")
 RAY_SERVE_URL = os.getenv("RAY_SERVE_URL", "http://serve:8000")
 
-# Flink/Bytewax equivalent: Sliding window state
-window_size = 512
-channels_state = {i: deque(maxlen=window_size) for i in range(14)}
-channel_names = [
-    "port_bytes_N3_rx_rate", "port_bytes_N6_tx_rate", "port_pkts_N3_rx_rate",
-    "port_dropped_N3_rx_rate", "port_dropped_N6_rx_rate", "pfcp_sessions_total",
-    "pfcp_session_setup_rate", "dl_throughput_efficiency", "dl_throughput_efficiency_rate",
-    "drop_rate_percentage", "tsi_value", "go_goroutines", "go_heap_alloc_bytes", "gc_pressure_rate"
-]
 
-def main():
-    consumer = Consumer({
-        'bootstrap.servers': KAFKA_BROKER,
-        'group.id': 'pipeline-group',
-        'auto.offset.reset': 'latest'
-    })
-    producer = Producer({'bootstrap.servers': KAFKA_BROKER})
+def _parse(raw_msg) -> dict:
+    return json.loads(raw_msg.value)
 
-    consumer.subscribe(['upf.metrics.raw'])
-    log.info(f"Subscribed to upf.metrics.raw at {KAFKA_BROKER}")
 
-    while True:
-        msg = consumer.poll(1.0)
-        if msg is None:
-            continue
-        if msg.error():
-            log.error(f"Consumer error: {msg.error()}")
-            continue
+def _window_mapper(
+    state: WindowState | None, msg: dict
+) -> tuple[WindowState, tuple[dict, list] | None]:
+    if state is None:
+        state = WindowState()
+    state.update(msg)
+    payload = (msg, state.to_array()) if state.is_full() else None
+    return state, payload
 
-        try:
-            data = json.loads(msg.value().decode('utf-8'))
-            # Expecting data to contain the 14 channels
-            for i, name in enumerate(channel_names):
-                val = data.get(name, 0.0)
-                channels_state[i].append(val)
-            
-            # If window is full, call Ray Serve ML Layer
-            if len(channels_state[0]) == window_size:
-                channels_list = [list(channels_state[i]) for i in range(14)]
-                req_data = {
-                    "channels": channels_list,
-                    "channel_names": channel_names
-                }
-                
-                resp = requests.post(f"{RAY_SERVE_URL}/detect", json=req_data)
-                if resp.status_code == 200:
-                    result = resp.json()
-                    if result.get("anomaly"):
-                        log.info(f"Anomaly detected! Score: {result.get('anomaly_score')}")
-                        producer.produce('upf.anomalies.critical', json.dumps(result).encode('utf-8'))
-                        producer.flush()
-        except Exception as e:
-            log.error(f"Processing error: {e}")
 
-if __name__ == '__main__':
-    main()
+def _call_detect(keyed: tuple[str, tuple[dict, list]]) -> dict | None:
+    upf_id, (msg, channels_array) = keyed
+    try:
+        resp = requests.post(
+            f"{RAY_SERVE_URL}/detect",
+            json={"channels": channels_array, "channel_names": ML_CHANNELS},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        result: dict = resp.json()
+    except Exception as exc:
+        log.warning("detect call failed for %s: %s", upf_id, exc)
+        result = {"anomaly": False, "anomaly_score": 0.0}
+
+    result["upf_id"] = upf_id
+    result["ts"] = msg["ts"]
+    return result if result.get("anomaly") else None
+
+
+def _to_sink_msg(result: dict) -> KafkaSinkMessage:
+    return KafkaSinkMessage(
+        key=result["upf_id"].encode(),
+        value=json.dumps(result).encode(),
+    )
+
+
+flow = Dataflow("upf-pipeline")
+
+raw = op.input(
+    "kafka-in",
+    flow,
+    KafkaSource(brokers=[KAFKA_BROKER], topics=["upf.metrics.raw"]),
+)
+
+parsed = op.map("parse", raw, _parse)
+keyed = op.key_on("key-by-upf", parsed, lambda m: m["upf_id"])
+
+# stateful_map: (state | None, value) -> (new_state, output | None)
+windowed = op.stateful_map("window", keyed, _window_mapper)
+
+# filter_map drops None (window not yet full for that upf_id)
+snapshots = op.filter_map("drop-incomplete", windowed, lambda kv: kv[1])
+
+detections = op.map("detect", snapshots, _call_detect)
+
+# filter_map drops None (_call_detect returns None when anomaly=False)
+anomalies = op.filter_map("anomaly-only", detections, lambda x: x)
+
+op.output(
+    "kafka-out",
+    anomalies,
+    KafkaSink(brokers=[KAFKA_BROKER], topic="upf.anomalies.critical"),
+)
