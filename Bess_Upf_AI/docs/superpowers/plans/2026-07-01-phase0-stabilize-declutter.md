@@ -318,10 +318,12 @@ Fix at the shared root, not the symptom. Grep for other callers of whatever you 
 - [ ] **Step 6: Verify E2E green**
 
 ```bash
-cd eval && ANALYSIS_URL=https://localhost ANALYSIS_USER="$ANALYSIS_AUTH_USER" \
-  ANALYSIS_PASSWORD="$ANALYSIS_AUTH_PASSWORD" go run .
+# NOTE: the harness reads CLI FLAGS, not env vars, and needs -insecure for the self-signed dev cert.
+cd eval && go run . -url=https://localhost -user="$ANALYSIS_AUTH_USER" \
+  -pass="$ANALYSIS_AUTH_PASSWORD" -insecure
 ```
-Expected: `4/4 PASS`. Also confirm the frontend Overview shows live KPI values in a browser.
+Expected: all cases PASS. Also confirm the frontend Overview shows live KPI values in a browser.
+See `phase0-e2e-diagnosis.md` for the full trace — the v1 baseline is healthy; remaining eval failures are validator hardening, not pipeline breaks.
 
 - [ ] **Step 7: Commit the fix + the diagnosis log**
 
