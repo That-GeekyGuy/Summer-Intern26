@@ -1,60 +1,167 @@
-import os
-import time
+# pipeline/scrape_to_kafka.py
 import json
 import logging
+import os
+import time
+
 import requests
 from confluent_kafka import Producer
+from prometheus_client.parser import text_string_to_metric_families
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "redpanda:9092")
 UPF_SIM_METRICS = os.getenv("UPF_SIM_METRICS", "http://upf-sim:8090/metrics")
+SCRAPE_INTERVAL = float(os.getenv("SCRAPE_INTERVAL_SECS", "1.0"))
 
-channel_names = [
-    "port_bytes_N3_rx_rate", "port_bytes_N6_tx_rate", "port_pkts_N3_rx_rate",
-    "port_dropped_N3_rx_rate", "port_dropped_N6_rx_rate", "pfcp_sessions_total",
-    "pfcp_session_setup_rate", "dl_throughput_efficiency", "dl_throughput_efficiency_rate",
-    "drop_rate_percentage", "tsi_value", "go_goroutines", "go_heap_alloc_bytes", "gc_pressure_rate"
-]
+_PORT_FAMILIES: dict[str, str] = {
+    "port_bytes_count": "port_bytes",
+    "port_packets_count": "port_pkts",
+    "port_dropped_count": "port_dropped",
+}
 
-def parse_prometheus_metrics(text):
-    data = {}
-    for line in text.splitlines():
-        if line.startswith("#") or not line.strip():
-            continue
-        try:
-            parts = line.split()
-            if len(parts) >= 2:
-                metric_name = parts[0].split("{")[0]
-                value = float(parts[-1])
-                # We need to map standard prom metric names to our channel_names.
-                # In a real scenario, we would parse PromQL, but for V2 simulation
-                # let's map loosely or just extract numbers.
-                data[metric_name] = value
-        except Exception:
-            pass
-            
-    # Normalize to our channels (mock mapping if exact metrics aren't exposed)
-    channels_data = {}
-    for name in channel_names:
-        channels_data[name] = data.get(name, 0.0) # Fallback 0.0 if not perfectly matched
-    return channels_data
+_COUNTER_PREFIXES = (
+    "pfcp_sessions_total",
+    "port_bytes_",
+    "port_pkts_",
+    "port_dropped_",
+    "process_cpu_seconds_total",
+)
 
-def main():
-    producer = Producer({'bootstrap.servers': KAFKA_BROKER})
-    log.info(f"Starting scraper for {UPF_SIM_METRICS} -> upf.metrics.raw")
-    
+
+def flatten_key(sample_name: str, labels: dict) -> tuple[str | None, str | None]:
+    """
+    Map a Prometheus sample name + label dict to a flat snake_case key.
+    Returns (metric_key, upf_id). Returns (None, None) to skip this sample.
+    node_id label is extracted as upf_id and not included in the key.
+    """
+    # Skip histogram/summary internals (not from port_* families)
+    for suffix in ("_bucket", "_sum", "_count"):
+        if sample_name.endswith(suffix) and not any(
+            sample_name.startswith(p) for p in _PORT_FAMILIES
+        ):
+            return None, None
+
+    upf_id: str | None = labels.get("node_id")
+    clean = {k: v for k, v in labels.items() if k != "node_id"}
+
+    for full_prefix, short in _PORT_FAMILIES.items():
+        if sample_name.startswith(full_prefix):
+            iface = clean.get("iface", "")
+            dir_ = clean.get("dir", "")
+            return f"{short}_{iface}_{dir_}", upf_id
+
+    if sample_name.startswith("upf_sim_scenario"):
+        return f"upf_sim_scenario_{clean.get('mode', 'unknown')}", upf_id
+
+    if not clean:
+        return sample_name, upf_id
+
+    suffix_val = "_".join(v for _, v in sorted(clean.items()))
+    return f"{sample_name}_{suffix_val}", upf_id
+
+
+def parse_prometheus_text(text: str) -> tuple[dict[str, float], str | None]:
+    """
+    Parse Prometheus exposition text into a flat dict.
+    Returns (metrics_dict, upf_id).
+    Does NOT compute rates.
+    """
+    result: dict[str, float] = {}
+    upf_id: str | None = None
+
+    for family in text_string_to_metric_families(text):
+        for sample in family.samples:
+            key, uid = flatten_key(sample.name, sample.labels)
+            if key is None:
+                continue
+            if uid is not None:
+                upf_id = uid
+            result[key] = sample.value
+
+    return result, upf_id
+
+
+def compute_rate(
+    key: str,
+    current_value: float,
+    current_ts: float,
+    prev: dict[str, tuple[float, float]],
+) -> float | None:
+    """
+    Compute per-second rate for a counter metric.
+    Mutates prev in place. Returns None on first tick or counter reset.
+    Never returns 0.0 as a fallback for missing data.
+    """
+    if key not in prev:
+        prev[key] = (current_value, current_ts)
+        return None
+
+    prev_value, prev_ts = prev[key]
+    elapsed = current_ts - prev_ts
+
+    if elapsed <= 0 or current_value < prev_value:
+        prev[key] = (current_value, current_ts)
+        log.info("Counter reset or zero elapsed for %s — skipping rate", key)
+        return None
+
+    rate = (current_value - prev_value) / elapsed
+    prev[key] = (current_value, current_ts)
+    return rate
+
+
+def build_message(
+    metrics: dict[str, float],
+    upf_id: str,
+    ts: float,
+    prev_state: dict[str, tuple[float, float]],
+) -> dict:
+    msg: dict = {"upf_id": upf_id, "ts": ts}
+    msg.update(metrics)
+
+    for key, value in metrics.items():
+        if any(key.startswith(p) for p in _COUNTER_PREFIXES):
+            rate = compute_rate(key, value, ts, prev_state)
+            if rate is not None:
+                rate_key = key.replace("process_cpu_seconds_total", "process_cpu") + "_rate"
+                msg[rate_key] = rate
+
+    return msg
+
+
+def main() -> None:
+    producer = Producer({"bootstrap.servers": KAFKA_BROKER})
+    log.info("Scraper started: %s -> upf.metrics.raw", UPF_SIM_METRICS)
+
+    prev_state: dict[str, tuple[float, float]] = {}
+
     while True:
+        tick_start = time.time()
         try:
-            resp = requests.get(UPF_SIM_METRICS, timeout=5)
-            if resp.status_code == 200:
-                metrics_data = parse_prometheus_metrics(resp.text)
-                producer.produce('upf.metrics.raw', json.dumps(metrics_data).encode('utf-8'))
-                producer.flush()
-        except Exception as e:
-            log.warning(f"Failed to scrape metrics: {e}")
-        time.sleep(1.0) # sub-second/1s streaming
+            resp = requests.get(UPF_SIM_METRICS, timeout=5.0)
+            resp.raise_for_status()
 
-if __name__ == '__main__':
+            metrics, upf_id = parse_prometheus_text(resp.text)
+            if upf_id is None:
+                log.warning("No node_id label in metrics — skipping tick")
+            else:
+                msg = build_message(metrics, upf_id, tick_start, prev_state)
+                producer.produce(
+                    "upf.metrics.raw",
+                    key=upf_id.encode(),
+                    value=json.dumps(msg).encode(),
+                )
+                producer.flush()
+
+        except requests.RequestException as exc:
+            log.warning("Scrape failed: %s — backing off 5s", exc)
+            time.sleep(5.0)
+            continue
+
+        elapsed = time.time() - tick_start
+        time.sleep(max(0.0, SCRAPE_INTERVAL - elapsed))
+
+
+if __name__ == "__main__":
     main()
