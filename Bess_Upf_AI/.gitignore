@@ -11,3 +11,9 @@ ansh_out*.csv
 
 # Training / working logs
 *.log
+
+# Model + dataset artifacts (fetched from MinIO, not committed)
+models/*.joblib
+models/*.pt
+tools/train/data/*.parquet
+tools/train/data/*.npz

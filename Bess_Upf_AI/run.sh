@@ -134,7 +134,7 @@ DETECTION_WINDOW=30m
 DETECTION_RETENTION_DAYS=30
 
 # ── LLM — auto-configured by run.sh from GPU detection ────────────────────────
-VLLM_MODEL=Qwen/Qwen3-8B
+VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
 VLLM_MAX_MODEL_LEN=3200
 VLLM_GPU_MEM_UTIL=0.90
 OLLAMA_MODEL=qwen2.5:3b
@@ -210,19 +210,16 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 step "4/9  Model artifacts"
 
-if [[ "$HAS_GIT_LFS" -eq 1 ]]; then
-    if [[ ! -f models/random_forest.joblib ]]; then
-        info "Pulling models/random_forest.joblib via git lfs..."
-        git lfs install --local
-        git lfs pull
+if [[ ! -f models/random_forest.joblib ]]; then
+    info "Fetching model artifacts from MinIO..."
+    if bash scripts/fetch-models.sh models; then
+        info "Model artifacts fetched."
     else
-        info "random_forest.joblib present — skipping lfs pull."
+        warn "MinIO fetch failed — Tier 2 sklearn/ML detection will start in degraded mode."
+        warn "Ensure the stack is up and run: bash scripts/fetch-models.sh"
     fi
 else
-    if [[ ! -f models/random_forest.joblib ]]; then
-        warn "random_forest.joblib missing and git lfs unavailable."
-        warn "Tier 2 sklearn detection will start in degraded mode."
-    fi
+    info "random_forest.joblib present — skipping MinIO fetch."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,7 +227,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 step "5/9  GPU / LLM selection"
 
-COMPOSE_BASE="-f docker-compose.yml"
+COMPOSE_BASE="-f docker-compose.base.yml -f docker-compose.core.yml -f docker-compose.ml.yml"
 DEV_COMPOSE="-f dev/docker-compose.yml"
 COMPOSE_FILES="$COMPOSE_BASE"
 MODE="cpu"
@@ -257,13 +254,13 @@ configure_for_gpu() {
 
     if   (( vram_gb >= 24 )); then
         info "≥ 24 GB → Qwen/Qwen3-14B FP16 (max_len 8192)"
-        export VLLM_MODEL="Qwen/Qwen3-14B" VLLM_MAX_MODEL_LEN="8192" VLLM_GPU_MEM_UTIL="0.90"
+        export VLLM_MODEL="Qwen/Qwen2.5-14B-Instruct" VLLM_MAX_MODEL_LEN="8192" VLLM_GPU_MEM_UTIL="0.90"
     elif (( vram_gb >= 13 )); then
         info "13–23 GB → Qwen/Qwen3-8B FP16 (max_len 8192)"
-        export VLLM_MODEL="Qwen/Qwen3-8B"  VLLM_MAX_MODEL_LEN="8192" VLLM_GPU_MEM_UTIL="0.90"
+        export VLLM_MODEL="Qwen/Qwen2.5-7B-Instruct"  VLLM_MAX_MODEL_LEN="8192" VLLM_GPU_MEM_UTIL="0.90"
     elif (( vram_gb >= 8  )); then
         info "8–12 GB → Qwen/Qwen3-8B INT4 (max_len 3200)"
-        export VLLM_MODEL="Qwen/Qwen3-8B"  VLLM_MAX_MODEL_LEN="3200" VLLM_GPU_MEM_UTIL="0.90"
+        export VLLM_MODEL="Qwen/Qwen2.5-7B-Instruct"  VLLM_MAX_MODEL_LEN="3200" VLLM_GPU_MEM_UTIL="0.90"
     else
         warn "VRAM ${vram_gb} GB < 8 GB — insufficient for vLLM. Falling back to CPU/Ollama."
         return 1

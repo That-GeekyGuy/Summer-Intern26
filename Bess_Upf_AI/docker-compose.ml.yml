@@ -1,0 +1,212 @@
+---
+# ML inference services: vLLM, sklearn infer, MOMENT, Chronos-2, STL sidecars.
+# Requires: docker-compose.base.yml + docker-compose.core.yml
+# Omit this file to run core-only (no LLM, no AI sidecars).
+
+services:
+
+  # ── vLLM model server ───────────────────────────────────────────────────────
+  # Serves Qwen3-8B via the OpenAI-compatible API on :8000 (internal only).
+  # Model weights are cached in the vllm-cache volume; first start downloads ~5 GB.
+  vllm:
+    image: vllm/vllm-openai:v0.7.3
+    runtime: nvidia
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN}
+      VLLM_USE_V1: "0"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
+      NVIDIA_VISIBLE_DEVICES: all
+      CUDA_VISIBLE_DEVICES: "0"
+    command:
+      - --model
+      - ${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      - --quantization
+      - bitsandbytes
+      - --load-format
+      - bitsandbytes
+      - --max-model-len
+      - "${VLLM_MAX_MODEL_LEN:-3200}"
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_MEM_UTIL:-0.90}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --host
+      - "0.0.0.0"
+    volumes:
+      - vllm-cache:/root/.cache/huggingface
+    networks:
+      - metrics-backend
+      - public-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── Tier 2 ML inference sidecar ────────────────────────────────────────────
+  # Loads trained models from models-data volume. Starts in degraded mode
+  # (available=false) when models are not yet present — no crash.
+  # NEVER exposed through Caddy. Internal-network only.
+  ml-infer:
+    build:
+      context: ./tools
+      dockerfile: Dockerfile
+    environment:
+      MINIO_ENDPOINT:   minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_EXPORTER_USER}
+      MINIO_SECRET_KEY: ${MINIO_EXPORTER_PASSWORD}
+      MINIO_BUCKET:     ${EXPORT_BUCKET:-upf-metrics}
+      MODELS_DIR:       /models
+      NODE_ID:          ${SIM_NODE_ID:-sim-upf-01}
+      PORT:             "8080"
+    volumes:
+      - ./models:/models
+    networks:
+      - metrics-backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ── Tier 2 AI: MOMENT anomaly detection sidecar ────────────────────────────
+  # Loads MOMENT-1-large encoder + trained reconstruction head from models-data.
+  # Starts in degraded mode (available: false) when models not yet present.
+  # NEVER exposed through Caddy. Internal-network only.
+  moment-sidecar:
+    build:
+      context: ./tools
+      dockerfile: infer/moment/Dockerfile
+    runtime: nvidia
+    environment:
+      MODEL_VARIANT:  ${MOMENT_VARIANT:-MOMENT-1-large}
+      MODEL_PATH:     /models/moment_head.pt
+      THRESHOLD_PATH: /models/moment_threshold.json
+      CHANNEL_PATH:   /models/moment_channel_names.json
+      MODELS_DIR:     /models
+      HOST:           0.0.0.0
+      PORT:           "8083"
+      HF_HOME:        /hf-cache
+      NVIDIA_VISIBLE_DEVICES: all
+      CUDA_VISIBLE_DEVICES: "0"
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:512
+    volumes:
+      - ./models:/models:ro
+      - hf-cache:/hf-cache
+    networks:
+      - metrics-backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health')"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 180s
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+          cpus: "4"
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── Tier 2 AI: Chronos-2 forecasting sidecar ───────────────────────────────
+  # Loads ChronosPipeline (zero-shot or fine-tuned) from models-data.
+  # Starts in degraded mode when models not yet present — uses naive baseline.
+  # NEVER exposed through Caddy. Internal-network only.
+  chronos-sidecar:
+    build:
+      context: ./tools
+      dockerfile: infer/chronos/Dockerfile
+    runtime: nvidia
+    environment:
+      MODEL_PATH:         /models/chronos_finetuned
+      METADATA_PATH:      /models/chronos_metadata.json
+      STL_PROFILES_PATH:  /models/stl_profiles.json
+      HOST:               0.0.0.0
+      PORT:               "8084"
+      HF_HOME:            /hf-cache
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE:  "1"
+      NVIDIA_VISIBLE_DEVICES: all
+      CUDA_VISIBLE_DEVICES: "0"
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:512
+    volumes:
+      - ./models:/models:ro
+      - hf-cache:/hf-cache
+    networks:
+      - metrics-backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8084/health')"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4"
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── Temporal intelligence sidecar (STL decomposition + regime classification)
+  # Fits STL to historical data at startup, serves regime forecasts and
+  # calendar context. Starts in degraded mode if CSV not found (no crash).
+  # NEVER exposed through Caddy. Internal-network only.
+  stl-sidecar:
+    build:
+      context: ./tools/temporal
+      dockerfile: Dockerfile
+    environment:
+      VICTORIA_METRICS_URL: http://victoriametrics:8428
+      VM_AUTH_USERNAME: ${VM_AUTH_USERNAME}
+      VM_AUTH_PASSWORD: ${VM_AUTH_PASSWORD}
+      STL_PERIOD: "96"
+      STL_REFIT_INTERVAL_HOURS: "24"
+      HOLIDAY_COUNTRY: ${HOLIDAY_COUNTRY:-IN}
+      HOLIDAY_SUBDIVISION: ${HOLIDAY_SUBDIVISION:-}
+      HOST: 0.0.0.0
+      PORT: "8085"
+      MODELS_DIR: /models
+      DATA_DIR: /data
+    volumes:
+      - ./models:/models
+    networks:
+      - metrics-backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8085/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1"
+        reservations:
+          memory: 256M
