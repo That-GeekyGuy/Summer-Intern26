@@ -10,16 +10,16 @@ USE bess_upf;
 CREATE TABLE IF NOT EXISTS upf_metrics_kafka (
     upf_id                     String,
     ts                         Float64,
-    pfcp_sessions_total        Float64,
-    port_bytes_N3_rx           Float64,  port_bytes_N3_rx_rate   Float64,
-    port_bytes_N6_tx           Float64,  port_bytes_N6_tx_rate   Float64,
-    port_pkts_N3_rx            Float64,  port_pkts_N3_rx_rate    Float64,
-    port_pkts_N6_tx            Float64,  port_pkts_N6_tx_rate    Float64,
-    port_dropped_N3_rx         Float64,  port_dropped_N3_rx_rate Float64,
-    port_dropped_N6_rx         Float64,  port_dropped_N6_rx_rate Float64,
-    upf_sim_scenario_normal    Float64,  upf_sim_scenario_congestion Float64,
-    upf_sim_scenario_flatline  Float64,  upf_sim_scenario_spike  Float64,
-    go_goroutines              Float64,  go_heap_alloc_bytes     Float64,
+    pfcp_sessions_total        UInt64,
+    port_bytes_N3_rx           UInt64,   port_bytes_N3_rx_rate   Float64,
+    port_bytes_N6_tx           UInt64,   port_bytes_N6_tx_rate   Float64,
+    port_pkts_N3_rx            UInt64,   port_pkts_N3_rx_rate    Float64,
+    port_pkts_N6_tx            UInt64,   port_pkts_N6_tx_rate    Float64,
+    port_dropped_N3_rx         UInt64,   port_dropped_N3_rx_rate Float64,
+    port_dropped_N6_rx         UInt64,   port_dropped_N6_rx_rate Float64,
+    upf_sim_scenario_normal    UInt8,    upf_sim_scenario_congestion UInt8,
+    upf_sim_scenario_flatline  UInt8,    upf_sim_scenario_spike  UInt8,
+    go_goroutines              UInt64,   go_heap_alloc_bytes     UInt64,
     process_cpu_seconds_total  Float64,  process_cpu_rate        Float64
 ) ENGINE = Kafka
 SETTINGS
@@ -27,21 +27,21 @@ SETTINGS
     kafka_topic_list           = 'upf.metrics.raw',
     kafka_group_name           = 'clickhouse-metrics',
     kafka_format               = 'JSONEachRow',
-    kafka_skip_broken_messages = 10;
+    kafka_skip_broken_messages = 1;
 
 CREATE TABLE IF NOT EXISTS upf_metrics (
     upf_id                     LowCardinality(String),
     ts                         DateTime64(3),
-    pfcp_sessions_total        Float64,
-    port_bytes_N3_rx           Float64,  port_bytes_N3_rx_rate   Float64,
-    port_bytes_N6_tx           Float64,  port_bytes_N6_tx_rate   Float64,
-    port_pkts_N3_rx            Float64,  port_pkts_N3_rx_rate    Float64,
-    port_pkts_N6_tx            Float64,  port_pkts_N6_tx_rate    Float64,
-    port_dropped_N3_rx         Float64,  port_dropped_N3_rx_rate Float64,
-    port_dropped_N6_rx         Float64,  port_dropped_N6_rx_rate Float64,
-    upf_sim_scenario_normal    Float64,  upf_sim_scenario_congestion Float64,
-    upf_sim_scenario_flatline  Float64,  upf_sim_scenario_spike  Float64,
-    go_goroutines              Float64,  go_heap_alloc_bytes     Float64,
+    pfcp_sessions_total        UInt64,
+    port_bytes_N3_rx           UInt64,   port_bytes_N3_rx_rate   Float64,
+    port_bytes_N6_tx           UInt64,   port_bytes_N6_tx_rate   Float64,
+    port_pkts_N3_rx            UInt64,   port_pkts_N3_rx_rate    Float64,
+    port_pkts_N6_tx            UInt64,   port_pkts_N6_tx_rate    Float64,
+    port_dropped_N3_rx         UInt64,   port_dropped_N3_rx_rate Float64,
+    port_dropped_N6_rx         UInt64,   port_dropped_N6_rx_rate Float64,
+    upf_sim_scenario_normal    UInt8,    upf_sim_scenario_congestion UInt8,
+    upf_sim_scenario_flatline  UInt8,    upf_sim_scenario_spike  UInt8,
+    go_goroutines              UInt64,   go_heap_alloc_bytes     UInt64,
     process_cpu_seconds_total  Float64,  process_cpu_rate        Float64
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMMDD(ts)
@@ -51,7 +51,7 @@ TTL toDateTime(ts) + INTERVAL 90 DAY;
 CREATE MATERIALIZED VIEW IF NOT EXISTS upf_metrics_mv TO upf_metrics AS
 SELECT
     upf_id,
-    fromUnixTimestamp64Milli(toInt64(ts * 1000)) AS ts,
+    toDateTime64(ts, 3) AS ts,
     pfcp_sessions_total,
     port_bytes_N3_rx,    port_bytes_N3_rx_rate,
     port_bytes_N6_tx,    port_bytes_N6_tx_rate,
@@ -84,7 +84,7 @@ SETTINGS
     kafka_topic_list           = 'upf.anomalies.critical',
     kafka_group_name           = 'clickhouse-anomaly',
     kafka_format               = 'JSONEachRow',
-    kafka_skip_broken_messages = 10;
+    kafka_skip_broken_messages = 1;
 
 CREATE TABLE IF NOT EXISTS anomaly_events (
     upf_id                  LowCardinality(String),
@@ -103,7 +103,7 @@ TTL toDateTime(ts) + INTERVAL 90 DAY;
 CREATE MATERIALIZED VIEW IF NOT EXISTS anomaly_events_mv TO anomaly_events AS
 SELECT
     upf_id,
-    fromUnixTimestamp64Milli(toInt64(ts * 1000)) AS ts,
+    toDateTime64(ts, 3) AS ts,
     anomaly, anomaly_score, threshold,
     top_anomalous_channels, model_version, window_end_offset
 FROM anomaly_events_kafka;
