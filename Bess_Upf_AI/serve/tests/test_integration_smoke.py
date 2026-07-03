@@ -46,14 +46,19 @@ def _make_inst():
     return inst, serve_app
 
 
-def test_health_shows_sklearn_true():
-    inst, _ = _make_inst()
+@pytest.fixture(scope="module")
+def smoke_inst():
+    return _make_inst()
+
+
+def test_health_shows_sklearn_true(smoke_inst):
+    inst, _ = smoke_inst
     h = inst.health()
     assert h["sklearn"] is True
 
 
-def test_detect_real_models_direct():
-    inst, serve_app = _make_inst()
+def test_detect_real_models_direct(smoke_inst):
+    inst, serve_app = smoke_inst
     channels = [[float(i % 50 + 1) for _ in range(512)] for i in range(14)]
     from app import DetectRequest
     req = DetectRequest(channels=channels, channel_names=ML_CHANNELS)

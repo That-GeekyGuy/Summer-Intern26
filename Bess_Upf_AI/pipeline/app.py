@@ -49,7 +49,7 @@ def _call_detect(keyed: tuple[str, tuple[dict, list]]) -> dict | None:
         result = {"anomaly": False, "anomaly_score": 0.0}
 
     result["upf_id"] = upf_id
-    result["ts"] = msg.get("ts")
+    result["ts"] = msg.get("ts", 0.0)
     return result if result.get("anomaly") else None
 
 
