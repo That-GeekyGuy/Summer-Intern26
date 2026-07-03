@@ -38,7 +38,8 @@ def _call_detect(keyed: tuple[str, tuple[dict, list]]) -> dict | None:
     try:
         resp = _session.post(
             f"{RAY_SERVE_URL}/detect",
-            json={"channels": channels_array, "channel_names": ML_CHANNELS},
+            json={"channels": channels_array, "channel_names": ML_CHANNELS,
+                  "upf_id": upf_id, "ts": msg.get("ts", 0.0)},
             timeout=5.0,
         )
         resp.raise_for_status()

@@ -107,3 +107,51 @@ SELECT
     anomaly, anomaly_score, threshold,
     top_anomalous_channels, model_version, window_end_offset
 FROM anomaly_events_kafka;
+
+-- ============================================================
+-- Shadow detection log: compare v2 scores vs v1 offline
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS shadow_detections_kafka (
+    upf_id        String,
+    ts            Float64,
+    anomaly       UInt8,
+    anomaly_score Float64,
+    if_score      Float64,
+    rf_proba      Float64,
+    moment_score  Float64,
+    model_version String
+) ENGINE = Kafka
+SETTINGS
+    kafka_broker_list        = 'redpanda:9092',
+    kafka_topic_list         = 'upf.shadow.detections',
+    kafka_group_name         = 'clickhouse-shadow',
+    kafka_format             = 'JSONEachRow',
+    kafka_skip_broken_messages = 1;
+
+CREATE TABLE IF NOT EXISTS shadow_detections (
+    upf_id        LowCardinality(String),
+    ts            DateTime64(3),
+    anomaly       UInt8,
+    anomaly_score Float64,
+    if_score      Float64,
+    rf_proba      Float64,
+    moment_score  Float64,
+    model_version LowCardinality(String)
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(ts)
+ORDER BY (upf_id, ts)
+TTL toDateTime(ts) + INTERVAL 90 DAY;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS shadow_detections_mv
+TO shadow_detections AS
+SELECT
+    upf_id,
+    toDateTime64(ts, 3) AS ts,
+    anomaly,
+    anomaly_score,
+    if_score,
+    rf_proba,
+    moment_score,
+    model_version
+FROM shadow_detections_kafka;

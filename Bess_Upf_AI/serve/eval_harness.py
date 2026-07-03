@@ -38,6 +38,9 @@ def run(models_dir: str, parquet_path: str) -> dict:
 
     X_scaled = scaler.transform(X)
 
+    if len(np.unique(y)) < 2:
+        raise ValueError(f"Eval dataset has only one class; check label column. unique={np.unique(y)}")
+
     if_scores = -if_.decision_function(X_scaled)  # higher = more anomalous
     if_preds = (if_.predict(X_scaled) == -1).astype(int)
     if_prec, if_rec, if_f1, _ = precision_recall_fscore_support(
