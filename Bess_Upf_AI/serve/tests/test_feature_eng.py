@@ -40,3 +40,10 @@ def test_missing_channel_graceful():
     vec = extract_features(short_window, short_channels)
     assert len(vec) == N_FEATURES
     assert all(np.isfinite(v) for v in vec)
+
+
+def test_nan_input_produces_finite():
+    nan_window = [[float("nan")] * 512 for _ in range(14)]
+    vec = extract_features(nan_window, CHANNELS_14)
+    assert len(vec) == N_FEATURES
+    assert all(np.isfinite(v) for v in vec), "NaN input must yield finite output (guarded to 0.0)"

@@ -7,6 +7,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 from sklearn.metrics import (
     precision_recall_fscore_support,
     roc_auc_score,
@@ -25,7 +26,13 @@ def run(models_dir: str, parquet_path: str) -> dict:
     rf_path = md / "random_forest.joblib"
     rf = joblib.load(rf_path) if rf_path.exists() else None
 
-    df = pd.read_parquet(parquet_path, columns=SKLEARN_FEATURE_NAMES + ["label"])
+    schema_cols = set(pq.read_schema(parquet_path).names)
+    needed = SKLEARN_FEATURE_NAMES + ["label"]
+    missing = [c for c in needed if c not in schema_cols]
+    if missing:
+        raise ValueError(f"Parquet missing {len(missing)} expected columns: {missing[:5]}")
+
+    df = pd.read_parquet(parquet_path, columns=needed)
     X = df[SKLEARN_FEATURE_NAMES].to_numpy(dtype=np.float32)
     y = (df["label"] == "anomaly").astype(int).to_numpy()
 

@@ -9,7 +9,6 @@ _CHAN_MAP = {
     "port_pkts_N6_tx_rate":    "rate_bytes_N6_rx",   # ponytail: packet rate as byte-rate proxy
     "port_dropped_N3_rx_rate": "rate_drops_N3",
     "port_dropped_N6_rx_rate": "rate_drops_N6",
-    "process_cpu_rate":        "cpu_rate",
 }
 
 _ROLLING = [
@@ -59,4 +58,4 @@ def extract_features(channels: list[list[float]], channel_names: list[str]) -> l
         w = arr[-300:] if arr is not None and len(arr) else np.zeros(1)
         feats += [float(np.mean(w)), float(np.std(w)), float(np.min(w)), float(np.max(w))]
 
-    return feats
+    return [0.0 if not np.isfinite(v) else v for v in feats]
