@@ -29,7 +29,7 @@ _PFCP_CHANNELS = {"pfcp_sessions_total", "pfcp_session_setup_rate"}
 
 
 def classify_anomaly(event: dict) -> tuple[ActionClass, TrustLevel]:
-    score = float(event.get("anomaly_score", 0.0))
+    score = float(event.get("anomaly_score") or 0.0)
     if score < MIN_CONFIDENCE:
         return ActionClass.NO_ACTION, TrustLevel.OBSERVE
     top_ch: list[str] = event.get("top_anomalous_channels") or []
