@@ -33,3 +33,8 @@ def test_no_action_returns_no_op():
 
 def test_rollback_does_not_raise():
     rollback("hpa:upf-1:some-id")
+
+
+def test_unknown_action_class_raises():
+    from mitigation.catalog import _CATALOG
+    assert set(_CATALOG.keys()) == set(ActionClass)

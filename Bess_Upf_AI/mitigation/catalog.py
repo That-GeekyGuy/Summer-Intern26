@@ -90,9 +90,14 @@ _CATALOG: dict[ActionClass, Callable[[str, bool], ActuatorResult]] = {
 
 
 def execute(action_class: ActionClass, upf_id: str, dry_run: bool = True) -> ActuatorResult:
-    fn = _CATALOG.get(action_class, _no_op)
+    fn = _CATALOG.get(action_class)
+    if fn is None:
+        raise ValueError(f"no actuator for {action_class!r}")
     return fn(upf_id, dry_run)
 
 
 def rollback(rollback_token: str) -> None:
+    if not rollback_token:
+        log.warning("rollback called with empty token — skipping")
+        return
     log.info("Rollback requested: token=%s", rollback_token)
