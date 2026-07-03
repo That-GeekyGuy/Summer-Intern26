@@ -48,17 +48,17 @@ function Set-GpuModel {
 
     if ($vramGb -ge 24) {
         Info ">= 24 GB -> Qwen/Qwen3-14B FP16 (max_len 8192)"
-        $env:VLLM_MODEL         = 'Qwen/Qwen3-14B'
+        $env:VLLM_MODEL         = 'Qwen/Qwen2.5-14B-Instruct'
         $env:VLLM_MAX_MODEL_LEN = '8192'
         $env:VLLM_GPU_MEM_UTIL  = '0.90'
     } elseif ($vramGb -ge 13) {
         Info "13-23 GB -> Qwen/Qwen3-8B FP16 (max_len 8192)"
-        $env:VLLM_MODEL         = 'Qwen/Qwen3-8B'
+        $env:VLLM_MODEL         = 'Qwen/Qwen2.5-7B-Instruct'
         $env:VLLM_MAX_MODEL_LEN = '8192'
         $env:VLLM_GPU_MEM_UTIL  = '0.90'
     } elseif ($vramGb -ge 8) {
         Info "8-12 GB -> Qwen/Qwen3-8B INT4 (max_len 3200)"
-        $env:VLLM_MODEL         = 'Qwen/Qwen3-8B'
+        $env:VLLM_MODEL         = 'Qwen/Qwen2.5-7B-Instruct'
         $env:VLLM_MAX_MODEL_LEN = '3200'
         $env:VLLM_GPU_MEM_UTIL  = '0.90'
     } else {

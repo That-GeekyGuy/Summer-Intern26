@@ -119,12 +119,14 @@ export function ForecastPage({ creds }: Props) {
     return map;
   }, [dbData]);
 
-  // Chronos-2 P10/P50/P90 uncertainty intervals per metric (refreshed every 5 min)
+  // Chronos-2 P10/P50/P90 uncertainty intervals per metric
+  // staleTime 2 min: recheck after 2 min so any new Chronos forecast is reflected promptly
   const intervalQueries = useQueries({
     queries: FORECAST_METRICS.map(m => ({
       queryKey: ["intervals", m.metric],
       queryFn: () => fetchIntervals(creds, m.promql),
-      staleTime: 5 * 60_000,
+      refetchInterval: 2 * 60_000,   // re-fetch every 2 min
+      staleTime: 90_000,
       retry: 0,
     })),
   });
@@ -132,160 +134,180 @@ export function ForecastPage({ creds }: Props) {
   const isFetching = metricQueries.some(q => q.isFetching) || dbFetching;
 
   return (
-    <div style={{ padding: 24, overflow: "auto", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
-        <h2 style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-lg)", fontWeight: 700, margin: 0 }}>
-          {COPY.forecast.title}
-        </h2>
-        {isFetching && (
-          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>refreshing…</span>
-        )}
-      </div>
+    <div style={{ display: "flex", height: "100%", overflow: "hidden", padding: 16, gap: 16 }}>
+      {/* Bento Container */}
+      <div style={{
+        display: "flex", flexDirection: "column", flex: 1, overflow: "auto", padding: 32,
+        background: "var(--bg-surface)",
+        borderRadius: "var(--radius)",
+        border: "1px solid var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 24 }}>
+          <h2 style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xl)", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+            {COPY.forecast.title}
+          </h2>
+          {isFetching && (
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>refreshing…</span>
+          )}
+        </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-        {FORECAST_METRICS.map((m, i) => {
-          const renderNow = Date.now(); // single timestamp for this render pass
-          const q = metricQueries[i];
-          const iv = intervalQueries[i]?.data;
-          // Sum all returned samples (per-node metrics like pfcp_sessions_total return
-          // one sample per UPF node; rate queries with sum() return a single sample).
-          const samplesArr = q.data?.samples ?? [];
-          const currentValue = samplesArr.length > 0
-            ? samplesArr.reduce((acc, s) => acc + s.value, 0)
-            : null;
-          const dbEvent = dbEvents.get(m.metric) ?? null;
-          const capacity = m.capacity as number | null;
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+          {(() => {
+            const renderNow = Date.now(); // single timestamp for this render pass
+            return FORECAST_METRICS.map((m, i) => {
+              const q = metricQueries[i];
+            const iv = intervalQueries[i]?.data;
+            // Sum all returned samples (per-node metrics like pfcp_sessions_total return
+            // one sample per UPF node; rate queries with sum() return a single sample).
+            const samplesArr = q.data?.samples ?? [];
+            const currentValue = samplesArr.length > 0
+              ? samplesArr.reduce((acc, s) => acc + s.value, 0)
+              : null;
+            const dbEvent = dbEvents.get(m.metric) ?? null;
+            const capacity = m.capacity as number | null;
 
-          const utilPct = capacity !== null && currentValue !== null
-            ? Math.min(100, (currentValue / capacity) * 100)
-            : null;
+            const utilPct = capacity !== null && currentValue !== null
+              ? Math.min(100, (currentValue / capacity) * 100)
+              : null;
 
-          // Trend %: how much the DB-projected value deviates from the current live value.
-          // expected_value in a predictive event holds the extrapolated value at the
-          // forecast horizon (e.g. 1h from now), so this is a genuine forward-looking %.
-          const trendPct = dbEvent?.expected_value !== undefined && currentValue !== null && currentValue !== 0
-            ? ((dbEvent.expected_value - currentValue) / Math.abs(currentValue)) * 100
-            : null;
+            // Trend %: how much the DB-projected value deviates from the current live value.
+            // expected_value in a predictive event holds the extrapolated value at the
+            // forecast horizon (e.g. 1h from now), so this is a genuine forward-looking %.
+            const trendPct = dbEvent?.expected_value !== undefined && currentValue !== null && currentValue !== 0
+              ? ((dbEvent.expected_value - currentValue) / Math.abs(currentValue)) * 100
+              : null;
 
-          const etaH = dbEvent?.predicted_crossing_time
-            ? (dbEvent.predicted_crossing_time * 1000 - renderNow) / 3_600_000
-            : -1;
+            const etaH = dbEvent?.predicted_crossing_time
+              ? (dbEvent.predicted_crossing_time * 1000 - renderNow) / 3_600_000
+              : -1;
 
-          const alarming = dbEvent !== null;
-          const bColor = utilPct !== null
-            ? barColor(utilPct)
-            : alarming ? severityColor(m.severity) : "var(--signal-info)";
+            const alarming = dbEvent !== null;
+            const bColor = utilPct !== null
+              ? barColor(utilPct)
+              : alarming ? severityColor(m.severity) : "var(--signal-info)";
 
-          return (
-            <div
-              key={m.metric}
-              onClick={() => alarming && dbEvent && setContext({ type: "event", event: dbEvent })}
-              style={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderLeft: `3px solid ${alarming ? severityColor(m.severity) : "var(--border)"}`,
-                borderRadius: "var(--radius)",
-                padding: "16px 20px",
-                width: 320,
-                cursor: alarming ? "pointer" : "default",
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-              }}
-            >
-              {/* Header: metric name + % utilization */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontSize: "var(--text-base)", fontWeight: 600 }}>
-                    {displayName(m.metric)}
-                  </div>
-                  <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: 2 }}>
-                    {m.label}
-                  </div>
-                </div>
-                {utilPct !== null && (
-                  <div style={{
-                    fontSize: "var(--text-lg)",
-                    fontWeight: 700,
-                    fontFamily: "var(--font-mono)",
-                    color: bColor,
-                    lineHeight: 1.1,
-                  }}>
-                    {utilPct.toFixed(1)}%
-                  </div>
+            return (
+              <div
+                key={m.metric}
+                onClick={() => alarming && dbEvent && setContext({ type: "event", event: dbEvent })}
+                style={{
+                  background: "var(--bg-base)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 24,
+                  padding: "24px",
+                  width: 360,
+                  cursor: alarming ? "pointer" : "default",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 16,
+                  boxShadow: "var(--shadow-soft)",
+                  position: "relative",
+                  overflow: "hidden"
+                }}
+              >
+                {alarming && (
+                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: severityColor(m.severity) }} />
                 )}
-              </div>
+                
+                {/* Header: metric name + % utilization */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingLeft: alarming ? 8 : 0 }}>
+                  <div>
+                    <div style={{ fontSize: "var(--text-lg)", fontWeight: 600, color: "var(--text-primary)" }}>
+                      {displayName(m.metric)}
+                    </div>
+                    <div style={{ fontSize: "var(--text-sm)", color: "var(--text-muted)", marginTop: 2 }}>
+                      {m.label}
+                    </div>
+                  </div>
+                  {utilPct !== null && (
+                    <div style={{
+                      fontSize: "var(--text-2xl)",
+                      fontWeight: 700,
+                      fontFamily: "var(--font-mono)",
+                      color: bColor,
+                      lineHeight: 1.1,
+                    }}>
+                      {utilPct.toFixed(1)}%
+                    </div>
+                  )}
+                </div>
 
-              {/* Utilization bar */}
-              <div style={{ background: "var(--bg-subtle)", borderRadius: 3, height: 4, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%",
-                  width: utilPct !== null
-                    ? `${Math.max(2, utilPct).toFixed(0)}%`
-                    : q.isLoading ? "5%" : "50%",
-                  background: bColor,
-                  borderRadius: 3,
-                  transition: "width 0.3s ease",
-                }} />
-              </div>
+                {/* Utilization bar */}
+                <div style={{ background: "var(--bg-subtle)", borderRadius: 100, height: 6, overflow: "hidden", marginLeft: alarming ? 8 : 0 }}>
+                  <div style={{
+                    height: "100%",
+                    width: utilPct !== null
+                      ? `${Math.max(2, utilPct).toFixed(0)}%`
+                      : q.isLoading ? "5%" : "50%",
+                    background: bColor,
+                    borderRadius: 100,
+                    transition: "width 0.3s ease",
+                  }} />
+                </div>
 
-              {/* Now / Capacity */}
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--text-xs)" }}>
-                <span style={{ color: "var(--text-muted)" }}>
-                  Now:{" "}
-                  <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
-                    {currentValue !== null
-                      ? fmtMetricVal(m.metric, currentValue)
-                      : q.isLoading ? "…" : "—"}
-                  </span>
-                </span>
-                {capacity !== null && (
+                {/* Now / Capacity */}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--text-sm)", marginLeft: alarming ? 8 : 0 }}>
                   <span style={{ color: "var(--text-muted)" }}>
-                    Capacity:{" "}
-                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--signal-critical)" }}>
-                      {fmtMetricVal(m.metric, capacity)}
+                    Now:{" "}
+                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)", fontWeight: 500 }}>
+                      {currentValue !== null
+                        ? fmtMetricVal(m.metric, currentValue)
+                        : q.isLoading ? "…" : "—"}
                     </span>
                   </span>
+                  {capacity !== null && (
+                    <span style={{ color: "var(--text-muted)" }}>
+                      Capacity:{" "}
+                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)", fontWeight: 500 }}>
+                        {fmtMetricVal(m.metric, capacity)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Projected value at horizon (from DB event) */}
+                {dbEvent?.expected_value !== undefined && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--text-xs)", color: "var(--text-muted)", marginLeft: alarming ? 8 : 0 }}>
+                    <span>Projected at {dbEvent.forecast_horizon ?? "1h"}:</span>
+                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
+                      {fmtMetricVal(m.metric, dbEvent.expected_value)}
+                    </span>
+                  </div>
                 )}
+
+                {/* ETA badge (only when breach is forecast) */}
+                {dbEvent?.predicted_crossing_time && (
+                  <div style={{
+                    padding: "8px 12px",
+                    background: "rgba(245, 158, 11, 0.1)",
+                    borderRadius: 12,
+                    fontSize: "var(--text-sm)",
+                    color: "var(--signal-warning)",
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 500,
+                    marginLeft: alarming ? 8 : 0
+                  }}>
+                    {COPY.forecast.etaLabel}: {fmtEta(dbEvent.predicted_crossing_time, renderNow)}
+                  </div>
+                )}
+
+                {/* Plain-English summary */}
+                <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.6, margin: 0, marginLeft: alarming ? 8 : 0 }}>
+                  {trendPct !== null
+                    ? COPY.forecast.summary(displayName(m.metric), trendPct, etaH > 0 ? etaH : 0)
+                    : `${displayName(m.metric)} is within normal operating range.`}
+                </p>
+
+                {/* Chronos-2 uncertainty bands */}
+                <div style={{ marginLeft: alarming ? 8 : 0 }}>
+                  <IntervalsChart iv={iv} />
+                </div>
               </div>
-
-              {/* Projected value at horizon (from DB event) */}
-              {dbEvent?.expected_value !== undefined && (
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--text-2xs)", color: "var(--text-muted)" }}>
-                  <span>Projected at {dbEvent.forecast_horizon ?? "1h"}:</span>
-                  <span style={{ fontFamily: "var(--font-mono)" }}>
-                    {fmtMetricVal(m.metric, dbEvent.expected_value)}
-                  </span>
-                </div>
-              )}
-
-              {/* ETA badge (only when breach is forecast) */}
-              {dbEvent?.predicted_crossing_time && (
-                <div style={{
-                  padding: "6px 10px",
-                  background: "rgba(255,154,60,0.1)",
-                  border: "1px solid rgba(255,154,60,0.3)",
-                  borderRadius: 4,
-                  fontSize: "var(--text-xs)",
-                  color: "var(--signal-warning)",
-                  fontFamily: "var(--font-mono)",
-                }}>
-                  {COPY.forecast.etaLabel}: {fmtEta(dbEvent.predicted_crossing_time, renderNow)}
-                </div>
-              )}
-
-              {/* Plain-English summary */}
-              <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", lineHeight: 1.6, margin: 0 }}>
-                {trendPct !== null
-                  ? COPY.forecast.summary(displayName(m.metric), trendPct, etaH > 0 ? etaH : 0)
-                  : `${displayName(m.metric)} is within normal operating range.`}
-              </p>
-
-              {/* Chronos-2 uncertainty bands */}
-              <IntervalsChart iv={iv} />
-            </div>
-          );
-        })}
+            );
+            });
+          })()}
+        </div>
       </div>
     </div>
   );

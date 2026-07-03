@@ -1,0 +1,5 @@
+ray[serve]==2.30.0
+torch
+transformers
+numpy
+pandas

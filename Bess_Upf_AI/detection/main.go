@@ -30,7 +30,13 @@ func env(key, fallback string) string {
 }
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	var logLevel slog.Level
+	if level := env("LOG_LEVEL", "INFO"); level != "" {
+		if err := logLevel.UnmarshalText([]byte(level)); err != nil {
+			logLevel = slog.LevelInfo
+		}
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
 	rulesPath := env("RULES_FILE", "/etc/detection/rules.yml")
 	data, err := os.ReadFile(rulesPath)
@@ -208,14 +214,14 @@ func main() {
 
 			// AI anomaly detection (Tier 2 AI: MOMENT + Chronos-2) — push data then run
 			if aiEval != nil {
-				now := ticker.C // already fired; use time.Now()
-				_ = now // suppress unused variable
-				remaining := aiEval.Push(ctx, time.Now())
-				if remaining > 0 {
-					log.Debug("tier-2 AI: warming up", "steps_remaining", remaining)
-				} else {
-					aiEval.Run(ctx, time.Now())
-				}
+				go func(t time.Time) {
+					remaining := aiEval.Push(ctx, t)
+					if remaining > 0 {
+						log.Debug("tier-2 AI: warming up", "steps_remaining", remaining)
+					} else {
+						aiEval.Run(ctx, t)
+					}
+				}(time.Now())
 			}
 
 			// Dispatch all new events through the notification state machine.
@@ -242,7 +248,20 @@ func handleAnomalies(db *store.Store, log *slog.Logger) http.HandlerFunc {
 			eventType = ""
 		}
 
-		events, err := db.List(r.Context(), since,
+		var cursorID int64
+		if s := r.URL.Query().Get("cursor"); s != "" {
+			if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+				cursorID = id
+			}
+		}
+		var limit int
+		if s := r.URL.Query().Get("limit"); s != "" {
+			if l, err := strconv.Atoi(s); err == nil {
+				limit = l
+			}
+		}
+
+		events, err := db.List(r.Context(), since, cursorID, limit,
 			r.URL.Query().Get("metric"),
 			r.URL.Query().Get("severity"),
 			eventType,

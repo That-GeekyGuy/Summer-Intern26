@@ -34,7 +34,18 @@ interface AppState {
 
   onboardingDone: boolean;
   dismissOnboarding: () => void;
+
+  theme: "light" | "dark";
+  toggleTheme: () => void;
 }
+
+// Helper to initialize theme side-effect
+const getInitialTheme = (): "light" | "dark" => {
+  const saved = localStorage.getItem("upf_theme") as "light" | "dark" | null;
+  const initial = saved || "light";
+  document.documentElement.classList.add(initial);
+  return initial;
+};
 
 export const useAppStore = create<AppState>((set) => ({
   activeView: "overview",
@@ -59,4 +70,13 @@ export const useAppStore = create<AppState>((set) => ({
     localStorage.setItem("upf_onboarded", "1");
     set({ onboardingDone: true });
   },
+
+  theme: getInitialTheme(),
+  toggleTheme: () => set((state) => {
+    const nextTheme = state.theme === "light" ? "dark" : "light";
+    localStorage.setItem("upf_theme", nextTheme);
+    document.documentElement.classList.remove(state.theme);
+    document.documentElement.classList.add(nextTheme);
+    return { theme: nextTheme };
+  }),
 }));

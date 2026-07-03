@@ -7,6 +7,20 @@ import { COPY } from "../../lib/copy";
 import { displayName, formatLabels, severityColor, fmtMetricVal } from "../../lib/metrics";
 import { fmtTimestamp, fmtRelative, fmtEta } from "../../lib/formatters";
 import { Badge } from "../../components/primitives/Badge";
+import { motion, Variants } from "framer-motion";
+
+const containerVariants: Variants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.05 }
+  }
+};
+
+const rowVariants: Variants = {
+  hidden: { opacity: 0, x: -20 },
+  show: { opacity: 1, x: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+};
 
 const REGIME_COLOR: Record<Regime, string> = {
   low:    "#4a90d9",
@@ -53,7 +67,7 @@ interface Props { creds: Credentials; }
 export function AnomalyFeedPage({ creds }: Props) {
   const { setContext } = useAppStore();
   const [severityFilter, setSeverityFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"" | "reactive" | "predictive" | "ml">("");
+  const [typeFilter, setTypeFilter] = useState<"metrics" | "reactive" | "predictive" | "ml" | "all">("metrics");
 
   const { data: hotzoneData } = useQuery({
     queryKey: ["temporal-hotzone"],
@@ -68,7 +82,8 @@ export function AnomalyFeedPage({ creds }: Props) {
 
   const events = useMemo(() => {
     let list = data?.anomalies ?? [];
-    if (typeFilter) list = list.filter(e => e.event_type === typeFilter);
+    if (typeFilter === "metrics") list = list.filter(e => e.event_type === "reactive" || e.event_type === "predictive");
+    else if (typeFilter !== "all") list = list.filter(e => e.event_type === typeFilter);
     return list;
   }, [data, typeFilter]);
 
@@ -77,173 +92,187 @@ export function AnomalyFeedPage({ creds }: Props) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* Filters */}
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", padding: 16, gap: 16 }}
+    >
+      {/* Bento Container */}
       <div style={{
-        display: "flex",
-        gap: 8,
-        padding: "10px 16px",
-        borderBottom: "1px solid var(--border)",
-        alignItems: "center",
-        flexShrink: 0,
+        display: "flex", flexDirection: "column", flex: 1, overflow: "hidden",
+        background: "var(--bg-surface)",
+        borderRadius: "var(--radius)",
+        border: "1px solid var(--border)",
+        boxShadow: "var(--shadow-soft)",
       }}>
-        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginRight: 4 }}>Filter:</span>
-        {(["", "critical", "high", "medium", "low"] as const).map(v => (
-          <button
-            key={v}
-            onClick={() => setSeverityFilter(v)}
-            style={{
-              padding: "3px 10px",
-              fontSize: "var(--text-xs)",
-              fontFamily: "var(--font-mono)",
-              background: severityFilter === v ? "var(--bg-elevated)" : "none",
-              border: "1px solid var(--border)",
-              borderRadius: 3,
-              color: v === "" ? "var(--text-secondary)" : severityColor(v),
-              cursor: "pointer",
-            }}
-          >
-            {v || "All"}
-          </button>
-        ))}
-        <div style={{ width: 1, height: 16, background: "var(--border)", margin: "0 4px" }} />
-        {(["", "reactive", "predictive", "ml"] as const).map(v => (
-          <button
-            key={v}
-            onClick={() => setTypeFilter(v)}
-            style={{
-              padding: "3px 10px",
-              fontSize: "var(--text-xs)",
-              fontFamily: "var(--font-mono)",
-              background: typeFilter === v ? "var(--bg-elevated)" : "none",
-              border: "1px solid var(--border)",
-              borderRadius: 3,
-              color: "var(--text-secondary)",
-              cursor: "pointer",
-            }}
-          >
-            {v === "" ? "All types" : v === "reactive" ? "LIVE" : v === "predictive" ? "FORECAST" : "ML"}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        {isFetching && (
-          <span style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)" }}>refreshing…</span>
-        )}
-        {dataUpdatedAt > 0 && (
-          <span style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)" }}>
-            {COPY.anomalies.emptyHint}: {fmtRelative(new Date(dataUpdatedAt).toISOString())}
-          </span>
-        )}
-      </div>
+        {/* Filters */}
+        <div style={{
+          display: "flex",
+          gap: 12,
+          padding: "16px 20px",
+          borderBottom: "1px solid var(--border)",
+          alignItems: "center",
+          flexShrink: 0,
+        }}>
+          <span style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", fontWeight: 600, marginRight: 8 }}>Filter Feed</span>
+          {(["", "critical", "high", "medium", "low"] as const).map(v => (
+            <button
+              key={v}
+              onClick={() => setSeverityFilter(v)}
+              style={{
+                padding: "4px 12px",
+                fontSize: "var(--text-xs)",
+                fontFamily: "var(--font-mono)",
+                background: severityFilter === v ? "var(--bg-elevated)" : "none",
+                border: "1px solid var(--border)",
+                borderRadius: 100,
+                color: v === "" ? "var(--text-secondary)" : severityColor(v),
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+            >
+              {v || "All Severity"}
+            </button>
+          ))}
+          <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 8px" }} />
+          {(["metrics", "reactive", "predictive", "ml", "all"] as const).map(v => (
+            <button
+              key={v}
+              onClick={() => setTypeFilter(v)}
+              style={{
+                padding: "4px 12px",
+                fontSize: "var(--text-xs)",
+                fontFamily: "var(--font-mono)",
+                background: typeFilter === v ? "var(--bg-elevated)" : "none",
+                border: "1px solid var(--border)",
+                borderRadius: 100,
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+            >
+              {v === "metrics" ? "Default" : v === "reactive" ? "LIVE" : v === "predictive" ? "FORECAST" : v === "ml" ? "ML" : "All Types"}
+            </button>
+          ))}
+          <div style={{ flex: 1 }} />
+          {isFetching && (
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>refreshing…</span>
+          )}
+          {dataUpdatedAt > 0 && (
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginLeft: 16 }}>
+              {COPY.anomalies.emptyHint}: {fmtRelative(new Date(dataUpdatedAt).toISOString())}
+            </span>
+          )}
+        </div>
 
-      {/* Table */}
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        {error ? (
-          <div style={{ padding: 32, textAlign: "center" }}>
-            <div style={{ color: "var(--signal-critical)", fontSize: "var(--text-sm)", marginBottom: 8 }}>
-              Detection service unavailable
-            </div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
-              {String(error)}
-            </div>
-          </div>
-        ) : events.length === 0 ? (
-          <div style={{ padding: 32, textAlign: "center", color: "var(--text-muted)", fontSize: "var(--text-sm)" }}>
-            <div style={{ marginBottom: 8 }}>{COPY.anomalies.empty}</div>
-            {dataUpdatedAt > 0 && (
-              <div style={{ fontSize: "var(--text-xs)" }}>
-                Last checked: {fmtTimestamp(new Date(dataUpdatedAt).toISOString())}
+        {/* Table */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
+          {error ? (
+            <div style={{ padding: 48, textAlign: "center" }}>
+              <div style={{ color: "var(--signal-critical)", fontSize: "var(--text-base)", fontWeight: 600, marginBottom: 8 }}>
+                Detection service unavailable
               </div>
-            )}
-          </div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                {["", "Type", "Metric", "Interface", "Value", "Baseline", "Time", "Regime", "Status"].map(h => (
-                  <th key={h} style={{
-                    padding: "8px 12px",
-                    textAlign: "left",
-                    fontSize: "var(--text-2xs)",
-                    color: "var(--text-muted)",
-                    fontFamily: "var(--font-mono)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                    fontWeight: 600,
-                    position: "sticky",
-                    top: 0,
-                    background: "var(--bg-base)",
-                    whiteSpace: "nowrap",
-                  }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((e, i) => (
-                <tr
-                  key={i}
-                  onClick={() => handleRowClick(e)}
-                  className="row-fade-in"
-                  style={{
-                    cursor: "pointer",
-                    borderBottom: "1px solid var(--border)",
-                    height: 36,
-                  }}
-                  onMouseEnter={ev => (ev.currentTarget.style.background = "var(--bg-surface)")}
-                  onMouseLeave={ev => (ev.currentTarget.style.background = "")}
-                >
-                  {/* Severity stripe on the td — border-left on tr is unreliable with border-collapse */}
-                  <td style={{ padding: "6px 12px", width: 8, borderLeft: `3px solid ${severityColor(e.severity)}` }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: severityColor(e.severity) }} />
-                  </td>
-                  <td style={{ padding: "6px 12px" }}>
-                    {e.event_type === "ml" ? (
-                      <Badge variant="ml">{e.rca_report ? COPY.anomalies.aiBadge : COPY.anomalies.mlBadge}</Badge>
-                    ) : e.event_type === "predictive" ? (
-                      <Badge variant="forecast">{COPY.anomalies.forecastBadge}</Badge>
-                    ) : (
-                      <Badge variant="live">{COPY.anomalies.liveBadge}</Badge>
-                    )}
-                  </td>
-                  <td style={{ padding: "6px 12px", fontSize: "var(--text-sm)", maxWidth: 200 }}>
-                    {displayName(e.metric_name)}
-                  </td>
-                  <td style={{ padding: "6px 12px", fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
-                    {formatLabels(e.labels)}
-                  </td>
-                  <td style={{ padding: "6px 12px", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
-                    {e.event_type === "predictive"
-                      ? fmtMetricVal(e.metric_name, e.observed_value)
-                      : e.observed_value.toFixed(2)}
-                  </td>
-                  <td style={{ padding: "6px 12px", fontSize: "var(--text-sm)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                    {e.expected_value !== undefined
-                      ? (e.event_type === "predictive"
-                          ? fmtMetricVal(e.metric_name, e.expected_value)
-                          : e.expected_value.toFixed(2))
-                      : "—"}
-                  </td>
-                  <td style={{ padding: "6px 12px", fontSize: "var(--text-xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
-                    {e.event_type === "predictive" && e.predicted_crossing_time
-                      ? `⏱ ${fmtEta(e.predicted_crossing_time)}`
-                      : fmtRelative(e.timestamp)}
-                  </td>
-                  <td style={{ padding: "6px 12px" }}>
-                    <RegimeBadge regime={getEventRegime(e, hotzoneData?.hourly)} />
-                  </td>
-                  <td style={{ padding: "6px 12px" }}>
-                    <span style={{ fontSize: "var(--text-xs)", color: "var(--signal-ok)", fontFamily: "var(--font-mono)" }}>
-                      ACTIVE
-                    </span>
-                  </td>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)", color: "var(--text-muted)" }}>
+                {String(error)}
+              </div>
+            </div>
+          ) : events.length === 0 ? (
+            <div style={{ padding: 48, textAlign: "center", color: "var(--text-muted)", fontSize: "var(--text-base)" }}>
+              <div style={{ marginBottom: 12 }}>{COPY.anomalies.empty}</div>
+              {dataUpdatedAt > 0 && (
+                <div style={{ fontSize: "var(--text-sm)" }}>
+                  Last checked: {fmtTimestamp(new Date(dataUpdatedAt).toISOString())}
+                </div>
+              )}
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px" }}>
+              <thead>
+                <tr>
+                  {["", "Type", "Metric", "Interface", "Value", "Baseline", "Time", "Regime", "Status"].map(h => (
+                    <th key={h} style={{
+                      padding: "8px 16px",
+                      textAlign: "left",
+                      fontSize: "var(--text-xs)",
+                      color: "var(--text-muted)",
+                      fontFamily: "var(--font-mono)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      fontWeight: 600,
+                      position: "sticky",
+                      top: 0,
+                      background: "var(--bg-surface)",
+                      whiteSpace: "nowrap",
+                      zIndex: 10,
+                    }}>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+              </thead>
+              <motion.tbody variants={containerVariants} initial="hidden" animate="show">
+                {events.map((e, i) => (
+                  <motion.tr
+                    variants={rowVariants}
+                    key={i}
+                    onClick={() => handleRowClick(e)}
+                    style={{
+                      cursor: "pointer",
+                      background: "var(--bg-base)",
+                      boxShadow: "var(--shadow-soft)",
+                    }}
+                    whileHover={{ scale: 1.01, zIndex: 20 }}
+                  >
+                    {/* Severity dot */}
+                    <td style={{ padding: "12px 16px", width: 8, borderRadius: "12px 0 0 12px" }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: severityColor(e.severity), boxShadow: `0 0 8px ${severityColor(e.severity)}80` }} />
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      {e.event_type === "ml" ? (
+                        <Badge variant="ml">{e.rca_report ? COPY.anomalies.aiBadge : COPY.anomalies.mlBadge}</Badge>
+                      ) : e.event_type === "predictive" ? (
+                        <Badge variant="forecast">{COPY.anomalies.forecastBadge}</Badge>
+                      ) : (
+                        <Badge variant="live">{COPY.anomalies.liveBadge}</Badge>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: "var(--text-base)", fontWeight: 500, color: "var(--text-primary)", maxWidth: 200 }}>
+                      {displayName(e.metric_name)}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
+                      {formatLabels(e.labels)}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>
+                      {fmtMetricVal(e.metric_name, e.observed_value)}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: "var(--text-sm)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                      {e.expected_value !== undefined
+                        ? (e.event_type === "predictive"
+                            ? fmtMetricVal(e.metric_name, e.expected_value)
+                            : e.expected_value.toFixed(2))
+                        : "—"}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: "var(--text-sm)", color: "var(--text-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                      {e.event_type === "predictive" && e.predicted_crossing_time
+                        ? <span style={{ color: "var(--signal-warning)" }}>⏱ {fmtEta(e.predicted_crossing_time)}</span>
+                        : fmtRelative(e.timestamp)}
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <RegimeBadge regime={getEventRegime(e, hotzoneData?.hourly)} />
+                    </td>
+                    <td style={{ padding: "12px 16px", borderRadius: "0 12px 12px 0" }}>
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--signal-ok)", fontFamily: "var(--font-mono)", background: "rgba(16, 185, 129, 0.1)", padding: "4px 8px", borderRadius: 100 }}>
+                        ACTIVE
+                      </span>
+                    </td>
+                  </motion.tr>
+                ))}
+              </motion.tbody>
+            </table>
+          )}
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

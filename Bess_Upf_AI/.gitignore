@@ -11,3 +11,16 @@ ansh_out*.csv
 
 # Training / working logs
 *.log
+
+# Model + dataset artifacts (fetched from MinIO, not committed)
+models/*.joblib
+models/*.pt
+tools/train/data/*.parquet
+tools/train/data/*.npz
+
+# Ignore generated output and cache
+graphify-out/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

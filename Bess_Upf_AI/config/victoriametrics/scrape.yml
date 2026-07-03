@@ -12,16 +12,23 @@
 # the federate job's own labels.
 
 scrape_configs:
-  - job_name: prometheus_federate
-    honor_labels: true
-    metrics_path: /federate
-    params:
-      'match[]':
-        - '{job=~"upf.*"}'
-        - '{job="detection"}'
-        - '{job="analysis"}'
-        - '{job="prometheus"}'
-    scrape_interval: 15s
-    scrape_timeout: 10s
+  - job_name: upf_sim
     static_configs:
-      - targets: ['%{PROM_SCRAPE_TARGET}']
+      - targets: ['sim-upf:9091']
+    metrics_path: /metrics
+    scrape_interval: 1s
+    scrape_timeout: 1s
+
+  - job_name: detection
+    static_configs:
+      - targets: ['detection:8081']
+    metrics_path: /metrics
+    scrape_interval: 1s
+    scrape_timeout: 1s
+
+  - job_name: analysis
+    static_configs:
+      - targets: ['analysis:8082']
+    metrics_path: /metrics
+    scrape_interval: 1s
+    scrape_timeout: 1s

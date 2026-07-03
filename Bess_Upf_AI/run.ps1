@@ -99,7 +99,7 @@ TLS_KEY_FILE=/certs/server.key
 DETECTION_POLL_INTERVAL=60s
 DETECTION_WINDOW=30m
 DETECTION_RETENTION_DAYS=30
-VLLM_MODEL=Qwen/Qwen3-8B
+VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
 VLLM_MAX_MODEL_LEN=3200
 VLLM_GPU_MEM_UTIL=0.90
 OLLAMA_MODEL=qwen2.5:3b
@@ -166,19 +166,17 @@ if ((Test-Path 'certs\server.crt') -and (Test-Path 'certs\server.key')) {
 # ─────────────────────────────────────────────────────────────────────────────
 Step "4/9  Model artifacts"
 
-if ($HasGitLfs) {
-    if (-not (Test-Path 'models\random_forest.joblib')) {
-        Info "Pulling models/random_forest.joblib via git lfs..."
-        & git lfs install --local
-        & git lfs pull
+if (-not (Test-Path 'models\random_forest.joblib')) {
+    Info "Fetching model artifacts from MinIO..."
+    & bash scripts/fetch-models.sh models
+    if ($LASTEXITCODE -eq 0) {
+        Info "Model artifacts fetched."
     } else {
-        Info "random_forest.joblib present -- skipping lfs pull."
+        Warn "MinIO fetch failed -- Tier 2 sklearn/ML detection will start in degraded mode."
+        Warn "Ensure the stack is up and run: bash scripts/fetch-models.sh"
     }
 } else {
-    if (-not (Test-Path 'models\random_forest.joblib')) {
-        Warn "random_forest.joblib missing and git lfs unavailable."
-        Warn "Tier 2 sklearn detection will start in degraded mode."
-    }
+    Info "random_forest.joblib present -- skipping MinIO fetch."
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -186,7 +184,7 @@ if ($HasGitLfs) {
 # ─────────────────────────────────────────────────────────────────────────────
 Step "5/9  GPU / LLM selection"
 
-$ComposeBase  = @('-f', 'docker-compose.yml')
+$ComposeBase  = @('-f', 'docker-compose.base.yml', '-f', 'docker-compose.core.yml', '-f', 'docker-compose.ml.yml')
 $DevCompose   = @('-f', 'dev/docker-compose.yml')
 $ComposeFiles = $ComposeBase
 $Mode = 'cpu'
@@ -211,13 +209,13 @@ function Set-GpuModel {
     Info "GPU VRAM: ${vramGb} GB"
     if ($vramGb -ge 24) {
         Info ">= 24 GB -> Qwen/Qwen3-14B FP16 (max_len 8192)"
-        $env:VLLM_MODEL = 'Qwen/Qwen3-14B'; $env:VLLM_MAX_MODEL_LEN = '8192'; $env:VLLM_GPU_MEM_UTIL = '0.90'
+        $env:VLLM_MODEL = 'Qwen/Qwen2.5-14B-Instruct'; $env:VLLM_MAX_MODEL_LEN = '8192'; $env:VLLM_GPU_MEM_UTIL = '0.90'
     } elseif ($vramGb -ge 13) {
         Info "13-23 GB -> Qwen/Qwen3-8B FP16 (max_len 8192)"
-        $env:VLLM_MODEL = 'Qwen/Qwen3-8B';  $env:VLLM_MAX_MODEL_LEN = '8192'; $env:VLLM_GPU_MEM_UTIL = '0.90'
+        $env:VLLM_MODEL = 'Qwen/Qwen2.5-7B-Instruct';  $env:VLLM_MAX_MODEL_LEN = '8192'; $env:VLLM_GPU_MEM_UTIL = '0.90'
     } elseif ($vramGb -ge 8) {
         Info "8-12 GB -> Qwen/Qwen3-8B INT4 (max_len 3200)"
-        $env:VLLM_MODEL = 'Qwen/Qwen3-8B';  $env:VLLM_MAX_MODEL_LEN = '3200'; $env:VLLM_GPU_MEM_UTIL = '0.90'
+        $env:VLLM_MODEL = 'Qwen/Qwen2.5-7B-Instruct';  $env:VLLM_MAX_MODEL_LEN = '3200'; $env:VLLM_GPU_MEM_UTIL = '0.90'
     } else {
         Warn "VRAM ${vramGb} GB < 8 GB -- falling back to CPU/Ollama."
         return $false

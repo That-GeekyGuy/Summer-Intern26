@@ -6,25 +6,29 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-base:        #0A0E14;
-  --bg-surface:     #111720;
-  --bg-elevated:    #1A2232;
-  --bg-subtle:      #1E2A3A;
-  --border:         #2A3A4A;
-  --border-focus:   #3D7FE8;
+  /* LIGHT MODE (Default) - Warm, soft, airy bento-box style */
+  --bg-base:        #F8F9FA; /* Soft warm gray/white */
+  --bg-surface:     #FFFFFF; /* Pure white cards */
+  --bg-elevated:    #F1F3F5;
+  --bg-subtle:      rgba(0, 0, 0, 0.03);
+  --border:         rgba(0, 0, 0, 0.08);
+  --border-focus:   rgba(0, 0, 0, 0.2);
 
-  --text-primary:   #E8EEF4;
-  --text-secondary: #8A9BB0;
-  --text-muted:     #4A5A6A;
+  --text-primary:   #111827; /* Dark slate */
+  --text-secondary: #4B5563;
+  --text-muted:     #9CA3AF;
 
-  --signal-critical: #FF4D4D;
-  --signal-warning:  #FF9A3C;
-  --signal-ok:       #2ECC8A;
-  --signal-info:     #3D7FE8;
-  --signal-neutral:  #8A9BB0;
+  --signal-critical: #EF4444;
+  --signal-warning:  #F59E0B;
+  --signal-ok:       #10B981;
+  --signal-info:     #3B82F6;
+  --signal-neutral:  #9CA3AF;
 
-  --accent:          #3D7FE8;
-  --accent-glow:     rgba(61,127,232,0.15);
+  --accent:          #111827; /* Black accents in light mode */
+  --accent-glow:     rgba(17, 24, 39, 0.05);
+
+  --shadow-soft:     0 4px 20px rgba(0,0,0,0.03);
+  --shadow-elevated: 0 12px 32px rgba(0,0,0,0.08);
 
   --text-2xs: 10px;
   --text-xs:  11px;
@@ -36,10 +40,47 @@
 
   --font-mono: 'JetBrains Mono', monospace;
   --font-body: 'Inter', sans-serif;
-  --radius: 6px;
+  --radius: 20px; /* Softer, rounder bento-box corners */
 }
 
-html, body, #root { height: 100%; background: var(--bg-base); }
+html.dark {
+  /* DARK MODE - Deep blacks, subtle contrast */
+  --bg-base:        #0A0A0B;
+  --bg-surface:     #121214;
+  --bg-elevated:    #1C1C1F;
+  --bg-subtle:      rgba(255, 255, 255, 0.03);
+  --border:         rgba(255, 255, 255, 0.1);
+  --border-focus:   rgba(255, 255, 255, 0.25);
+
+  --text-primary:   #FFFFFF;
+  --text-secondary: #A1A1AA;
+  --text-muted:     #71717A;
+
+  --signal-critical: #F87171;
+  --signal-warning:  #FBBF24;
+  --signal-ok:       #34D399;
+  --signal-info:     #60A5FA;
+  --signal-neutral:  #71717A;
+
+  --accent:          #E4E4E7; /* Light accents in dark mode */
+  --accent-glow:     rgba(228, 228, 231, 0.1);
+
+  --shadow-soft:     0 4px 20px rgba(0,0,0,0.2);
+  --shadow-elevated: 0 12px 32px rgba(0,0,0,0.4);
+}
+
+@keyframes gradientBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+html, body, #root { 
+  height: 100%; 
+  background: var(--bg-base);
+  transition: background 0.4s ease;
+}
+
 body { font-family: var(--font-body); color: var(--text-primary); font-size: var(--text-base); }
 
 /* Pulse strip animation */

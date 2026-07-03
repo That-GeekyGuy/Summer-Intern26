@@ -1,4 +1,5 @@
 import { fmtSessions, fmtBytes, fmtDrops } from "../../lib/formatters";
+import { motion } from "framer-motion";
 
 type KpiType = "sessions" | "bytes" | "drops" | "generic";
 
@@ -16,7 +17,7 @@ export function KpiCard({ label, value, type = "generic", trend, status = "unkno
     status === "critical" ? "var(--signal-critical)" :
     status === "warning"  ? "var(--signal-warning)" :
     status === "ok"       ? "var(--signal-ok)" :
-    "transparent";
+    "var(--border)";
 
   function formatted() {
     if (loading || isNaN(value)) return "—";
@@ -32,31 +33,49 @@ export function KpiCard({ label, value, type = "generic", trend, status = "unkno
     : trend > 1 ? "↑" : trend < -1 ? "↓" : "→";
   const trendColor = trend === undefined ? "var(--text-muted)"
     : type === "drops"
-      ? (trend > 5 ? "var(--signal-warning)" : "var(--text-secondary)")
-      : "var(--text-secondary)";
+      ? (trend > 5 ? "var(--signal-critical)" : "var(--signal-ok)")
+      : (trend > 0 ? "var(--signal-ok)" : "var(--signal-warning)");
+  
+  const trendBg = trend === undefined ? "transparent"
+    : type === "drops"
+      ? (trend > 5 ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)")
+      : (trend > 0 ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)");
 
   return (
-    <div style={{
-      background: "var(--bg-surface)",
-      border: "1px solid var(--border)",
-      borderLeft: `3px solid ${statusColor}`,
-      borderRadius: "var(--radius)",
-      padding: "16px 20px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 8,
-      flex: 1,
-      minWidth: 0,
-    }}>
-      <div style={{
-        fontSize: "var(--text-xs)",
-        color: "var(--text-muted)",
-        textTransform: "uppercase",
-        letterSpacing: "0.5px",
-        fontFamily: "var(--font-mono)",
-      }}>
-        {label}
+    <motion.div 
+      whileHover={{ scale: 1.02, translateY: -2, boxShadow: "var(--shadow-elevated)", borderColor: "var(--border-focus)" }}
+      whileTap={{ scale: 0.98 }}
+      layout
+      style={{
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        padding: "24px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        gap: 16,
+        flex: 1,
+        minWidth: 0,
+        boxShadow: "var(--shadow-soft)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{
+          fontSize: "var(--text-sm)",
+          color: "var(--text-secondary)",
+          fontWeight: 500,
+        }}>
+          {label}
+        </div>
+        {/* Status dot indicator instead of top border */}
+        <div style={{
+          width: 8, height: 8, borderRadius: "50%",
+          background: statusColor,
+          boxShadow: `0 0 8px ${statusColor}`,
+        }} />
       </div>
+
       <div style={{
         fontSize: "var(--text-2xl)",
         fontFamily: "var(--font-mono)",
@@ -66,11 +85,28 @@ export function KpiCard({ label, value, type = "generic", trend, status = "unkno
       }}>
         {formatted()}
       </div>
-      {trendIcon && trend !== undefined && (
-        <div style={{ fontSize: "var(--text-xs)", color: trendColor }}>
-          {trendIcon} {Math.abs(trend).toFixed(1)}% vs 1h ago
+
+      {trend !== undefined && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ 
+            background: trendBg,
+            color: trendColor,
+            padding: "2px 8px",
+            borderRadius: 100,
+            fontSize: "var(--text-2xs)",
+            fontWeight: 600,
+            fontFamily: "var(--font-mono)",
+            display: "flex",
+            alignItems: "center",
+            gap: 4
+          }}>
+            {trendIcon} {Math.abs(trend).toFixed(1)}%
+          </span>
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+            vs 1h ago
+          </span>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
