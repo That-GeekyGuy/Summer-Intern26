@@ -74,3 +74,4 @@ def test_detect_returns_real_score(tmp_path, monkeypatch):
     assert "if_score" in result
     assert "rf_proba" in result
     assert isinstance(result["anomaly"], bool)
+    assert result["if_score"] != 0.0, "IF score must be real model output, not stub zero"

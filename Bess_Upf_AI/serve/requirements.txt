@@ -1,5 +1,5 @@
 ray[serve]==2.30.0
-torch
+torch==2.1.0
 transformers
 numpy
 pandas

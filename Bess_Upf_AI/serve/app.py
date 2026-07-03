@@ -91,9 +91,13 @@ class MLServeDeployment:
             # user-supplied input. Treat MODELS_DIR as a trust boundary.
             self._scaler = joblib.load(MODELS_DIR / "scaler.joblib")
             self._if = joblib.load(MODELS_DIR / "isolation_forest.joblib")
-            rf_path = MODELS_DIR / "random_forest.joblib"
-            self._rf = joblib.load(rf_path) if rf_path.exists() else None
             self.sklearn_available = True
+            rf_path = MODELS_DIR / "random_forest.joblib"
+            try:
+                self._rf = joblib.load(rf_path) if rf_path.exists() else None
+            except Exception as rf_exc:
+                log.warning("RF load failed, IF-only mode: %s", rf_exc)
+                self._rf = None
             log.info("sklearn models loaded (rf=%s)", self._rf is not None)
         except Exception as exc:
             log.warning("sklearn models not loaded: %s", exc)
