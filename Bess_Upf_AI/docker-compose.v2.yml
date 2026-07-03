@@ -41,6 +41,8 @@ services:
       dockerfile: Dockerfile
     environment:
       - MODELS_DIR=/models
+      - KAFKA_BROKER=redpanda:9092
+      - SHADOW_TOPIC=upf.shadow.detections
     volumes:
       - ./models:/models:ro
     networks:
