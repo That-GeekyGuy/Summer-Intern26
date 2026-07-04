@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: {{ .Values.namespace }}
+spec:
+  serviceName: redpanda-headless
+  replicas: {{ .Values.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: redpanda
+  template:
+    metadata:
+      labels:
+        app: redpanda
+    spec:
+      containers:
+        - name: redpanda
+          image: {{ .Values.image }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              ORDINAL=${HOSTNAME##*-}
+              exec redpanda start \
+                --smp 1 --memory 1G --reserve-memory 0M --overprovisioned \
+                --node-id ${ORDINAL} \
+                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
+                --kafka-addr internal://0.0.0.0:9092 \
+                --advertise-kafka-addr internal://$(hostname -f):9092 \
+                --rpc-addr 0.0.0.0:33145 \
+                --advertise-rpc-addr $(hostname -f):33145
+          ports:
+            - containerPort: 9092
+              name: kafka
+            - containerPort: 33145
+              name: rpc
+            - containerPort: 9644
+              name: admin
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+          readinessProbe:
+            exec:
+              command: ["rpk", "cluster", "health"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.storage }}

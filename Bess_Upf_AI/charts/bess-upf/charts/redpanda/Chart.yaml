@@ -1,0 +1,4 @@
+apiVersion: v2
+name: redpanda
+description: 3-node Redpanda StatefulSet, RF=3
+version: 0.1.0

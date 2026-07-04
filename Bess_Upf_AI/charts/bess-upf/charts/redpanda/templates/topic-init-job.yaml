@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-topic-init
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: create-topics
+          image: {{ .Values.image }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              until rpk cluster health --brokers redpanda:9092 2>/dev/null | grep -q "Healthy:.*true"; do
+                echo "waiting for redpanda cluster..."; sleep 3
+              done
+              rpk topic create upf.metrics.raw upf.anomalies.critical \
+                upf.shadow.detections upf.action_audit \
+                --brokers redpanda:9092 --replicas 3 || true
