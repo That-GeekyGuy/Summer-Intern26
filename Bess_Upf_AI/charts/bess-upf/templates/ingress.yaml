@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bess-upf
+  namespace: {{ .Values.global.namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api/serve(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: serve
+                port:
+                  number: 8000
+          - path: /api/mitigation(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: mitigation
+                port:
+                  number: 8081
