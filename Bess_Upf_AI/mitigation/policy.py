@@ -17,7 +17,7 @@ class TrustLevel(str, Enum):
 
 
 TRUST_LEVELS: dict[ActionClass, TrustLevel] = {
-    ActionClass.HPA_SCALE_UP:   TrustLevel.OBSERVE,
+    ActionClass.HPA_SCALE_UP:   TrustLevel.AUTO,
     ActionClass.XDP_RATE_LIMIT: TrustLevel.OBSERVE,
     ActionClass.PFCP_REROUTE:   TrustLevel.OBSERVE,
 }
