@@ -1,0 +1,4 @@
+apiVersion: v2
+name: mitigation
+description: Closed-loop mitigation engine, 2 replicas
+version: 0.1.0

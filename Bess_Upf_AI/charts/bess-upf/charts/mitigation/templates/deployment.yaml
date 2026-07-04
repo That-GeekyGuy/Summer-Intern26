@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mitigation
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: mitigation
+  template:
+    metadata:
+      labels:
+        app: mitigation
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      containers:
+        - name: mitigation
+          image: "{{ .Values.registry }}/bess-upf-mitigation:{{ .Values.tag }}"
+          env:
+            - name: KAFKA_BROKER
+              value: redpanda:9092
+            - name: API_PORT
+              value: "8081"
+          ports:
+            - containerPort: 8081
