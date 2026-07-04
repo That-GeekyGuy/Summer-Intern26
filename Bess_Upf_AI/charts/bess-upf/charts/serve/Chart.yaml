@@ -1,0 +1,4 @@
+apiVersion: v2
+name: serve
+description: Ray Serve inference via KubeRay RayCluster, GCS fault tolerance via external Redis
+version: 0.1.0

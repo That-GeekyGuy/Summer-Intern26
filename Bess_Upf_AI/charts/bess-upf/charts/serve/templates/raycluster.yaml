@@ -1,0 +1,66 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: bess-upf-serve
+  namespace: {{ .Values.namespace }}
+spec:
+  rayVersion: "2.30.0"
+  gcsFaultToleranceOptions:
+    redisAddress: "ray-gcs-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+  headGroupSpec:
+    serviceType: ClusterIP
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+    template:
+      spec:
+        imagePullSecrets:
+          - name: {{ .Values.imagePullSecret }}
+        containers:
+          - name: ray-head
+            image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
+            env:
+              - name: MODELS_DIR
+                value: /models
+              - name: KAFKA_BROKER
+                value: redpanda:9092
+              - name: SHADOW_TOPIC
+                value: upf.shadow.detections
+            ports:
+              - containerPort: 8000
+                name: serve
+              - containerPort: 6379
+                name: gcs
+              - containerPort: 8265
+                name: dashboard
+            volumeMounts:
+              - name: models
+                mountPath: /models
+                readOnly: true
+        volumes:
+          - name: models
+            hostPath:
+              path: /models
+  workerGroupSpecs:
+    - groupName: default
+      replicas: {{ .Values.workerReplicas }}
+      minReplicas: {{ .Values.workerReplicas }}
+      maxReplicas: {{ .Values.workerReplicas }}
+      rayStartParams: {}
+      template:
+        spec:
+          imagePullSecrets:
+            - name: {{ .Values.imagePullSecret }}
+          containers:
+            - name: ray-worker
+              image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
+              env:
+                - name: MODELS_DIR
+                  value: /models
+              volumeMounts:
+                - name: models
+                  mountPath: /models
+                  readOnly: true
+          volumes:
+            - name: models
+              hostPath:
+                path: /models
