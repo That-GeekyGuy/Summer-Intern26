@@ -10,6 +10,11 @@ spec:
   headGroupSpec:
     serviceType: ClusterIP
     rayStartParams:
+      # 0.0.0.0 required so the KubeRay operator can health-check the dashboard
+      # from outside the pod's network namespace. Ray's dashboard/job-submission
+      # API has no built-in auth (ShadowRay / CVE-2023-48022) — no Service or
+      # Ingress exposes port 8265 externally, but anything else in-namespace can
+      # still reach it until Phase 4b adds NetworkPolicy isolation.
       dashboard-host: "0.0.0.0"
     template:
       spec:
