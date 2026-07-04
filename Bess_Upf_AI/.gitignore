@@ -24,3 +24,4 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+charts/bess-upf/charts/*.tgz
