@@ -5,6 +5,11 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # No auth gate on these routes: /api/mitigation exposes state-changing
+    # approve/deny endpoints, /api/serve exposes the inference API, both with
+    # zero auth. Same exposure docker-compose.v2.yml already has (direct
+    # mitigation:8081 / serve:8000 host port mappings, no auth) — not a
+    # regression. Real auth/RBAC/mTLS is Phase 4b scope, not this baseline.
 spec:
   ingressClassName: nginx
   rules:
