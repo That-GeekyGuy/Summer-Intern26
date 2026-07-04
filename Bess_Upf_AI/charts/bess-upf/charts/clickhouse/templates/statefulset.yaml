@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: {{ .Values.namespace }}
+spec:
+  serviceName: clickhouse-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: {{ .Values.image }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              ORDINAL=${HOSTNAME##*-}
+              export KEEPER_SERVER_ID=$((ORDINAL + 1))
+              export POD_NAME=${HOSTNAME}
+              exec /entrypoint.sh
+          env:
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.user }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-credentials
+                  key: password
+            - name: CLICKHOUSE_DB
+              value: bess_upf
+          ports:
+            - containerPort: 8123
+              name: http
+            - containerPort: 9000
+              name: native
+            - containerPort: 9181
+              name: keeper
+            - containerPort: 9234
+              name: keeper-raft
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - name: config
+              mountPath: /etc/clickhouse-server/config.d/cluster.xml
+              subPath: cluster.xml
+            - name: config
+              mountPath: /etc/clickhouse-server/config.d/macros.xml
+              subPath: macros.xml
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d/init.sql
+              subPath: init.sql
+          readinessProbe:
+            exec:
+              command: ["clickhouse-client", "--query", "SELECT 1"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: config
+          configMap:
+            name: clickhouse-config
+        - name: initdb
+          configMap:
+            name: clickhouse-initdb
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.storage }}

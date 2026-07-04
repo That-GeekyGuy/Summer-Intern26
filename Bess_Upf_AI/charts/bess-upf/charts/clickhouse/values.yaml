@@ -1,0 +1,5 @@
+namespace: bess-upf
+image: clickhouse/clickhouse-server:24.3-alpine
+user: chuser
+password: localdev123
+storage: 5Gi
