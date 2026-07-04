@@ -52,3 +52,28 @@ def test_guardrails_engine_blocks_on_rate():
     )
     engine.check(ActionClass.HPA_SCALE_UP, "upf-1")
     assert not engine.check(ActionClass.HPA_SCALE_UP, "upf-1")
+
+
+def test_guardrails_engine_blocks_on_blast():
+    engine = GuardrailsEngine(
+        RateLimiter(max_per_window=10, window_seconds=60.0),
+        BlastRadiusGuard(max_upfs=1, window_seconds=60.0),
+    )
+    engine.check(ActionClass.HPA_SCALE_UP, "upf-1")
+    assert not engine.check(ActionClass.HPA_SCALE_UP, "upf-2")
+
+
+def test_rate_limiter_evicts_expired_hits(monkeypatch):
+    calls = [0.0]
+    monkeypatch.setattr("mitigation.guardrails.time.monotonic", lambda: calls[0])
+    rl = RateLimiter(max_per_window=1, window_seconds=10.0)
+    rl.check(ActionClass.HPA_SCALE_UP, "upf-1")
+    calls[0] = 11.0
+    assert rl.check(ActionClass.HPA_SCALE_UP, "upf-1")
+
+
+def test_blast_radius_does_not_grow_on_repeated_upf():
+    bg = BlastRadiusGuard(max_upfs=5, window_seconds=60.0)
+    for _ in range(100):
+        bg.check(ActionClass.HPA_SCALE_UP, "upf-1")
+    assert len(bg._events[ActionClass.HPA_SCALE_UP]) == 1
