@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: pipeline
+  template:
+    metadata:
+      labels:
+        app: pipeline
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      containers:
+        - name: pipeline
+          image: "{{ .Values.registry }}/bess-upf-pipeline:{{ .Values.tag }}"
+          env:
+            - name: KAFKA_BROKER
+              value: redpanda:9092
+            - name: RAY_SERVE_URL
+              value: http://serve:8000
+            - name: BYTEWAX_CHECKPOINT_DIR
+              value: /data/bytewax-checkpoint
+            - name: SCRAPE_INTERVAL_SECS
+              value: "1.0"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
