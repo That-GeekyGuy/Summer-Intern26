@@ -155,3 +155,55 @@ SELECT
     moment_score,
     model_version
 FROM shadow_detections_kafka;
+
+-- Phase 3: action audit
+CREATE TABLE IF NOT EXISTS action_audit_kafka (
+    action_id      String,
+    upf_id         String,
+    ts             Float64,
+    action_class   String,
+    trust_level    String,
+    dry_run        UInt8,
+    success        UInt8,
+    message        String,
+    anomaly_score  Float64,
+    model_version  String,
+    rollback_token String
+) ENGINE = Kafka SETTINGS
+    kafka_broker_list = 'redpanda:9092',
+    kafka_topic_list  = 'upf.action_audit',
+    kafka_group_name  = 'clickhouse-audit',
+    kafka_format      = 'JSONEachRow',
+    kafka_skip_broken_messages = 1;
+
+CREATE TABLE IF NOT EXISTS action_audit (
+    action_id      String,
+    upf_id         LowCardinality(String),
+    ts             DateTime64(3),
+    action_class   LowCardinality(String),
+    trust_level    LowCardinality(String),
+    dry_run        UInt8,
+    success        UInt8,
+    message        String,
+    anomaly_score  Float64,
+    model_version  LowCardinality(String),
+    rollback_token String
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(ts)
+ORDER BY (upf_id, ts)
+TTL toDateTime(ts) + INTERVAL 365 DAY;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS action_audit_mv TO action_audit AS
+SELECT
+    action_id,
+    upf_id,
+    toDateTime64(ts, 3) AS ts,
+    action_class,
+    trust_level,
+    dry_run,
+    success,
+    message,
+    anomaly_score,
+    model_version,
+    rollback_token
+FROM action_audit_kafka;
