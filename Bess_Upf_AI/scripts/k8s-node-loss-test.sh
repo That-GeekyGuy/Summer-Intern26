@@ -13,9 +13,11 @@ case "$COMPONENT" in
   *) echo "unknown component: $COMPONENT" >&2; exit 1 ;;
 esac
 
+CH_AUTH="--user chuser --password localdev123"
+
 echo "== Writing canary record for $COMPONENT =="
 CANARY_ID="canary-$(date +%s)"
-kubectl exec -n "$NAMESPACE" clickhouse-0 -- clickhouse-client --query \
+kubectl exec -n "$NAMESPACE" clickhouse-0 -- clickhouse-client $CH_AUTH --query \
   "INSERT INTO bess_upf.action_audit (action_id, upf_id, ts, action_class, trust_level, dry_run, success, message, anomaly_score, model_version, rollback_token) \
    VALUES ('${CANARY_ID}', 'canary-upf', now64(3), 'CANARY', 'NONE', 1, 1, 'node-loss-test canary', 0.0, 'test', '')"
 
@@ -28,12 +30,25 @@ echo "== Stopping node $NODE (docker stop) =="
 docker stop "$NODE"
 
 echo "== Waiting for k8s to mark pod NotReady and reschedule =="
-sleep 15
+# node-monitor-grace-period defaults to 40s before kubelet is marked NotReady,
+# plus further pod-eviction delay — 15s was not enough, confirmed by the
+# survivor-selection below still picking a pod on the just-stopped node.
+sleep 60
 kubectl get pods -n "$NAMESPACE" -o wide | grep -E "$COMPONENT|NAME"
 
 echo "== Verifying canary record still readable from a surviving replica =="
-SURVIVOR=$(kubectl get pods -n "$NAMESPACE" -l "$LABEL" -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n "$NAMESPACE" "$SURVIVOR" -- clickhouse-client --query \
+# Exclude pods still scheduled on the stopped node — jsonpath alone can't
+# filter by nodeName, so pick the first pod NOT on $NODE via a small loop.
+SURVIVOR=""
+for pod in $(kubectl get pods -n "$NAMESPACE" -l "$LABEL" -o jsonpath='{.items[*].metadata.name}'); do
+  pod_node=$(kubectl get pod -n "$NAMESPACE" "$pod" -o jsonpath='{.spec.nodeName}')
+  if [ "$pod_node" != "$NODE" ]; then
+    SURVIVOR="$pod"
+    break
+  fi
+done
+echo "Survivor pod: $SURVIVOR"
+kubectl exec -n "$NAMESPACE" "$SURVIVOR" -- clickhouse-client $CH_AUTH --query \
   "SELECT count() FROM bess_upf.action_audit WHERE action_id = '${CANARY_ID}'"
 
 echo "== Restoring node $NODE =="
