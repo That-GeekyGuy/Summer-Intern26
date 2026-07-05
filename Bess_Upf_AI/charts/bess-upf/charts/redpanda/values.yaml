@@ -1,4 +1,4 @@
 namespace: bess-upf
 replicas: 3
-image: docker.redpanda.com/redpandadata/redpanda:v23.2.19
+image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
 storage: 2Gi
