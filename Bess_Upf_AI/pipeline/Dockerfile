@@ -4,7 +4,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-RUN chmod +x start.sh
+COPY . ./pipeline/
+RUN chmod +x pipeline/start.sh
 
-CMD ["./start.sh"]
+ENV PYTHONPATH=/app
+CMD ["./pipeline/start.sh"]

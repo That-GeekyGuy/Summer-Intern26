@@ -27,15 +27,19 @@ spec:
               # invocation on this image. rpk is the correct wrapper CLI. node_id
               # isn't an rpk flag or -X config-opt either — it auto-assigns from
               # the seed/cluster-join process, so it's intentionally omitted.
-              # rpk's dev-mode already generates --smp/--memory/--reserve-memory/
-              # --overprovisioned itself (confirmed via container logs) — passing
-              # them again after -- duplicated --reserve-memory and crashed startup.
+              # rpk's dev-mode auto-adds --reserve-memory/--overprovisioned itself
+              # (confirmed via container logs) — repeating those after -- crashed
+              # with "cannot be specified more than once". --smp/--memory are NOT
+              # auto-added though, and without --smp 1 redpanda tries to grab
+              # AIO slots for every host CPU and exceeds fs.aio-max-nr on this
+              # kind node — so only those two are re-added here.
               exec rpk redpanda start \
                 --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
                 --kafka-addr internal://0.0.0.0:9092 \
                 --advertise-kafka-addr internal://$(hostname -f):9092 \
                 --rpc-addr 0.0.0.0:33145 \
-                --advertise-rpc-addr $(hostname -f):33145
+                --advertise-rpc-addr $(hostname -f):33145 \
+                -- --smp 1 --memory 1G
           ports:
             - containerPort: 9092
               name: kafka
