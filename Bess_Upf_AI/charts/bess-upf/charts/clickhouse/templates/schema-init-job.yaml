@@ -28,16 +28,27 @@ spec:
           args:
             - |
               set -e
-              until clickhouse-client --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+              # --user/--password required: CLICKHOUSE_USER/PASSWORD env vars
+              # on the StatefulSet configure THAT user, not "default" — the
+              # default user's connections get AUTHENTICATION_FAILED without
+              # explicit credentials (confirmed via direct exec test).
+              CH_ARGS="--user {{ .Values.user }} --password ${CLICKHOUSE_PASSWORD}"
+              until clickhouse-client $CH_ARGS --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
                     --query "SELECT 1" >/dev/null 2>&1 \
-                 && clickhouse-client --host clickhouse-1.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                 && clickhouse-client $CH_ARGS --host clickhouse-1.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
                     --query "SELECT 1" >/dev/null 2>&1 \
-                 && clickhouse-client --host clickhouse-2.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                 && clickhouse-client $CH_ARGS --host clickhouse-2.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
                     --query "SELECT 1" >/dev/null 2>&1; do
                 echo "waiting for all 3 clickhouse nodes..."; sleep 5
               done
-              clickhouse-client --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+              clickhouse-client $CH_ARGS --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
                 --multiquery < /init.sql
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-credentials
+                  key: password
           volumeMounts:
             - name: initdb
               mountPath: /init.sql
