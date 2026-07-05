@@ -33,8 +33,16 @@ spec:
               # auto-added though, and without --smp 1 redpanda tries to grab
               # AIO slots for every host CPU and exceeds fs.aio-max-nr on this
               # kind node — so only those two are re-added here.
+              # Every node lists ALL seeds (not just redpanda-0) — this is
+              # the documented Redpanda multi-node bootstrap pattern. Pointing
+              # every replica at only redpanda-0 let it self-bootstrap alone as
+              # a single-node "leader" before 1/2 tried to join via a separate,
+              # less-supported path, which reproducibly got stuck as permanent
+              # raft learners (never promoted to voters, confirmed via repeated
+              # "no leader controller elected" / stuck learner status in logs
+              # on TWO separate fresh clusters, ruling out env flakiness).
               exec rpk redpanda start \
-                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
+                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145,redpanda-1.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145,redpanda-2.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
                 --kafka-addr internal://0.0.0.0:9092 \
                 --advertise-kafka-addr internal://$(hostname -f):9092 \
                 --rpc-addr 0.0.0.0:33145 \
