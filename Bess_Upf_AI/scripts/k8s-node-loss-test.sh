@@ -13,7 +13,8 @@ case "$COMPONENT" in
   *) echo "unknown component: $COMPONENT" >&2; exit 1 ;;
 esac
 
-CH_AUTH="--user chuser --password localdev123"
+CH_PASSWORD=$(kubectl get secret -n "$NAMESPACE" clickhouse-credentials -o jsonpath='{.data.password}' | base64 -d)
+CH_AUTH="--user chuser --password ${CH_PASSWORD}"
 
 echo "== Writing canary record for $COMPONENT =="
 CANARY_ID="canary-$(date +%s)"
