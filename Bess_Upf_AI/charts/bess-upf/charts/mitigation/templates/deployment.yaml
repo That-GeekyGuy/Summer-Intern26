@@ -18,6 +18,7 @@ spec:
       containers:
         - name: mitigation
           image: "{{ .Values.registry }}/bess-upf-mitigation:{{ .Values.tag }}"
+          imagePullPolicy: Always
           env:
             - name: KAFKA_BROKER
               value: redpanda:9092

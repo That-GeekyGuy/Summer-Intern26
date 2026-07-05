@@ -18,6 +18,7 @@ spec:
       containers:
         - name: pipeline
           image: "{{ .Values.registry }}/bess-upf-pipeline:{{ .Values.tag }}"
+          imagePullPolicy: Always
           env:
             - name: KAFKA_BROKER
               value: redpanda:9092

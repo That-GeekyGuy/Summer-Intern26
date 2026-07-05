@@ -27,6 +27,7 @@ spec:
         containers:
           - name: ray-head
             image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
+            imagePullPolicy: Always
             env:
               - name: MODELS_DIR
                 value: /models
@@ -64,6 +65,7 @@ spec:
           containers:
             - name: ray-worker
               image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
+            imagePullPolicy: Always
               env:
                 - name: MODELS_DIR
                   value: /models
