@@ -41,8 +41,19 @@ spec:
                     --query "SELECT 1" >/dev/null 2>&1; do
                 echo "waiting for all 3 clickhouse nodes..."; sleep 5
               done
-              clickhouse-client $CH_ARGS --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
-                --multiquery < /init.sql
+              # ReplicatedMergeTree schema does NOT auto-propagate to sibling
+              # nodes — each replica must independently run its own CREATE
+              # TABLE (confirmed: running init.sql against clickhouse-0 only
+              # left clickhouse-1/2 with zero local tables, causing
+              # "Unknown table" errors whenever the round-robin `clickhouse`
+              # Service happened to route to one of them). Kafka-engine
+              # tables and materialized views are also node-local by design
+              # (each node independently consumes its own Kafka partitions),
+              # so the full init.sql genuinely needs to run on all 3 nodes.
+              for host in clickhouse-0 clickhouse-1 clickhouse-2; do
+                clickhouse-client $CH_ARGS --host ${host}.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                  --multiquery < /init.sql
+              done
           env:
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
