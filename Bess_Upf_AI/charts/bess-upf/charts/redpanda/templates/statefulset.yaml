@@ -38,16 +38,21 @@ spec:
               # auto-added though, and without --smp 1 redpanda tries to grab
               # AIO slots for every host CPU and exceeds fs.aio-max-nr on this
               # kind node — so only those two are re-added here.
-              # Every node lists ALL seeds (not just redpanda-0) — this is
-              # the documented Redpanda multi-node bootstrap pattern. Pointing
-              # every replica at only redpanda-0 let it self-bootstrap alone as
-              # a single-node "leader" before 1/2 tried to join via a separate,
-              # less-supported path, which reproducibly got stuck as permanent
-              # raft learners (never promoted to voters, confirmed via repeated
-              # "no leader controller elected" / stuck learner status in logs
-              # on TWO separate fresh clusters, ruling out env flakiness).
+              # Every node lists ONLY redpanda-0 as seed. An earlier attempt
+              # (with podManagementPolicy: Parallel) made every node list all
+              # 3 seeds, reasoning that single-seed left 1/2 stuck as raft
+              # learners — but that was the wrong diagnosis: all 3 pods were
+              # starting simultaneously back then too, so the real cause was
+              # CoreDNS not having propagated peer DNS records yet (same root
+              # cause fixed below via OrderedReady). Under OrderedReady,
+              # redpanda-1/2 don't exist as pods until redpanda-0 is Ready, so
+              # an all-seeds list deadlocks node 0 waiting on peers that can't
+              # exist yet (confirmed via "pods not found" for 1/2 while node 0
+              # kept retrying their DNS). Single-seed is the correct pairing
+              # with OrderedReady: node 0 bootstraps alone, then each
+              # subsequent node joins the by-then-already-running node 0.
               exec rpk redpanda start \
-                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145,redpanda-1.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145,redpanda-2.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
+                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
                 --kafka-addr internal://0.0.0.0:9092 \
                 --advertise-kafka-addr internal://$(hostname -f):9092 \
                 --rpc-addr 0.0.0.0:33145 \
