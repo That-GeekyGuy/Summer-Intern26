@@ -41,12 +41,21 @@ spec:
               # raft learners (never promoted to voters, confirmed via repeated
               # "no leader controller elected" / stuck learner status in logs
               # on TWO separate fresh clusters, ruling out env flakiness).
+              #
+              # Trailing dot on every FQDN below: redpanda's internal DNS
+              # client (c-ares) doesn't apply glibc's ndots:5 absolute-name
+              # heuristic the same way — confirmed via matching /etc/resolv.conf
+              # (search domains + ndots:5 correct) plus "error C-Ares:4 ...
+              # Not found" in redpanda's own logs even though `getent hosts`
+              # resolves the identical name fine via the OS resolver. A
+              # trailing dot is the unambiguous "this is already a complete
+              # FQDN" signal that all resolvers, including c-ares, respect.
               exec rpk redpanda start \
-                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145,redpanda-1.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145,redpanda-2.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
+                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local.:33145,redpanda-1.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local.:33145,redpanda-2.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local.:33145" \
                 --kafka-addr internal://0.0.0.0:9092 \
-                --advertise-kafka-addr internal://$(hostname -f):9092 \
+                --advertise-kafka-addr internal://$(hostname -f).:9092 \
                 --rpc-addr 0.0.0.0:33145 \
-                --advertise-rpc-addr $(hostname -f):33145 \
+                --advertise-rpc-addr $(hostname -f).:33145 \
                 -- --smp 1 --memory 1G
           ports:
             - containerPort: 9092
