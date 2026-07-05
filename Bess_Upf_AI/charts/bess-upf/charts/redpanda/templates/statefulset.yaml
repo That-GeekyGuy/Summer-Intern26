@@ -6,7 +6,12 @@ metadata:
 spec:
   serviceName: redpanda-headless
   replicas: {{ .Values.replicas }}
-  podManagementPolicy: Parallel
+  # podManagementPolicy Parallel caused all 3 pods to start simultaneously,
+  # and CoreDNS took minutes to register each pod's headless-service DNS
+  # record — confirmed via getent (the OS resolver, not just redpanda's own
+  # c-ares) also failing to resolve a sibling pod for 2.5+ minutes from inside
+  # a freshly-started pod. Default OrderedReady staggers pod creation so each
+  # one's DNS entry has time to propagate before the next pod needs it.
   selector:
     matchLabels:
       app: redpanda
@@ -15,31 +20,6 @@ spec:
       labels:
         app: redpanda
     spec:
-      initContainers:
-        - name: wait-for-peer-dns
-          image: {{ .Values.image }}
-          command: ["bash", "-c"]
-          args:
-            - |
-              set -e
-              # redpanda's internal DNS client (c-ares) resolves peer seed
-              # hostnames exactly once at process start. All 3 pods start in
-              # parallel (podManagementPolicy: Parallel), so each one's very
-              # first c-ares lookup for its siblings can race the sibling's
-              # DNS record actually propagating — c-ares then appears to
-              # negative-cache that failure forever (confirmed: "error C-Ares:4
-              # ... Not found" persisted indefinitely in logs, on hostnames
-              # that `getent hosts` — the OS resolver — always resolved
-              # successfully when checked after the fact; a trailing-dot FQDN
-              # made no difference, ruling out an ndots-heuristic mismatch).
-              # This init container waits for all 3 peers to resolve via the
-              # OS resolver first, so redpanda's own first lookup never hits
-              # the race.
-              for peer in redpanda-0 redpanda-1 redpanda-2; do
-                until getent hosts "${peer}.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local"; do
-                  echo "waiting for DNS: ${peer}"; sleep 2
-                done
-              done
       containers:
         - name: redpanda
           image: {{ .Values.image }}
