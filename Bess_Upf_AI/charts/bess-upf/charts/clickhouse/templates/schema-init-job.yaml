@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clickhouse-schema-init
+  namespace: {{ .Values.namespace }}
+  annotations:
+    # docker-entrypoint-initdb.d/init.sql (mounted on the StatefulSet) runs
+    # once at each pod's first boot — but that happens before the 3-node
+    # Keeper quorum can possibly exist (clickhouse-0 boots alone first), so
+    # every ReplicatedMergeTree CREATE TABLE in init.sql fails immediately
+    # and the entrypoint script aborts partway through (confirmed: only the
+    # Kafka staging table `upf_metrics_kafka` existed, none of the actual
+    # ReplicatedMergeTree tables or materialized views). This Job waits for
+    # the real 3-node cluster to be up, then re-runs the same init.sql via a
+    # live client connection — safe to run alongside/after the entrypoint's
+    # partial attempt since every statement is IF NOT EXISTS.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: schema-init
+          image: {{ .Values.image }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              until clickhouse-client --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                    --query "SELECT 1" >/dev/null 2>&1 \
+                 && clickhouse-client --host clickhouse-1.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                    --query "SELECT 1" >/dev/null 2>&1 \
+                 && clickhouse-client --host clickhouse-2.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                    --query "SELECT 1" >/dev/null 2>&1; do
+                echo "waiting for all 3 clickhouse nodes..."; sleep 5
+              done
+              clickhouse-client --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                --multiquery < /init.sql
+          volumeMounts:
+            - name: initdb
+              mountPath: /init.sql
+              subPath: init.sql
+      volumes:
+        - name: initdb
+          configMap:
+            name: clickhouse-initdb
