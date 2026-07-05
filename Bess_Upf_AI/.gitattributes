@@ -1,1 +1,5 @@
 # Model + dataset artifacts are fetched from MinIO (scripts/fetch-models.sh), not Git LFS.
+
+# Shell scripts run inside Linux containers — force LF so a Windows checkout
+# (autocrlf) doesn't reintroduce a CRLF shebang that breaks `exec` in Docker.
+*.sh text eol=lf

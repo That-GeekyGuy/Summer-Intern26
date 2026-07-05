@@ -45,23 +45,23 @@ VictoriaMetrics
       │
       ├─── export-job (nightly) ─────────────────► MinIO Parquet
       │                                                │
-      │                                     ┌──────────▼──────────┐
+      │                                     ┌──────────▼───────────┐
       │                                     │  prepare_dataset.py  │
       │                                     │  scenario-aware split│
       │                                     │  hash → version tag  │
+      │                                     └──────────┬───────────┘
+      │                                                │
+      │                                     ┌──────────▼──────────┐
+      │                                     │     train.py        │
+      │                                     │  IF + RF (ensemble) │
+      │                                     │  MOMENT head (FT)   │
       │                                     └──────────┬──────────┘
       │                                                │
       │                                     ┌──────────▼──────────┐
-      │                                     │     train.py         │
-      │                                     │  IF + RF (ensemble)  │
-      │                                     │  MOMENT head (FT)    │
-      │                                     └──────────┬──────────┘
-      │                                                │
-      │                                     ┌──────────▼──────────┐
-      │                                     │     eval.py          │
-      │                                     │  F1/precision/recall │
-      │                                     │  per tier + ablation │
-      │                                     │  training_report.md  │
+      │                                     │     eval.py         │
+      │                                     │  F1/precision/recall│
+      │                                     │  per tier + ablation│
+      │                                     │  training_report.md │
       │                                     └──────────┬──────────┘
       │                                                │
       │                                          models/ (versioned)

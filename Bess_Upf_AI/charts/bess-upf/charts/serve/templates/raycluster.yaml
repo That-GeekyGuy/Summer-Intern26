@@ -3,10 +3,14 @@ kind: RayCluster
 metadata:
   name: bess-upf-serve
   namespace: {{ .Values.namespace }}
+  annotations:
+    # kuberay-operator 1.1.0's RayCluster CRD predates the structured
+    # spec.gcsFaultToleranceOptions field (added in later KubeRay versions) —
+    # GCS fault tolerance on this version is enabled via this annotation plus
+    # RAY_REDIS_ADDRESS on the head container below.
+    ray.io/ft-enabled: "true"
 spec:
   rayVersion: "2.30.0"
-  gcsFaultToleranceOptions:
-    redisAddress: "ray-gcs-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
   headGroupSpec:
     serviceType: ClusterIP
     rayStartParams:
@@ -30,6 +34,8 @@ spec:
                 value: redpanda:9092
               - name: SHADOW_TOPIC
                 value: upf.shadow.detections
+              - name: RAY_REDIS_ADDRESS
+                value: "ray-gcs-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
             ports:
               - containerPort: 8000
                 name: serve
