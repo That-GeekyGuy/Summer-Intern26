@@ -1,0 +1,1 @@
+{"spec":{"template":{"spec":{"nodeSelector":{"kubernetes.io/hostname":"bess-upf-worker3"}}}}}

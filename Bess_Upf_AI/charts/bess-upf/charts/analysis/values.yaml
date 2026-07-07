@@ -8,8 +8,8 @@ vllm:
   mock:
     enabled: false
   image: "vllm/vllm-openai:v0.4.3"
-  model: "Qwen/Qwen2.5-7B-Instruct"
-  quantization: "bitsandbytes"
+  model: "Qwen/Qwen2.5-7B-Instruct-AWQ"
+  quantization: "awq"
   maxModelLen: 2048
   gpuMemoryUtilization: 0.8
   hfTokenSecretName: "hf-token"
