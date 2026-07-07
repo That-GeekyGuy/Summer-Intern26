@@ -10,15 +10,22 @@ spec:
       app: pipeline
   template:
     metadata:
+      annotations:
+        {{- if .Values.global.security.mtls.enabled }}
+        linkerd.io/inject: enabled
+        {{- end }}
       labels:
         app: pipeline
     spec:
+      {{- if .Values.global.security.rbac.enabled }}
+      serviceAccountName: pipeline
+      {{- end }}
       imagePullSecrets:
         - name: {{ .Values.imagePullSecret }}
       containers:
         - name: pipeline
           image: "{{ .Values.registry }}/bess-upf-pipeline:{{ .Values.tag }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: KAFKA_BROKER
               value: redpanda:9092
@@ -28,6 +35,8 @@ spec:
               value: /data/bytewax-checkpoint
             - name: SCRAPE_INTERVAL_SECS
               value: "1.0"
+            - name: UPF_SIM_METRICS
+              value: {{ .Values.metricsUrl | default "http://upf-sim:8090/metrics" | quote }}
           volumeMounts:
             - name: data
               mountPath: /data

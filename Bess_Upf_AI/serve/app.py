@@ -55,7 +55,7 @@ class ChronosForecastRequest(BaseModel):
     timestamps: list[str] | None = None
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_gpus": 0})
+@serve.deployment(num_replicas=2, ray_actor_options={"num_gpus": 0})
 @serve.ingress(app)
 class MLServeDeployment:
     def __init__(self):
@@ -163,7 +163,7 @@ class MLServeDeployment:
             channel_scores["moment_score"] = moment_score
 
         return {
-            "available": True,
+            "available": self.sklearn_available or self.moment_available,
             "anomaly": anomaly,
             "anomaly_score": anomaly_score,
             "if_score": if_score,
@@ -181,6 +181,15 @@ class MLServeDeployment:
         result = self._detect_impl(req)
         self._shadow.publish(upf_id=req.upf_id, ts=req.ts, result=result)
         return result
+
+    @app.post("/detect_batch")
+    def detect_batch(self, reqs: list[DetectRequest]) -> list[dict]:
+        results = []
+        for req in reqs:
+            res = self._detect_impl(req)
+            self._shadow.publish(upf_id=req.upf_id, ts=req.ts, result=res)
+            results.append(res)
+        return results
 
     @app.post("/forecast")
     def forecast(self, req: ChronosForecastRequest) -> dict:

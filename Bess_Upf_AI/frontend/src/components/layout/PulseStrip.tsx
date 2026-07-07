@@ -19,11 +19,12 @@ export function PulseStrip({ creds }: Props) {
   useEffect(() => {
     async function poll() {
       try {
-        const resp = await queryInstant(creds, "pfcp_sessions_total");
+        const sql = "SELECT upf_id as node, pfcp_sessions_total as value FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) ORDER BY ts DESC LIMIT 1";
+        const resp = await queryInstant(creds, sql);
         if (resp.samples.length === 0) return;
 
         // Sum across all label-sets (multiple PFCP contexts) to get total.
-        const total = resp.samples.reduce((sum, s) => sum + s.value, 0);
+        const total = resp.samples.reduce((sum, s) => sum + (s.value ?? s.Value ?? 0), 0);
         const now = Date.now();
 
         setPoints((prev) => {

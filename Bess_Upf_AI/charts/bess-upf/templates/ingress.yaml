@@ -5,12 +5,17 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
+    cert-manager.io/cluster-issuer: selfsigned-issuer
     # No auth gate on these routes: /api/mitigation exposes state-changing
     # approve/deny endpoints, /api/serve exposes the inference API, both with
     # zero auth. Same exposure docker-compose.v2.yml already has (direct
     # mitigation:8081 / serve:8000 host port mappings, no auth) — not a
     # regression. Real auth/RBAC/mTLS is Phase 4b scope, not this baseline.
 spec:
+  tls:
+    - hosts:
+        - bess-upf.local
+      secretName: bess-upf-tls
   ingressClassName: nginx
   rules:
     - http:
@@ -22,6 +27,13 @@ spec:
                 name: serve
                 port:
                   number: 8000
+          - path: /()(api/v1/.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: analysis
+                port:
+                  number: 8082
           - path: /api/mitigation(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
@@ -29,3 +41,10 @@ spec:
                 name: mitigation
                 port:
                   number: 8081
+          - path: /()(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

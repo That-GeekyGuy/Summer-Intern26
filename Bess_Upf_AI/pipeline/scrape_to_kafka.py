@@ -22,7 +22,6 @@ _PORT_FAMILIES: dict[str, str] = {
 }
 
 _COUNTER_PREFIXES = (
-    "pfcp_sessions_total",
     "port_bytes_",
     "port_pkts_",
     "port_dropped_",
@@ -118,7 +117,11 @@ def build_message(
     prev_state: dict[str, tuple[float, float]],
 ) -> dict:
     msg: dict = {"upf_id": upf_id, "ts": ts}
-    msg.update(metrics)
+    for key, value in metrics.items():
+        if key == "process_cpu_seconds_total":
+            msg[key] = float(value)
+        else:
+            msg[key] = int(value)
 
     for key, value in metrics.items():
         if any(key.startswith(p) for p in _COUNTER_PREFIXES):
@@ -143,7 +146,7 @@ def main() -> None:
         while True:
             tick_start = time.time()
             try:
-                resp = requests.get(UPF_SIM_METRICS, timeout=5.0)
+                resp = requests.get(UPF_SIM_METRICS, timeout=15.0)
                 resp.raise_for_status()
 
                 metrics, upf_id = parse_prometheus_text(resp.text)
@@ -164,8 +167,8 @@ def main() -> None:
                     producer.flush()
 
             except requests.RequestException as exc:
-                log.warning("Scrape failed: %s — backing off 5s", exc)
-                time.sleep(5.0)
+                log.warning("Scrape failed: %s — backing off 15s", exc)
+                time.sleep(15.0)
                 continue
 
             elapsed = time.time() - tick_start

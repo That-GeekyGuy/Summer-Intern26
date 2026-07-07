@@ -16,28 +16,28 @@ const FORECAST_METRICS = [
   {
     metric: "pfcp_sessions_total",
     label: "per node",
-    promql: 'pfcp_sessions_total{job="upf"}',
+    sql: 'SELECT upf_id as node, pfcp_sessions_total as value FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) ORDER BY ts DESC LIMIT 1',
     capacity: 2_000_000,
     severity: "high",
   },
   {
     metric: "pfcp_sessions_total_cluster",
     label: "cluster",
-    promql: 'sum(pfcp_sessions_total{job="upf"})',
+    sql: 'SELECT sum(pfcp_sessions_total) as value FROM (SELECT upf_id, argMax(pfcp_sessions_total, ts) as pfcp_sessions_total FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) GROUP BY upf_id)',
     capacity: 4_000_000,
     severity: "critical",
   },
   {
     metric: "port_bytes_count",
     label: "N3 rx",
-    promql: 'sum(rate(port_bytes_count{job="upf",iface="N3",dir="rx"}[5m]))',
+    sql: 'SELECT sum(port_bytes_N3_rx_rate) as value FROM (SELECT upf_id, argMax(port_bytes_N3_rx_rate, ts) as port_bytes_N3_rx_rate FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(5)) GROUP BY upf_id)',
     capacity: 10_000_000_000,
     severity: "high",
   },
   {
     metric: "port_dropped_count",
     label: "all",
-    promql: 'sum(rate(port_dropped_count{job="upf"}[2m]))',
+    sql: 'SELECT sum(port_dropped_N3_rx_rate + port_dropped_N6_rx_rate) as value FROM (SELECT upf_id, argMax(port_dropped_N3_rx_rate, ts) as port_dropped_N3_rx_rate, argMax(port_dropped_N6_rx_rate, ts) as port_dropped_N6_rx_rate FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(2)) GROUP BY upf_id)',
     capacity: null,
     severity: "medium",
   },
@@ -95,7 +95,7 @@ export function ForecastPage({ creds }: Props) {
   const metricQueries = useQueries({
     queries: FORECAST_METRICS.map(m => ({
       queryKey: ["forecast-live", m.metric],
-      queryFn: () => queryInstant(creds, m.promql),
+      queryFn: () => queryInstant(creds, m.sql),
       refetchInterval: POLL_INTERVALS.forecast,
       retry: 1,
     })),
@@ -124,7 +124,7 @@ export function ForecastPage({ creds }: Props) {
   const intervalQueries = useQueries({
     queries: FORECAST_METRICS.map(m => ({
       queryKey: ["intervals", m.metric],
-      queryFn: () => fetchIntervals(creds, m.promql),
+      queryFn: () => fetchIntervals(creds, m.sql),
       refetchInterval: 2 * 60_000,   // re-fetch every 2 min
       staleTime: 90_000,
       retry: 0,
@@ -162,7 +162,7 @@ export function ForecastPage({ creds }: Props) {
             // one sample per UPF node; rate queries with sum() return a single sample).
             const samplesArr = q.data?.samples ?? [];
             const currentValue = samplesArr.length > 0
-              ? samplesArr.reduce((acc, s) => acc + s.value, 0)
+              ? samplesArr.reduce((acc, s) => acc + (s.value ?? s.Value ?? 0), 0)
               : null;
             const dbEvent = dbEvents.get(m.metric) ?? null;
             const capacity = m.capacity as number | null;

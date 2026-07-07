@@ -11,14 +11,14 @@ ML_CHANNELS: list[str] = [
     "go_goroutines",
     "go_heap_alloc_bytes",
     "process_cpu_rate",
-    "upf_sim_scenario_congestion",
+    "upf_sim_scenario_normal",
     "upf_sim_scenario_flatline",
-    "upf_sim_scenario_spike",
+    "upf_sim_scenario_packet_drop_surge",
     "port_pkts_N6_tx_rate",
     "port_dropped_N6_rx",
 ]
 
-WINDOW_SIZE: int = 512
+WINDOW_SIZE: int = 60
 
 
 class WindowState:
@@ -35,8 +35,9 @@ class WindowState:
     def update(self, msg: dict) -> "WindowState":
         for ch in ML_CHANNELS:
             val = msg.get(ch)
-            if val is not None:
-                self._channels[ch].append(float(val))
+            if val is None:
+                val = 0.0
+            self._channels[ch].append(float(val))
         return self
 
     def is_full(self) -> bool:

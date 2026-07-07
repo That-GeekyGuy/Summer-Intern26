@@ -4,3 +4,4 @@ requests>=2.31,<3.0
 prometheus-client>=0.20
 clickhouse-connect>=0.7.10,<1.0
 pytest>=8.0
+numpy>=1.26

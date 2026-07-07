@@ -92,9 +92,6 @@ def _handle_event(
 
 
 def main() -> None:
-    store = ApprovalStore()
-    api_module.init(store)
-
     try:
         producer = Producer({"bootstrap.servers": KAFKA_BROKER})
     except Exception:
@@ -102,6 +99,9 @@ def main() -> None:
         producer = None
 
     audit = AuditPublisher(producer=producer, topic=AUDIT_TOPIC)
+    
+    store = ApprovalStore()
+    api_module.init(store, audit)
     guardrails = GuardrailsEngine(
         RateLimiter(max_per_window=3, window_seconds=300.0),
         BlastRadiusGuard(max_upfs=5, window_seconds=300.0),
@@ -117,6 +117,7 @@ def main() -> None:
         "bootstrap.servers": KAFKA_BROKER,
         "group.id": "mitigation-worker-group",
         "auto.offset.reset": "latest",
+        "session.timeout.ms": 60000,
     })
     consumer.subscribe(["upf.anomalies.critical"])
     log.info("Mitigation worker subscribed to upf.anomalies.critical")

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: analysis
+description: analysis service
+version: 0.1.0
+appVersion: phase4a

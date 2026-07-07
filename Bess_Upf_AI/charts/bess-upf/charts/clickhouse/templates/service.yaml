@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   clusterIP: None
+  publishNotReadyAddresses: true
   selector:
     app: clickhouse
   ports:

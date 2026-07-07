@@ -18,3 +18,9 @@ dependencies:
     version: "4.11.3"
     repository: "https://kubernetes.github.io/ingress-nginx"
     condition: ingress-nginx.enabled
+  - name: frontend
+    version: "0.1.0"
+  - name: upf-sim
+    version: "0.1.0"
+  - name: analysis
+    version: "0.1.0"

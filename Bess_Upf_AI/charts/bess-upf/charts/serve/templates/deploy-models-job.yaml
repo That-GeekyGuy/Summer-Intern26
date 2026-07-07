@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: deploy-ml-models
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: deploy-ml-models
+    spec:
+      containers:
+        - name: deployer
+          image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
+          command: ["python", "/app/deploy_models.py"]
+          env:
+            - name: RAY_ADDRESS
+              value: "http://bess-upf-serve-head-svc:8265"
+      restartPolicy: OnFailure

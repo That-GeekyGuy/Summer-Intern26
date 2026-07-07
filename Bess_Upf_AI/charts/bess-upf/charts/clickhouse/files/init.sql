@@ -209,3 +209,37 @@ SELECT
     model_version,
     rollback_token
 FROM action_audit_kafka;
+
+-- ============================================================
+-- Operator Feedback Loop
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS operator_feedback_kafka (
+    action_id      String,
+    upf_id         String,
+    label          String,
+    ts             Float64
+) ENGINE = Kafka SETTINGS
+    kafka_broker_list = 'redpanda:9092',
+    kafka_topic_list  = 'upf.feedback',
+    kafka_group_name  = 'clickhouse-feedback',
+    kafka_format      = 'JSONEachRow',
+    kafka_skip_broken_messages = 1;
+
+CREATE TABLE IF NOT EXISTS operator_feedback (
+    action_id      String,
+    upf_id         LowCardinality(String),
+    label          LowCardinality(String),
+    ts             DateTime64(3)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/operator_feedback', '{replica}')
+PARTITION BY toYYYYMMDD(ts)
+ORDER BY (upf_id, ts)
+TTL toDateTime(ts) + INTERVAL 365 DAY;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS operator_feedback_mv TO operator_feedback AS
+SELECT
+    action_id,
+    upf_id,
+    label,
+    toDateTime64(ts, 3) AS ts
+FROM operator_feedback_kafka;

@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: model-retraining
+  namespace: {{ .Values.namespace }}
+spec:
+  schedule: "0 0 * * *" # Daily at midnight
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          {{- if .Values.global.security.rbac.enabled }}
+          serviceAccountName: serve
+          {{- end }}
+          imagePullSecrets:
+            - name: {{ .Values.imagePullSecret }}
+          containers:
+            - name: retrain
+              # Using mitigation image since it has clickhouse-driver
+              image: "{{ .Values.registry }}/bess-upf-mitigation:{{ .Values.tag }}"
+              imagePullPolicy: IfNotPresent
+              command: ["python", "/models/retrain.py"]
+              volumeMounts:
+                - name: script
+                  mountPath: /models
+              env:
+                - name: CLICKHOUSE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: clickhouse-credentials
+                      key: password
+                - name: CLICKHOUSE_HTTP_URL
+                  value: http://chuser:$(CLICKHOUSE_PASSWORD)@clickhouse-0.clickhouse-headless:8123
+                - name: RAY_ADDRESS
+                  value: http://serve:8265
+          volumes:
+            - name: script
+              configMap:
+                name: model-retraining-script

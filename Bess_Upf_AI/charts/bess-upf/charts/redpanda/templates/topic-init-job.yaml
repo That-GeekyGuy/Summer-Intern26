@@ -18,9 +18,9 @@ spec:
           args:
             - |
               set -e
-              until rpk cluster health --brokers redpanda:9092 2>/dev/null | grep -q "Healthy:.*true"; do
+              until rpk cluster info --brokers redpanda:9092 2>/dev/null; do
                 echo "waiting for redpanda cluster..."; sleep 3
               done
               rpk topic create upf.metrics.raw upf.anomalies.critical \
-                upf.shadow.detections upf.action_audit \
+                upf.shadow.detections upf.action_audit upf.feedback \
                 --brokers redpanda:9092 --replicas 3 || true

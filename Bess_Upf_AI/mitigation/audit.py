@@ -47,3 +47,12 @@ class AuditPublisher:
             self._producer.poll(0)
         except Exception:
             log.exception("audit publish failed")
+
+    def publish_raw(self, topic: str, payload: dict) -> None:
+        if self._producer is None:
+            return
+        try:
+            self._producer.produce(topic=topic, value=json.dumps(payload).encode())
+            self._producer.poll(0)
+        except Exception:
+            log.exception("raw publish failed")

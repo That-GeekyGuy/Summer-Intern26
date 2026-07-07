@@ -11,8 +11,8 @@ export const POLL_INTERVALS = {
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
-// Read scenario controls from env (default to false for production safety)
-export const ENABLE_SCENARIO = import.meta.env.VITE_ENABLE_SCENARIO_CONTROLS === "true";
+// Read scenario controls from env (default to true for testing)
+export const ENABLE_SCENARIO = true;
 
 // Pulse strip: how many seconds of history to show (2 min rolling window)
 export const PULSE_WINDOW_SEC = 120;

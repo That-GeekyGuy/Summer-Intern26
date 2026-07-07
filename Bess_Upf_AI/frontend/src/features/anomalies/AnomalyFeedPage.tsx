@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Credentials, AnomalyEvent, fetchHotzone, Regime, HourlyStat } from "../../api/client";
+
+import { Credentials, AnomalyEvent } from "../../api/client";
 import { useAnomalies } from "../../hooks/useAnomalies";
 import { useAppStore } from "../../store/useAppStore";
 import { COPY } from "../../lib/copy";
@@ -22,45 +22,7 @@ const rowVariants: Variants = {
   show: { opacity: 1, x: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
 };
 
-const REGIME_COLOR: Record<Regime, string> = {
-  low:    "#4a90d9",
-  normal: "#27ae60",
-  peak:   "#e67e22",
-  surge:  "#e74c3c",
-};
 
-function RegimeBadge({ regime }: { regime: Regime | null }) {
-  if (!regime) return <span style={{ color: "var(--text-muted)", fontSize: "var(--text-2xs)" }}>—</span>;
-  const color = REGIME_COLOR[regime];
-  return (
-    <span style={{
-      padding: "1px 7px",
-      borderRadius: 10,
-      background: `${color}20`,
-      border: `1px solid ${color}`,
-      color,
-      fontSize: "var(--text-2xs)",
-      fontFamily: "var(--font-mono)",
-      fontWeight: 700,
-      textTransform: "uppercase",
-      whiteSpace: "nowrap",
-    }}>
-      {regime}
-    </span>
-  );
-}
-
-function getEventRegime(event: AnomalyEvent, hourly: HourlyStat[] | undefined): Regime | null {
-  if (!hourly || hourly.length === 0) return null;
-  try {
-    const ts = new Date(event.timestamp);
-    const hour = ts.getUTCHours();
-    const stat = hourly.find(h => h.hour === hour);
-    return stat?.regime ?? null;
-  } catch {
-    return null;
-  }
-}
 
 interface Props { creds: Credentials; }
 
@@ -69,12 +31,7 @@ export function AnomalyFeedPage({ creds }: Props) {
   const [severityFilter, setSeverityFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"metrics" | "reactive" | "predictive" | "ml" | "all">("metrics");
 
-  const { data: hotzoneData } = useQuery({
-    queryKey: ["temporal-hotzone"],
-    queryFn: () => fetchHotzone(creds),
-    refetchInterval: 30 * 60_000,
-    retry: 1,
-  });
+
 
   const { data, isFetching, dataUpdatedAt, error } = useAnomalies(creds, {
     severity: severityFilter || undefined,
@@ -190,7 +147,7 @@ export function AnomalyFeedPage({ creds }: Props) {
             <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px" }}>
               <thead>
                 <tr>
-                  {["", "Type", "Metric", "Interface", "Value", "Baseline", "Time", "Regime", "Status"].map(h => (
+                  {["", "Type", "Metric", "Interface", "Value", "Baseline", "Time", "Status"].map(h => (
                     <th key={h} style={{
                       padding: "8px 16px",
                       textAlign: "left",
@@ -258,9 +215,7 @@ export function AnomalyFeedPage({ creds }: Props) {
                         ? <span style={{ color: "var(--signal-warning)" }}>⏱ {fmtEta(e.predicted_crossing_time)}</span>
                         : fmtRelative(e.timestamp)}
                     </td>
-                    <td style={{ padding: "12px 16px" }}>
-                      <RegimeBadge regime={getEventRegime(e, hotzoneData?.hourly)} />
-                    </td>
+
                     <td style={{ padding: "12px 16px", borderRadius: "0 12px 12px 0" }}>
                       <span style={{ fontSize: "var(--text-xs)", color: "var(--signal-ok)", fontFamily: "var(--font-mono)", background: "rgba(16, 185, 129, 0.1)", padding: "4px 8px", borderRadius: 100 }}>
                         ACTIVE

@@ -4,7 +4,7 @@ import "encoding/json"
 
 // Tool name constants used by the orchestrator for dispatch.
 const (
-	ToolQueryPrometheus   = "query_prometheus"
+	ToolQueryClickHouse   = "query_clickhouse"
 	ToolGetAnomalies      = "get_anomalies"
 	ToolGetPredictions    = "get_predictions"
 	ToolGetMetricMetadata = "get_metric_metadata"
@@ -16,25 +16,17 @@ func Tools() []ToolDefinition {
 		{
 			Type: "function",
 			Function: ToolFunctionDef{
-				Name:        ToolQueryPrometheus,
-				Description: "Execute a PromQL query against VictoriaMetrics and return summary statistics. Only metrics listed by get_metric_metadata can be queried.",
+				Name:        ToolQueryClickHouse,
+				Description: "Execute a SQL query against ClickHouse and return rows. Tables available: bess_upf.upf_metrics (columns: ts, upf_id, pfcp_sessions_total, port_bytes_N3_rx_rate, port_dropped_N3_rx_rate, etc) and bess_upf.anomaly_events.",
 				Parameters: mustJSON(map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"promql": map[string]any{
+						"sql": map[string]any{
 							"type":        "string",
-							"description": "Valid PromQL expression. Use only metric names from get_metric_metadata.",
-						},
-						"time_range": map[string]any{
-							"type":        "string",
-							"description": "Duration to look back, e.g. '1h', '30m', '24h'. Maximum 30 days.",
-						},
-						"step": map[string]any{
-							"type":        "string",
-							"description": "Resolution step, e.g. '1m', '5m'. Minimum 15s. Omit to use 1m default.",
+							"description": "Valid ClickHouse SQL expression.",
 						},
 					},
-					"required": []string{"promql", "time_range"},
+					"required": []string{"sql"},
 				}),
 			},
 		},
@@ -89,7 +81,7 @@ func Tools() []ToolDefinition {
 			Type: "function",
 			Function: ToolFunctionDef{
 				Name:        ToolGetMetricMetadata,
-				Description: "List all available metric names. Use this before constructing any PromQL query to avoid hallucinated metric names.",
+				Description: "List all available metric names. Use this before constructing any SQL query to avoid hallucinated metric names.",
 				Parameters:  mustJSON(map[string]any{"type": "object", "properties": map[string]any{}}),
 			},
 		},

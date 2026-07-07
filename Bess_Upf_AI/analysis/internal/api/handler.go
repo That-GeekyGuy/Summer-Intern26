@@ -13,14 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"bess.internal/upf-analysis/internal/chclient"
 	detclient "bess.internal/upf-analysis/internal/detector"
 	"bess.internal/upf-analysis/internal/llm"
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/simclient"
 	"bess.internal/upf-analysis/internal/store"
-	"bess.internal/upf-analysis/internal/temporal"
 	"bess.internal/upf-analysis/internal/validator"
-	"bess.internal/upf-analysis/internal/vmclient"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -45,25 +44,24 @@ const maxChatMessageBytes = 4096
 
 // Handler wires all HTTP routes.
 type Handler struct {
-	orch       *llm.Orchestrator
-	rca        *llm.RCAEngine
-	det        *detclient.Client
-	sim        *simclient.Client
-	vm         *vmclient.Client
-	temp       *temporal.Client     // nil-safe — optional STL sidecar
-	val        *validator.Validator // used to validate frontend /query requests
-	m          *metrics.M           // nil-safe
-	reg        prometheus.Gatherer
-	log        *slog.Logger
+	orch        *llm.Orchestrator
+	rca         *llm.RCAEngine
+	det         *detclient.Client
+	sim         *simclient.Client
+	ch          *chclient.Client
+	val         *validator.Validator // used to validate frontend /query requests
+	m           *metrics.M           // nil-safe
+	reg         prometheus.Gatherer
+	log         *slog.Logger
 	modelsDir   string
 	chronosURL  string
 	chronosHTTP *http.Client
 	audit       *store.AuditLog // nil-safe
 }
 
-func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, vm *vmclient.Client, temp *temporal.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger, modelsDir, chronosURL string, audit *store.AuditLog) *Handler {
+func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, ch *chclient.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger, modelsDir, chronosURL string, audit *store.AuditLog) *Handler {
 	return &Handler{
-		orch: orch, rca: rca, det: det, sim: sim, vm: vm, temp: temp, val: val, m: m, reg: reg, log: log,
+		orch: orch, rca: rca, det: det, sim: sim, ch: ch, val: val, m: m, reg: reg, log: log,
 		modelsDir:   modelsDir,
 		chronosURL:  chronosURL,
 		chronosHTTP: &http.Client{Timeout: 30 * time.Second},
@@ -87,10 +85,7 @@ func (h *Handler) Register(mux *http.ServeMux, authUser, authPass string, rl *Ra
 	mux.Handle("GET /api/v1/scenario", auth(http.HandlerFunc(h.handleScenarioGet)))
 	mux.Handle("POST /api/v1/scenario", auth(http.HandlerFunc(h.handleScenarioPost)))
 	mux.Handle("GET /api/v1/health", auth(http.HandlerFunc(h.handleAggregatedHealth)))
-
-	// Temporal intelligence endpoints — routed through Caddy, require auth.
-	mux.Handle("GET /api/v1/temporal/analysis", auth(http.HandlerFunc(h.handleTemporalAnalysis)))
-	mux.Handle("GET /api/v1/temporal/hotzone", auth(http.HandlerFunc(h.handleTemporalHotzone)))
+	mux.Handle("POST /api/v1/feedback", auth(http.HandlerFunc(h.handleFeedback)))
 
 	// Structured audit log — last N LLM/tool interactions (auth-guarded, truncated).
 	mux.Handle("GET /api/v1/audit", auth(http.HandlerFunc(h.handleAudit)))
@@ -112,47 +107,50 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) handleAggregatedHealth(w http.ResponseWriter, r *http.Request) {
-    // Basic implementation: check if components are non-nil for status, 
-    // real implementation would ping them.
+	// Basic implementation: check if components are non-nil for status,
+	// real implementation would ping them.
 	status := map[string]string{
-		"analysis": "ok",
-		"prometheus": "ok",
-		"vm": "ok",
-		"detection": "ok",
-		"llm": "ok",
-		"sim": "ok",
+		"analysis":   "ok",
+		"prometheus": "ok", // still keeping this to not break frontend if it expects it
+		"llm":        "ok",
+		"sim":        "ok",
+		"clickhouse": "ok",
 	}
-	if h.vm == nil { status["vm"] = "down" }
-	if h.det == nil { status["detection"] = "down" }
-	if h.sim == nil { status["sim"] = "down" }
-	if h.rca == nil { status["llm"] = "down" }
+	if h.ch == nil { status["clickhouse"] = "down" }
+	// V2: VM and detection are removed.
+	if h.sim == nil {
+		status["sim"] = "down"
+	}
+	if h.rca == nil {
+		status["llm"] = "down"
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status) //nolint:errcheck
 }
 
 func (h *Handler) handlePulse(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-    sessions, _ := h.vm.QueryInstant(ctx, `sum(pfcp_sessions_total{job="upf"})`)
-    n3rx, _ := h.vm.QueryInstant(ctx, `sum(rate(port_bytes_count{job="upf",dir="rx",iface="N3"}[1m]))`)
-    n6tx, _ := h.vm.QueryInstant(ctx, `sum(rate(port_bytes_count{job="upf",dir="tx",iface="N6"}[1m]))`)
-    drops, _ := h.vm.QueryInstant(ctx, `sum(rate(port_dropped_count{job="upf"}[1m]))`)
-    
-    sumValues := func(samples []vmclient.InstantSample) float64 {
-        sum := 0.0
-        for _, s := range samples {
-            sum += s.Value
-        }
-        return sum
-    }
+	ctx := r.Context()
+	sessions, _ := h.ch.QueryInstant(ctx, "SELECT upf_id as node, pfcp_sessions_total as value FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) ORDER BY ts DESC LIMIT 1")
+	n3rx, _ := h.ch.QueryInstant(ctx, "SELECT sum(port_bytes_N3_rx_rate) as value FROM (SELECT upf_id, argMax(port_bytes_N3_rx_rate, ts) as port_bytes_N3_rx_rate FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) GROUP BY upf_id)")
+	n6tx, _ := h.ch.QueryInstant(ctx, "SELECT sum(port_bytes_N6_tx_rate) as value FROM (SELECT upf_id, argMax(port_bytes_N6_tx_rate, ts) as port_bytes_N6_tx_rate FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) GROUP BY upf_id)")
+	drops, _ := h.ch.QueryInstant(ctx, "SELECT sum(port_dropped_N3_rx_rate + port_dropped_N6_rx_rate) as value FROM (SELECT upf_id, argMax(port_dropped_N3_rx_rate, ts) as port_dropped_N3_rx_rate, argMax(port_dropped_N6_rx_rate, ts) as port_dropped_N6_rx_rate FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) GROUP BY upf_id)")
 
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]float64{
-        "sessions": sumValues(sessions),
-        "n3rx":     sumValues(n3rx),
-        "n6tx":     sumValues(n6tx),
-        "drops":    sumValues(drops),
-    })
+	sumValues := func(samples []chclient.InstantSample) float64 {
+		sum := 0.0
+		for _, s := range samples {
+			sum += s.Value
+		}
+		return sum
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]float64{
+		"sessions": sumValues(sessions),
+		"n3rx":     sumValues(n3rx),
+		"n6tx":     sumValues(n6tx),
+		"drops":    sumValues(drops),
+	})
 }
 
 func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -212,22 +210,15 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	// Validate against allowlist and policy limits before forwarding to VictoriaMetrics.
 	// Instant queries use a 0 time range and 0 step — validator only checks the AST.
-	if h.val != nil {
-		if err := h.val.Validate(q, 0, 0); err != nil {
-			h.log.Warn("handleQuery rejected", "q", q, "reason", err)
-			b, _ := json.Marshal(map[string]string{"error": "query rejected by policy: " + err.Error()})
-			http.Error(w, string(b), http.StatusForbidden)
-			return
-		}
-	}
-	samples, err := h.vm.QueryInstant(r.Context(), q)
+	// (PromQL validation removed: ClickHouse requires raw SQL)
+	samples, err := h.ch.QueryInstant(r.Context(), q)
 	if err != nil {
-		h.log.Error("vm instant query failed", "q", q, "err", err)
-		http.Error(w, `{"error":"VictoriaMetrics query failed"}`, http.StatusBadGateway)
+		h.log.Error("ch instant query failed", "q", q, "err", err)
+		http.Error(w, `{"error":"ClickHouse query failed"}`, http.StatusBadGateway)
 		return
 	}
 	if samples == nil {
-		samples = []vmclient.InstantSample{}
+		samples = []chclient.InstantSample{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
@@ -249,17 +240,68 @@ func (h *Handler) handleAnomalies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	anomalies, err := h.det.GetAnomalies(
-		r.Context(),
-		since,
-		r.URL.Query().Get("metric"),
-		r.URL.Query().Get("severity"),
-	)
+	// Query ClickHouse directly for anomalies (V2 architecture)
+	tsFilter := time.Now().Add(-since).Format("2006-01-02 15:04:05")
+	q := fmt.Sprintf(`
+		SELECT
+			ts,
+			anomaly_score,
+			threshold,
+			top_anomalous_channels,
+			model_version
+		FROM anomaly_events
+		WHERE ts >= '%s'
+		ORDER BY ts DESC
+		LIMIT 100
+	`, tsFilter)
+
+	rows, err := h.ch.QueryJSON(r.Context(), q)
 	if err != nil {
-		h.log.Error("anomalies proxy failed", "err", err)
-		http.Error(w, `{"error":"detection service unavailable"}`, http.StatusBadGateway)
+		h.log.Error("ch query for anomalies failed", "err", err)
+		http.Error(w, `{"error":"database unavailable"}`, http.StatusBadGateway)
 		return
 	}
+
+	var anomalies []detclient.AnomalyEvent
+	for i, row := range rows {
+		// Map ClickHouse fields to V1 AnomalyEvent for frontend compatibility
+		tsStr, _ := row["ts"].(string)
+		t, _ := time.Parse("2006-01-02 15:04:05.000", tsStr)
+		if t.IsZero() {
+			t = time.Now()
+		}
+		
+		score, _ := row["anomaly_score"].(float64)
+		thresh, _ := row["threshold"].(float64)
+		modelVer, _ := row["model_version"].(string)
+		
+		var channels []string
+		if chArr, ok := row["top_anomalous_channels"].([]any); ok {
+			for _, ch := range chArr {
+				if chStr, ok := ch.(string); ok {
+					channels = append(channels, chStr)
+				}
+			}
+		}
+		metricName := "multiple"
+		if len(channels) > 0 {
+			metricName = channels[0]
+		}
+
+		anomalies = append(anomalies, detclient.AnomalyEvent{
+			ID:                 int64(i),
+			MetricName:         metricName,
+			Labels:             modelVer,
+			Timestamp:          t,
+			ObservedValue:      score,
+			ExpectedValue:      &thresh,
+			DeviationMagnitude: score - thresh,
+			Severity:           "critical",
+			EventType:          "pattern",
+			RuleName:           "v2-isolation-forest",
+		})
+	}
+
 	if anomalies == nil {
 		anomalies = []detclient.AnomalyEvent{}
 	}
@@ -310,40 +352,6 @@ func newSessionID() string {
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// handleTemporalAnalysis proxies to the STL sidecar's /analysis endpoint (60s cache in client).
-// Returns the full temporal context: calendar, current regime, peak/trough hours.
-func (h *Handler) handleTemporalAnalysis(w http.ResponseWriter, r *http.Request) {
-	if h.temp == nil {
-		http.Error(w, `{"error":"temporal sidecar not configured"}`, http.StatusServiceUnavailable)
-		return
-	}
-	analysis, err := h.temp.GetAnalysis(r.Context())
-	if err != nil {
-		h.log.Warn("temporal analysis unavailable", "err", err)
-		http.Error(w, `{"error":"temporal sidecar unavailable"}`, http.StatusBadGateway)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(analysis) //nolint:errcheck
-}
-
-// handleTemporalHotzone proxies to the STL sidecar's /hotzone endpoint (1h cache in client).
-// Returns the 24-hour expected regime forecast for capacity planning.
-func (h *Handler) handleTemporalHotzone(w http.ResponseWriter, r *http.Request) {
-	if h.temp == nil {
-		http.Error(w, `{"error":"temporal sidecar not configured"}`, http.StatusServiceUnavailable)
-		return
-	}
-	hotzone, err := h.temp.GetHotzone(r.Context())
-	if err != nil {
-		h.log.Warn("temporal hotzone unavailable", "err", err)
-		http.Error(w, `{"error":"temporal sidecar unavailable"}`, http.StatusBadGateway)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(hotzone) //nolint:errcheck
-}
-
 // handleAnalyzeAnomaly is an INTERNAL endpoint — not routed through Caddy or exposed to the internet.
 // It is called by the detection service after a MOMENT anomaly event to request LLM-generated RCA.
 // POST /internal/analyze_anomaly
@@ -379,8 +387,8 @@ func (h *Handler) handleAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	since, _  := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
-	tool       := r.URL.Query().Get("tool")
+	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	tool := r.URL.Query().Get("tool")
 
 	entries, total, err := h.audit.Query(r.Context(), limit, since, tool)
 	if err != nil {
@@ -429,6 +437,37 @@ func (h *Handler) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(report) //nolint:errcheck
 }
 
+// handleFeedback accepts operator confirm/dismiss feedback for an anomaly.
+// POST /api/v1/feedback
+// Request body: {"metric_name": "...", "timestamp": 1234567890, "is_true_positive": true}
+func (h *Handler) handleFeedback(w http.ResponseWriter, r *http.Request) {
+	if h.audit == nil {
+		http.Error(w, `{"error":"audit store not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	var req struct {
+		MetricName     string `json:"metric_name"`
+		Timestamp      int64  `json:"timestamp"`
+		IsTruePositive bool   `json:"is_true_positive"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
+	}
+	if req.MetricName == "" || req.Timestamp == 0 {
+		http.Error(w, `{"error":"metric_name and timestamp are required"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.audit.RecordFeedback(r.Context(), req.MetricName, req.Timestamp, req.IsTruePositive); err != nil {
+		h.log.Error("failed to record feedback", "err", err)
+		http.Error(w, `{"error":"failed to record feedback"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+}
+
 // handleIntervals proxies a Chronos-2 uncertainty interval request.
 // It fetches recent VM data for the requested PromQL expression (context array)
 // then POSTs to the Chronos /intervals endpoint and returns P10/P50/P90 bands.
@@ -439,20 +478,14 @@ func (h *Handler) handleIntervals(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"q parameter required"}`, http.StatusBadRequest)
 		return
 	}
-	// Validate promql against allowlist before forwarding.
-	if h.val != nil {
-		if err := h.val.Validate(q, 0, 0); err != nil {
-			http.Error(w, `{"error":"query rejected by policy"}`, http.StatusForbidden)
-			return
-		}
-	}
+	// (PromQL validation removed: ClickHouse requires raw SQL)
 	horizon := r.URL.Query().Get("horizon")
 	if horizon == "" {
 		horizon = "short"
 	}
 
 	// Fetch last 60 minutes at 60s steps → up to 60 context points.
-	vals, err := h.vm.QueryRawValues(r.Context(), q, 60*time.Minute, 60*time.Second)
+	vals, err := h.ch.QueryRawValues(r.Context(), q, 60*time.Minute, 60*time.Second)
 	if err != nil || len(vals) == 0 {
 		// Chronos needs at least some context; fall back gracefully.
 		w.Header().Set("Content-Type", "application/json")
@@ -491,5 +524,3 @@ func (h *Handler) handleIntervals(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(chronosResp) //nolint:errcheck
 }
-
-

@@ -148,6 +148,33 @@ export async function setScenario(
 
 // ---- Temporal intelligence ------------------------------------------------
 
+export async function submitFeedback(
+  creds: Credentials,
+  metricName: string,
+  timestamp: string | number,
+  isTruePositive: boolean
+): Promise<void> {
+  let ts = timestamp;
+  if (typeof timestamp === "string") {
+    ts = Math.floor(new Date(timestamp).getTime() / 1000);
+  }
+  const resp = await fetch("/api/v1/feedback", {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + btoa(`${creds.username}:${creds.password}`),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      metric_name: metricName,
+      timestamp: ts,
+      is_true_positive: isTruePositive,
+    }),
+  });
+  if (!resp.ok) {
+    throw new Error(`Failed to submit feedback: ${resp.status}`);
+  }
+}
+
 export type Regime = "low" | "normal" | "peak" | "surge";
 
 export interface HourlyStat {
@@ -213,8 +240,10 @@ export async function fetchHotzone(creds: Credentials): Promise<HotzoneResponse>
 // Does NOT go through the LLM — sub-10ms, zero token budget consumed.
 
 export interface InstantSample {
-  labels: Record<string, string>;
-  value: number;
+  labels?: Record<string, string>;
+  value?: number;
+  Labels?: Record<string, string>;
+  Value?: number;
 }
 
 export interface InstantQueryResponse {

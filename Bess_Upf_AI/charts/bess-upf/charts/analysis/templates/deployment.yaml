@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: analysis
+  template:
+    metadata:
+      labels:
+        app: analysis
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      containers:
+        - name: analysis
+          image: "{{ .Values.registry }}/bess-upf-analysis:{{ .Values.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-credentials
+                  key: password
+            - name: CLICKHOUSE_DSN
+              value: http://chuser:$(CLICKHOUSE_PASSWORD)@clickhouse-0.clickhouse-headless:8123/bess_upf
+            - name: ANALYSIS_AUTH_USER
+              value: {{ .Values.authUser | default "admin" | quote }}
+            - name: ANALYSIS_AUTH_PASSWORD
+              value: {{ .Values.authPassword | default "bess_admin" | quote }}
+            - name: VLLM_URL
+              value: http://vllm:8000
+            - name: RAG_DOCS_DIR
+              value: /docs
+            - name: SIM_URL
+              value: http://upf-sim:8090

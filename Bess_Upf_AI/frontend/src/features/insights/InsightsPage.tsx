@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Credentials, fetchTemporalAnalysis, fetchHotzone, fetchAnomalies, Regime, HourlyStat } from "../../api/client";
+import { Credentials, fetchAnomalies, queryInstant } from "../../api/client";
 
 interface Props { creds: Credentials; }
+
+type Regime = "low" | "normal" | "peak" | "surge";
 
 const REGIME_COLOR: Record<Regime, string> = {
   low:    "#4a90d9",
@@ -26,11 +28,17 @@ function fmtHour(h: number): string {
   return `${String(h).padStart(2, "0")}:00`;
 }
 
+interface HourlyStat {
+  hour: number;
+  regime: Regime;
+  value: number;
+}
+
 function HeatMapBar({ stat }: { stat: HourlyStat }) {
   const color = REGIME_COLOR[stat.regime] ?? "#888";
   const bg    = REGIME_BG[stat.regime] ?? "rgba(136,136,136,0.1)";
   return (
-    <div title={`${fmtHour(stat.hour)}: ${regimeLabel(stat.regime)} (conf ${(stat.confidence * 100).toFixed(0)}%)`}
+    <div title={`${fmtHour(stat.hour)}: ${regimeLabel(stat.regime)} (value: ${stat.value.toFixed(0)})`}
       style={{
         flex: 1,
         height: 48,
@@ -55,9 +63,18 @@ function HeatMapBar({ stat }: { stat: HourlyStat }) {
   );
 }
 
-function CalendarCard({ analysis }: { analysis: ReturnType<typeof fetchTemporalAnalysis> extends Promise<infer T> ? T : never }) {
-  const cal = analysis.calendar;
-  const regime = analysis.current_regime;
+function CalendarCard() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const dayName = days[now.getDay()];
+  const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+  const weekOfMonth = Math.ceil(now.getDate() / 7);
+
   return (
     <div style={{
       background: "var(--bg-surface)",
@@ -73,56 +90,10 @@ function CalendarCard({ analysis }: { analysis: ReturnType<typeof fetchTemporalA
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: "var(--text-sm)" }}>
-        <Row label="Day"        value={`${cal.day_of_week}, ${fmtHour(cal.hour_of_day)} UTC`} />
-        <Row label="Type"       value={cal.is_holiday ? `Holiday: ${cal.holiday_name ?? ""}` : cal.is_weekend ? "Weekend" : "Weekday"} />
-        {cal.is_day_before_holiday && <Row label="Note" value="Day before holiday" />}
-        {cal.is_day_after_holiday  && <Row label="Note" value="Day after holiday" />}
-        <Row label="Week"       value={`Week ${cal.week_of_month} of month`} />
+        <Row label="Day"        value={`${dayName}, ${fmtHour(now.getHours())} Local`} />
+        <Row label="Type"       value={isWeekend ? "Weekend" : "Weekday"} />
+        <Row label="Week"       value={`Week ${weekOfMonth} of month`} />
       </div>
-
-      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "var(--font-mono)" }}>
-          Current Regime
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{
-            padding: "3px 10px",
-            borderRadius: 12,
-            background: REGIME_BG[regime.regime] ?? "var(--bg-elevated)",
-            border: `1px solid ${REGIME_COLOR[regime.regime] ?? "var(--border)"}`,
-            color: REGIME_COLOR[regime.regime] ?? "var(--text-primary)",
-            fontSize: "var(--text-xs)",
-            fontFamily: "var(--font-mono)",
-            fontWeight: 700,
-            textTransform: "uppercase",
-          }}>
-            {regimeLabel(regime.regime)}
-          </span>
-          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
-            {(regime.percentile * 100).toFixed(0)}th pct vs seasonal norm
-          </span>
-        </div>
-      </div>
-
-      {(analysis.minutes_to_next_peak != null || analysis.minutes_to_next_trough != null) && (
-        <div style={{ display: "flex", gap: 16, fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
-          {analysis.minutes_to_next_peak != null && (
-            <span>Next peak in <strong>{analysis.minutes_to_next_peak} min</strong></span>
-          )}
-          {analysis.minutes_to_next_trough != null && (
-            <span>Next trough in <strong>{analysis.minutes_to_next_trough} min</strong></span>
-          )}
-        </div>
-      )}
-
-      {analysis.warning && (
-        <div style={{
-          background: "rgba(230,126,34,0.1)", border: "1px solid rgba(230,126,34,0.3)",
-          borderRadius: 4, padding: "6px 10px", fontSize: "var(--text-xs)", color: "#e67e22",
-        }}>
-          ⚠ {analysis.warning}
-        </div>
-      )}
     </div>
   );
 }
@@ -139,7 +110,6 @@ const SHORT_LABELS: Record<string, string> = {
 function shortLabel(k: string) { return SHORT_LABELS[k] ?? k.slice(0, 5); }
 
 function heatColor(v: number): string {
-  // v in [0,1]: 0=cool, 1=hot (co-activation strength)
   const r = Math.round(59  + v * (239 - 59));
   const g = Math.round(130 + v * (68  - 130));
   const b = Math.round(246 + v * (68  - 246));
@@ -209,38 +179,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DataCoverageWarning({ days }: { days: number }) {
-  if (days >= 3) return null;
-  return (
-    <div style={{
-      background: "rgba(231,76,60,0.08)", border: "1px solid rgba(231,76,60,0.3)",
-      borderRadius: 4, padding: "8px 14px", fontSize: "var(--text-xs)", color: "#e74c3c",
-      marginBottom: 12,
-    }}>
-      ⚠ <strong>Thin baseline ({days.toFixed(1)} days).</strong> Each hour appears only {days < 1.5 ? "once" : "1–2 times"} in training data.
-      Regime estimates are noisy until ≥ 7 days of data accumulates.
-      {days < 3 && " Confidence capped at 30%."}
-    </div>
-  );
-}
-
 export function InsightsPage({ creds }: Props) {
-  const { data: analysis, isLoading: aLoading, error: aError } = useQuery({
-    queryKey: ["temporal-analysis"],
-    queryFn: () => fetchTemporalAnalysis(creds),
-    refetchInterval: 60_000,
-    retry: 1,
-  });
-
-  const { data: hotzone, isLoading: hLoading, error: hError } = useQuery({
-    queryKey: ["temporal-hotzone"],
-    queryFn: () => fetchHotzone(creds),
-    refetchInterval: 30 * 60_000,  // refetch every 30 min (server caches 1h)
-    retry: 1,
-  });
-
-  const sidecarDown = !!(aError || hError);
-
   // Fetch recent ML anomaly events to derive channel co-activation matrix
   const { data: anomalyData } = useQuery({
     queryKey: ["anomalies-insights"],
@@ -249,11 +188,49 @@ export function InsightsPage({ creds }: Props) {
     retry: 1,
   });
 
+  const { data: trafficData, isLoading: trafficLoading } = useQuery({
+    queryKey: ["traffic-regimes"],
+    queryFn: async () => {
+      // Query the last 24 hours of pfcp_sessions_total
+      const sql = "SELECT toHour(ts) as hr, avg(pfcp_sessions_total) as val FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalHour(24)) GROUP BY hr ORDER BY hr ASC";
+      const res = await queryInstant(creds, sql);
+      
+      const stats: HourlyStat[] = [];
+      const values = res.samples.map(s => s.value || s.Value || 0);
+      if (values.length === 0) return [];
+      
+      const sorted = [...values].sort((a,b) => a-b);
+      const p15 = sorted[Math.floor(sorted.length * 0.15)];
+      const p75 = sorted[Math.floor(sorted.length * 0.75)];
+      const p95 = sorted[Math.floor(sorted.length * 0.95)];
+
+      // Make sure we have 24 hours represented
+      for (let i = 0; i < 24; i++) {
+        // Find if we have data for this hour in the result set
+        let val = 0;
+        for (const s of res.samples) {
+           const lbls = s.labels || s.Labels || {};
+           if (parseInt(lbls.hr) === i) {
+             val = s.value || s.Value || 0;
+           }
+        }
+        let regime: Regime = "normal";
+        if (val < p15) regime = "low";
+        else if (val > p95) regime = "surge";
+        else if (val > p75) regime = "peak";
+
+        stats.push({ hour: i, regime, value: val });
+      }
+
+      return stats;
+    },
+    refetchInterval: 5 * 60_000,
+  });
+
   const { channels, matrix } = useMemo(() => {
     const mlEvents = (anomalyData?.anomalies ?? []).filter(e => e.event_type === "ml" && e.feature_contributions);
     if (mlEvents.length < 2) return { channels: [], matrix: [] as number[][] };
 
-    // Collect all channel names
     const chSet = new Set<string>();
     const vectors: Record<string, number>[] = [];
     for (const ev of mlEvents) {
@@ -264,16 +241,13 @@ export function InsightsPage({ creds }: Props) {
           : raw as Record<string, number>;
         Object.keys(scores).forEach(k => chSet.add(k));
         vectors.push(scores);
-      } catch { /* skip malformed */ }
+      } catch { /* skip */ }
     }
 
-    const chs = Array.from(chSet).slice(0, 10); // cap at 10 for readability
+    const chs = Array.from(chSet).slice(0, 10);
     if (chs.length < 2) return { channels: [], matrix: [] as number[][] };
 
-    // Build channel score vectors (0 if channel absent in event)
     const vecs = vectors.map(sc => chs.map(ch => sc[ch] ?? 0));
-
-    // Compute co-activation matrix: normalised dot-product between channel activation vectors
     const n = chs.length;
     const mx: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
     for (const vec of vecs) {
@@ -285,7 +259,6 @@ export function InsightsPage({ creds }: Props) {
         }
       }
     }
-    // Normalise to [0,1] by max off-diagonal
     const maxOff = Math.max(...mx.flatMap((row, r) => row.filter((_, c) => c !== r))) || 1;
     for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
@@ -303,141 +276,101 @@ export function InsightsPage({ creds }: Props) {
           Temporal Insights
         </h2>
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-          STL decomposition · regime detection · calendar awareness
+          Local Regime Detection · Calendar Awareness · ML Features
         </span>
       </div>
 
-      {sidecarDown && (
+      {/* Two-column layout: heatmap + calendar */}
+      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+        {/* 24-hour regime heatmap */}
         <div style={{
-          background: "var(--bg-surface)", border: "1px solid var(--border)",
-          borderRadius: 6, padding: "20px 24px", textAlign: "center",
-          color: "var(--text-muted)", fontSize: "var(--text-sm)",
+          flex: "1 1 480px",
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          padding: "14px 18px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
         }}>
-          <div style={{ fontSize: "1.5rem", marginBottom: 8 }}>◑</div>
-          <div>STL sidecar is offline or STL_URL is not configured.</div>
-          <div style={{ marginTop: 4, fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}>
-            Set STL_URL=http://stl-sidecar:8085 in .env and restart the analysis service.
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "var(--font-mono)" }}>
+            24-Hour Traffic Regime Heatmap
           </div>
-        </div>
-      )}
 
-      {!sidecarDown && (
-        <>
-          {/* Data coverage warning (shown when < 3 days) */}
-          {hotzone && <DataCoverageWarning days={hotzone.data_coverage_days} />}
+          {trafficLoading && (
+            <div style={{ color: "var(--text-muted)", fontSize: "var(--text-xs)" }}>Loading…</div>
+          )}
 
-          {/* Two-column layout: heatmap + calendar */}
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            {/* 24-hour regime heatmap */}
-            <div style={{
-              flex: "1 1 480px",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              padding: "14px 18px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-            }}>
-              <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "var(--font-mono)" }}>
-                24-Hour Traffic Regime Forecast
+          {trafficData && (
+            <>
+              {/* Regime bar strip */}
+              <div style={{ display: "flex", gap: 2, alignItems: "stretch", height: 48 }}>
+                {trafficData.map(stat => (
+                  <HeatMapBar key={stat.hour} stat={stat} />
+                ))}
               </div>
 
-              {hLoading && (
-                <div style={{ color: "var(--text-muted)", fontSize: "var(--text-xs)" }}>Loading…</div>
-              )}
+              {/* Hour labels (every 3h for readability) */}
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", fontFamily: "var(--font-mono)", padding: "0 1px" }}>
+                {[0, 3, 6, 9, 12, 15, 18, 21].map(h => (
+                  <span key={h}>{fmtHour(h)}</span>
+                ))}
+              </div>
 
-              {hotzone && (
-                <>
-                  {/* Regime bar strip */}
-                  <div style={{ display: "flex", gap: 2, alignItems: "stretch", height: 48 }}>
-                    {hotzone.hourly.map(stat => (
-                      <HeatMapBar key={stat.hour} stat={stat} />
-                    ))}
+              {/* Legend */}
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 4 }}>
+                {(["low", "normal", "peak", "surge"] as Regime[]).map(r => (
+                  <div key={r} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "var(--text-xs)" }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: REGIME_COLOR[r] }} />
+                    <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>{regimeLabel(r)}</span>
                   </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
-                  {/* Hour labels (every 3h for readability) */}
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", fontFamily: "var(--font-mono)", padding: "0 1px" }}>
-                    {[0, 3, 6, 9, 12, 15, 18, 21].map(h => (
-                      <span key={h}>{fmtHour(h)}</span>
-                    ))}
-                  </div>
+        {/* Calendar card */}
+        <div style={{ flex: "0 0 260px" }}>
+          <CalendarCard />
+        </div>
+      </div>
 
-                  {/* Legend */}
-                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 4 }}>
-                    {(["low", "normal", "peak", "surge"] as Regime[]).map(r => (
-                      <div key={r} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "var(--text-xs)" }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 2, background: REGIME_COLOR[r] }} />
-                        <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>{regimeLabel(r)}</span>
-                      </div>
-                    ))}
-                  </div>
+      {/* Channel co-activation matrix */}
+      {channels.length >= 2 && <CorrelationMatrix channels={channels} matrix={matrix} />}
 
-                  {/* Peak / trough summary */}
-                  <div style={{ display: "flex", gap: 20, fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
-                    {hotzone.peak_hours.length > 0 && (
-                      <span>Peak hours: <strong style={{ fontFamily: "var(--font-mono)" }}>{hotzone.peak_hours.map(fmtHour).join(", ")}</strong></span>
-                    )}
-                    {hotzone.trough_hours.length > 0 && (
-                      <span>Trough hours: <strong style={{ fontFamily: "var(--font-mono)" }}>{hotzone.trough_hours.map(fmtHour).join(", ")}</strong></span>
-                    )}
-                  </div>
-
-                  {hotzone.warning && (
-                    <div style={{ fontSize: "var(--text-2xs)", color: "#e67e22", fontFamily: "var(--font-mono)" }}>
-                      ⚠ {hotzone.warning}
-                    </div>
-                  )}
-                </>
-              )}
+      {/* Regime interpretation guide */}
+      <div style={{
+        background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6,
+        padding: "14px 18px",
+      }}>
+        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "var(--font-mono)", marginBottom: 12 }}>
+          Regime Label Interpretation
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          {[
+            { r: "low" as Regime,    pct: "< 15th pct",   desc: "Below normal for this hour. Equipment may be underutilised." },
+            { r: "normal" as Regime, pct: "15–75th pct",  desc: "Within expected range. No action needed." },
+            { r: "peak" as Regime,   pct: "75–95th pct",  desc: "Elevated but within seasonal bounds (e.g. expected busy hour)." },
+            { r: "surge" as Regime,  pct: "> 95th pct",   desc: "Above seasonal expectation. Investigate if sustained." },
+          ].map(({ r, pct, desc }) => (
+            <div key={r} style={{
+              background: REGIME_BG[r], border: `1px solid ${REGIME_COLOR[r]}`,
+              borderRadius: 4, padding: "8px 12px",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontWeight: 700, color: REGIME_COLOR[r], fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", textTransform: "uppercase" }}>
+                  {regimeLabel(r)}
+                </span>
+                <span style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                  {pct}
+                </span>
+              </div>
+              <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>{desc}</div>
             </div>
-
-            {/* Calendar card */}
-            <div style={{ flex: "0 0 260px" }}>
-              {aLoading && (
-                <div style={{ color: "var(--text-muted)", fontSize: "var(--text-xs)", padding: 12 }}>Loading…</div>
-              )}
-              {analysis && <CalendarCard analysis={analysis} />}
-            </div>
-          </div>
-
-          {/* Channel co-activation matrix */}
-          {channels.length >= 2 && <CorrelationMatrix channels={channels} matrix={matrix} />}
-
-          {/* Regime interpretation guide */}
-          <div style={{
-            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6,
-            padding: "14px 18px",
-          }}>
-            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "var(--font-mono)", marginBottom: 12 }}>
-              Regime Label Interpretation
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-              {[
-                { r: "low" as Regime,    pct: "< 15th pct",   desc: "Below normal for this hour. Equipment may be underutilised." },
-                { r: "normal" as Regime, pct: "15–75th pct",  desc: "Within expected range. No action needed." },
-                { r: "peak" as Regime,   pct: "75–95th pct",  desc: "Elevated but within seasonal bounds (e.g. expected busy hour)." },
-                { r: "surge" as Regime,  pct: "> 95th pct",   desc: "Above seasonal expectation. Investigate if sustained." },
-              ].map(({ r, pct, desc }) => (
-                <div key={r} style={{
-                  background: REGIME_BG[r], border: `1px solid ${REGIME_COLOR[r]}`,
-                  borderRadius: 4, padding: "8px 12px",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 700, color: REGIME_COLOR[r], fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", textTransform: "uppercase" }}>
-                      {regimeLabel(r)}
-                    </span>
-                    <span style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                      {pct}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>{desc}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

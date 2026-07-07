@@ -1,9 +1,6 @@
 namespace: bess-upf
 image: clickhouse/clickhouse-server:24.3-alpine
 user: chuser
-# Local-dev default only — same value docker-compose.v2.yml already falls back
-# to (CLICKHOUSE_PASSWORD:-localdev123). Override at install time for anything
-# beyond a local kind cluster: helm install ... --set clickhouse.password=<real-password>
-# Real secrets management (Vault/sealed-secrets) is Phase 4b scope, not this baseline.
-password: localdev123
+# A secure random password will be auto-generated during helm install
+# via secret.yaml using randAlphaNum and persisted across upgrades via lookup.
 storage: 5Gi

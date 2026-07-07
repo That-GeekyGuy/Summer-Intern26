@@ -12,9 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"bess.internal/upf-analysis/internal/temporal"
-	"bess.internal/upf-analysis/internal/vmclient"
+	"bess.internal/upf-analysis/internal/chclient"
 )
 
 // correlationEdge is one lagged correlation from models/correlation_graph.json.
@@ -40,7 +38,6 @@ type RCAEngine struct {
 	llm       *Client
 	vm        VMQuerier
 	validator PromQLValidator
-	temp      *temporal.Client // nil-safe — optional
 	log       *slog.Logger
 
 	// Correlation graph — loaded lazily once, then cached.
@@ -78,9 +75,9 @@ func (r *RCAEngine) loadCorrGraph() *correlationGraph {
 	return r.corrGraph
 }
 
-// VMQuerier is the minimal interface of vmclient.Client that RCAEngine needs.
+// VMQuerier is the minimal interface of chclient.Client that RCAEngine needs.
 type VMQuerier interface {
-	QueryInstant(ctx context.Context, promql string) ([]vmclient.InstantSample, error)
+	QueryInstant(ctx context.Context, sql string) ([]chclient.InstantSample, error)
 }
 
 // PromQLValidator is the minimal interface of validator.Validator that RCAEngine needs.
@@ -130,11 +127,6 @@ func NewRCAEngine(llm *Client, vm VMQuerier, validator PromQLValidator, log *slo
 		validator: validator,
 		log:       log,
 	}
-}
-
-// WithTemporalClient attaches the STL sidecar client for calendar + regime context injection.
-func (r *RCAEngine) WithTemporalClient(c *temporal.Client) {
-	r.temp = c
 }
 
 // Analyze produces an RCA report for the given anomaly event.
@@ -261,54 +253,6 @@ func (r *RCAEngine) gatherEvidence(ctx context.Context, topChannels []string, sc
 	return evidence
 }
 
-// formatCalendarSection formats temporal context into a Brain 2 prompt section.
-func formatCalendarSection(a *temporal.AnalysisResponse) string {
-	if a == nil {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("## Calendar & Temporal Context\n\n")
-	sb.WriteString(fmt.Sprintf("- **Day**: %s, hour %02d:00 UTC\n", a.Calendar.DayOfWeek, a.Calendar.HourOfDay))
-
-	if a.Calendar.IsHoliday && a.Calendar.HolidayName != "" {
-		sb.WriteString(fmt.Sprintf("- **Holiday**: %s — traffic typically below weekday baseline\n", a.Calendar.HolidayName))
-	} else if a.Calendar.IsWeekend {
-		sb.WriteString("- **Weekend**: expect lower traffic than weekday baseline\n")
-	} else {
-		sb.WriteString("- **Weekday**: normal weekday traffic patterns apply\n")
-	}
-
-	if a.Calendar.IsDayBeforeHoliday {
-		sb.WriteString("- **Day before holiday**: operators wrapping up; traffic may tail off\n")
-	}
-	if a.Calendar.IsDayAfterHoliday {
-		sb.WriteString("- **Day after holiday**: return-to-work surge possible\n")
-	}
-
-	if a.CurrentRegime.Regime != "" {
-		sb.WriteString(fmt.Sprintf("- **Current traffic regime**: %s (%.0f%%ile vs seasonal norm)\n",
-			strings.ToUpper(a.CurrentRegime.Regime), a.CurrentRegime.Percentile*100))
-	}
-
-	if a.MinutesToNextPeak != nil {
-		sb.WriteString(fmt.Sprintf("- **Time to next peak window**: %d minutes\n", *a.MinutesToNextPeak))
-	}
-	if a.MinutesToNextTrough != nil {
-		sb.WriteString(fmt.Sprintf("- **Time to next trough window**: %d minutes\n", *a.MinutesToNextTrough))
-	}
-
-	if a.Warning != "" {
-		sb.WriteString(fmt.Sprintf("- **Data coverage note**: %s\n", a.Warning))
-	}
-
-	sb.WriteString("\n")
-	sb.WriteString("Consider whether the anomaly is consistent with the current temporal context.\n")
-	sb.WriteString("A metric spike during a SURGE regime (above seasonal expectation) is more significant\n")
-	sb.WriteString("than the same spike during PEAK (expected busy hour).\n\n")
-
-	return sb.String()
-}
-
 // formatCorrelationSection formats relevant correlation edges for the top anomalous channels.
 func formatCorrelationSection(g *correlationGraph, topChannels []string) string {
 	if g == nil || len(g.Edges) == 0 {
@@ -353,16 +297,6 @@ func formatCorrelationSection(g *correlationGraph, topChannels []string) string 
 // buildPrompt constructs the structured RCA prompt.
 func (r *RCAEngine) buildPrompt(req RCARequest, evidence []string) string {
 	var sb strings.Builder
-
-	// ── Temporal context (calendar + regime) ─────────────────────────────────
-	if r.temp != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		analysis, err := r.temp.GetAnalysis(ctx)
-		cancel()
-		if err == nil && analysis != nil {
-			sb.WriteString(formatCalendarSection(analysis))
-		}
-	}
 
 	// ── Correlation graph context ─────────────────────────────────────────────
 	if graph := r.loadCorrGraph(); graph != nil {

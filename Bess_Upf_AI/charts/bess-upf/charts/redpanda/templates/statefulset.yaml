@@ -17,9 +17,16 @@ spec:
       app: redpanda
   template:
     metadata:
+      annotations:
+        {{- if .Values.global.security.mtls.enabled }}
+        linkerd.io/inject: enabled
+        {{- end }}
       labels:
         app: redpanda
     spec:
+      {{- if .Values.global.security.rbac.enabled }}
+      serviceAccountName: redpanda
+      {{- end }}
       containers:
         - name: redpanda
           image: {{ .Values.image }}
@@ -54,7 +61,7 @@ spec:
               exec rpk redpanda start \
                 --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
                 --kafka-addr internal://0.0.0.0:9092 \
-                --advertise-kafka-addr internal://$(hostname -f):9092 \
+                --advertise-kafka-addr internal://$(hostname -i):9092 \
                 --rpc-addr 0.0.0.0:33145 \
                 --advertise-rpc-addr $(hostname -f):33145 \
                 -- --smp 1 --memory 1G

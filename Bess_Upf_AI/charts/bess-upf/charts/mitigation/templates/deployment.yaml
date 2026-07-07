@@ -10,15 +10,22 @@ spec:
       app: mitigation
   template:
     metadata:
+      annotations:
+        {{- if .Values.global.security.mtls.enabled }}
+        linkerd.io/inject: enabled
+        {{- end }}
       labels:
         app: mitigation
     spec:
+      {{- if .Values.global.security.rbac.enabled }}
+      serviceAccountName: mitigation
+      {{- end }}
       imagePullSecrets:
         - name: {{ .Values.imagePullSecret }}
       containers:
         - name: mitigation
           image: "{{ .Values.registry }}/bess-upf-mitigation:{{ .Values.tag }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: KAFKA_BROKER
               value: redpanda:9092

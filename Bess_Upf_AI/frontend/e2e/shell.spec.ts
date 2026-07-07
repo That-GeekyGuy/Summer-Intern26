@@ -17,7 +17,7 @@ test.describe("App Shell", () => {
   test("navigation keywords present in DOM", async ({ page }) => {
     await injectCredentials(page);
     const content = await page.content();
-    const found = ["overview", "anomal", "forecast", "chat", "insight"]
+    const found = ["overview", "anomal", "forecast", "chat", "benchmark"]
       .some(kw => content.toLowerCase().includes(kw));
     expect(found, "No navigation keywords found in DOM after login").toBe(true);
   });

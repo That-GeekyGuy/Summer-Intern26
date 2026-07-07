@@ -1,0 +1,49 @@
+{{- if .Values.global.security.rbac.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-head-role
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "events"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: serve-ray-head-binding
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ray-head-role
+subjects:
+- kind: ServiceAccount
+  name: serve
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pipeline-role
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeline-binding
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pipeline-role
+subjects:
+- kind: ServiceAccount
+  name: pipeline
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+{{- end }}

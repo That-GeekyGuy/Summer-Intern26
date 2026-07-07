@@ -22,6 +22,9 @@ spec:
       dashboard-host: "0.0.0.0"
     template:
       spec:
+        {{- if .Values.global.security.rbac.enabled }}
+        serviceAccountName: serve
+        {{- end }}
         imagePullSecrets:
           - name: {{ .Values.imagePullSecret }}
         containers:
@@ -37,6 +40,10 @@ spec:
                 value: upf.shadow.detections
               - name: RAY_REDIS_ADDRESS
                 value: "ray-gcs-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+              - name: RAY_SERVE_PROXY_READY_CHECK_TIMEOUT_S
+                value: "120"
+              - name: RAY_SERVE_ACTOR_HEALTH_CHECK_TIMEOUT_S
+                value: "120"
             ports:
               - containerPort: 8000
                 name: serve
@@ -60,6 +67,9 @@ spec:
       rayStartParams: {}
       template:
         spec:
+          {{- if .Values.global.security.rbac.enabled }}
+          serviceAccountName: serve
+          {{- end }}
           imagePullSecrets:
             - name: {{ .Values.imagePullSecret }}
           containers:

@@ -12,9 +12,16 @@ spec:
       app: clickhouse
   template:
     metadata:
+      annotations:
+        {{- if .Values.global.security.mtls.enabled }}
+        linkerd.io/inject: enabled
+        {{- end }}
       labels:
         app: clickhouse
     spec:
+      {{- if .Values.global.security.rbac.enabled }}
+      serviceAccountName: clickhouse
+      {{- end }}
       containers:
         - name: clickhouse
           image: {{ .Values.image }}
