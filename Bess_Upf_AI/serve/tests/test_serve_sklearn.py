@@ -1,9 +1,9 @@
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import json
 import numpy as np
-import pytest
 
 CHANNELS_14 = [
     "pfcp_sessions_total", "port_bytes_N3_rx_rate", "port_bytes_N6_tx_rate",
@@ -36,14 +36,27 @@ def _make_fake_models(tmp_path):
         "thresholds": {"isolation_forest": 0.0}
     }))
 
+def _reload_app_without_ray(monkeypatch):
+    # @serve.deployment/@serve.ingress wrap the class into a Ray Deployment
+    # object that can't be __new__()'d directly — force app.py's noop-stub
+    # fallback (its _RAY_AVAILABLE=False branch) so MLServeDeployment stays a
+    # plain class, for isolated unit testing of the sklearn logic without a
+    # live Ray cluster. `ray` is a real requirements.txt dependency, so
+    # without this the import always succeeds and these tests can never pass.
+    monkeypatch.setitem(sys.modules, "ray", None)
+    monkeypatch.setitem(sys.modules, "ray.serve", None)
+    from importlib import reload
+    import app as serve_app
+    reload(serve_app)
+    return serve_app
+
+
 def test_sklearn_models_load(tmp_path, monkeypatch):
     _make_fake_models(tmp_path)
     monkeypatch.setenv("MODELS_DIR", str(tmp_path))
     monkeypatch.setenv("KAFKA_BROKER", "")
 
-    from importlib import reload
-    import app as serve_app
-    reload(serve_app)
+    serve_app = _reload_app_without_ray(monkeypatch)
 
     inst = serve_app.MLServeDeployment.__new__(serve_app.MLServeDeployment)
     inst._load_sklearn_models()
@@ -54,9 +67,7 @@ def test_detect_returns_real_score(tmp_path, monkeypatch):
     monkeypatch.setenv("MODELS_DIR", str(tmp_path))
     monkeypatch.setenv("KAFKA_BROKER", "")
 
-    from importlib import reload
-    import app as serve_app
-    reload(serve_app)
+    serve_app = _reload_app_without_ray(monkeypatch)
 
     inst = serve_app.MLServeDeployment.__new__(serve_app.MLServeDeployment)
     inst._load_sklearn_models()

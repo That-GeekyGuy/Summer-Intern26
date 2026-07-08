@@ -1,4 +1,3 @@
-import pytest
 from mitigation.catalog import execute, rollback, ActuatorResult
 from mitigation.policy import ActionClass
 

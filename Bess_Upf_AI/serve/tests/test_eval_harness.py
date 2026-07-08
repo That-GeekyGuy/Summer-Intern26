@@ -1,12 +1,10 @@
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-import json
 import numpy as np
-import pytest
 import joblib
 import pandas as pd
-from pathlib import Path
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from feature_eng import SKLEARN_FEATURE_NAMES, N_FEATURES

@@ -1,4 +1,3 @@
-import pytest
 from mitigation.approval import ApprovalStore, PendingApproval
 from mitigation.api import app, init
 from mitigation.policy import ActionClass

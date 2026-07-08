@@ -1,5 +1,4 @@
 import json
-import pytest
 from unittest.mock import MagicMock
 from mitigation.audit import ActionAuditRecord, AuditPublisher, AUDIT_TOPIC
 from mitigation.policy import ActionClass, TrustLevel

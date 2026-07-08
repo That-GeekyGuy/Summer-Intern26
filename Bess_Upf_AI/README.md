@@ -1,136 +1,140 @@
 # BESS-UPF AI (v2 Kubernetes Stack)
 
 Intelligent monitoring and analysis platform for 5G User Plane Functions.
-Collects metrics from UPF nodes, runs real-time anomaly detection, generates capacity forecasts, and exposes a conversational LLM interface for operators and management.
+Streams UPF telemetry through Kafka-compatible Redpanda, detects anomalies
+in real time (statistical + ML), stores everything in ClickHouse, and
+exposes policy-gated automated mitigation plus a conversational LLM
+interface for operators.
 
 ---
 
 ## Architecture
-
-The platform operates on a single-path streaming architecture deployed entirely on Kubernetes:
 
 ```mermaid
 flowchart TD
     subgraph sources["Data Sources"]
         direction LR
         upf["Real UPF nodes"]
-        sim["upf-sim (Simulator)"]
+        sim["upf-sim (generator, optional)"]
     end
 
-    subgraph streaming["Streaming Pipeline"]
+    subgraph streaming["pipeline (Bytewax)"]
         direction LR
-        redpanda[("Redpanda (Kafka)")]
-        bytewax["Bytewax Stream Processor"]
+        scraper["scrape_to_kafka.py"]
+        flow["bytewax dataflow: window + detect"]
     end
 
-    subgraph storage["Single Source of Truth"]
-        ch[("ClickHouse")]
-    end
+    redpanda[("Redpanda (Kafka)")]
+    ch[("ClickHouse")]
 
-    subgraph intel["Intelligence (Ray Serve)"]
+    subgraph intel["serve (Ray Serve / KubeRay)"]
         direction LR
-        ray_head["Ray Head"]
-        ray_worker["Ray Workers"]
-        ray_head --- ray_worker
+        ray_head["Ray head"]
+        ray_worker["Ray workers — sklearn IF/RF, MOMENT proxy"]
     end
 
-    subgraph core["Core Services"]
+    subgraph action["mitigation"]
         direction LR
-        det["Detection (Tier 1 & 3)"]
-        ana["Analysis (LLM / API Gateway)"]
-        fe["Frontend (React)"]
+        policy["policy + guardrails"]
+        catalog["action catalog (HPA/XDP/PFCP)"]
+        approval["approval API"]
     end
 
-    upf & sim --> redpanda
-    redpanda --> bytewax
-    bytewax --> ch
-    bytewax --> intel
-    intel --> redpanda
-    redpanda --> det
-    det --> ch
+    ana["analysis (Go — LLM chat gateway)"]
+    vllm["vllm (mock locally, real LLM on GPU)"]
+    fe["frontend (React)"]
+
+    upf & sim --> scraper --> redpanda
+    redpanda --> flow
+    flow -->|HTTP /detect_batch| ray_worker
+    flow --> ch
+    flow --> redpanda
+    redpanda --> action
+    action --> ch
+    action --> redpanda
     ana --> ch
+    ana --> vllm
     fe --> ana
 ```
 
-All backend services run natively in Kubernetes. Network isolation is enforced via `NetworkPolicies` and mTLS via Linkerd.
+**Services** (each a top-level dir + matching Helm subchart under `charts/bess-upf/charts/`):
+- `pipeline` (Python/Bytewax) — scrapes UPF metrics into Redpanda, windows per-UPF, calls `serve` for ML scoring, publishes anomalies.
+- `serve` (Python, runs on a KubeRay `RayCluster`) — sklearn IsolationForest/RandomForest + MOMENT proxy embedding; `deploy_models.py` runs once as a Helm post-install/upgrade hook Job.
+- `mitigation` (Python/FastAPI) — policy-driven trust ladder (OBSERVE→RECOMMEND→APPROVE→AUTO), rate-limit/blast-radius guardrails, action catalog, approval API, audit trail to ClickHouse.
+- `analysis` (Go) — API gateway; conversational LLM interface over `vllm`, queries ClickHouse for RCA.
+- `frontend` (React) — operator dashboard.
+- `upf-sim` (Go) — the **generator**: synthetic UPF traffic/metrics for local dev and testing. Disable it (`--no-generator`) when a real UPF feeds the pipeline instead.
+- `redpanda`, `clickhouse` — Kafka-compatible streaming backbone and single source of truth.
+- `vllm` — LLM backend for `analysis`'s chat feature. Runs in **mock mode** by default (canned responses) since it needs a real GPU node otherwise (CUDA image, no CPU fallback) — see [RUNBOOK.md](./RUNBOOK.md).
 
 ---
 
-## Quick Start (Kubernetes)
+## Quick Start
 
 ### Prerequisites
-- Kubernetes cluster (e.g., minikube, kind, EKS, GKE)
-- `kubectl` and `helm` installed
-- NVIDIA GPU (Optional, for LLM and ML inference acceleration)
+- Docker (daemon running)
+- `kind`, `kubectl`, `helm` on PATH
+- Python 3.7+
 
-### Deployment
-
-Deploy the entire stack using the provided Helm chart:
+### Install
 
 ```bash
-# 1. Create namespace
-kubectl create namespace bess-upf
-
-# 2. Install the Helm chart
-helm install bess-upf ./charts/bess-upf -n bess-upf
+python install.py                  # full stack, generator (upf-sim) included
+python install.py --no-generator   # skip upf-sim — use when a real UPF feeds Kafka
+python install.py --skip-build     # redeploy without rebuilding images
 ```
 
-Wait for all pods to become ready:
+This brings up (or reuses) a local `kind` cluster, builds and loads every
+service image, installs `kuberay-operator`, helm-installs the full chart,
+and waits until every pod is actually healthy. Safe to re-run.
+
 ```bash
 kubectl get pods -n bess-upf -w
 ```
 
 ### Accessing the UI
 
-The frontend is exposed via an Ingress resource on `bess-upf.local`.
+The frontend is exposed via `ingress-nginx` as a `NodePort` service in this
+dev setup:
 
 ```bash
-# Add to /etc/hosts if running locally
-echo "127.0.0.1 bess-upf.local" | sudo tee -a /etc/hosts
-
-# Open in browser
-open https://bess-upf.local
+kubectl get svc -n bess-upf bess-upf-ingress-nginx-controller
+# hit http://localhost:<nodePort>
 ```
 
 ---
 
 ## Data Flow in Detail
 
-### 1 — Metric Ingestion (Redpanda + Bytewax)
-UPF telemetry is ingested directly into Redpanda topics (e.g., `upf.metrics.raw`). Bytewax stream processors consume these topics, normalize the data, apply a 15-second tumbling window, and write the canonicalized metrics into ClickHouse.
+### 1 — Ingestion + Windowing (`pipeline`)
+`scrape_to_kafka.py` polls the UPF metrics endpoint (real UPF or `upf-sim`)
+and publishes raw samples to the Redpanda topic `upf.metrics.raw`. The
+Bytewax dataflow (`pipeline/app.py`) consumes that topic, keys by UPF ID,
+maintains a 60-sample sliding window per UPF, and once full, batches
+windows (`op.collect`, per-key) and calls `serve`'s `/detect_batch` HTTP
+endpoint for scoring — combining a statistical z-score check with the ML
+result before publishing anomalies to `upf.anomalies.critical`.
 
-### 2 — Anomaly Detection (Ray + Go)
-**Tier 2 (ML):** Ray Serve hosts MOMENT and Chronos-2 models. It subscribes to the normalized metrics stream from Redpanda, detects anomalies in real-time, and publishes to the `upf.anomalies.critical` topic.
+### 2 — ML Scoring (`serve`)
+Ray Serve (via KubeRay) hosts an IsolationForest + RandomForest ensemble
+plus a MOMENT proxy embedding path, backed by `/models` (mounted from the
+host in local dev). `deploy_models.py` registers/validates models once per
+deploy as a Helm hook Job.
 
-**Tier 1 & 3 (Statistical & Forecasting):** The Go detection service consumes the anomalies topic, enriches events with metadata, evaluates statistical thresholds, and persists the final event record to ClickHouse.
+### 3 — Mitigation (`mitigation`)
+Consumes anomalies, classifies an `ActionClass` via policy rules, checks
+guardrails (rate limit + blast radius), and — depending on trust level —
+either just observes, recommends, requires human approval (`/approve`,
+`/deny`, `/pending` on the approval API), or executes automatically
+(`AUTO`). Every decision is audited to ClickHouse via Kafka.
 
-### 3 — LLM Analysis
-The Analysis service (`analysis/internal/api/handler.go`) acts as the primary API gateway. It provides a conversational LLM interface that queries ClickHouse directly to answer operator questions and perform Root Cause Analysis (RCA).
-
----
-
-## Tier 2 AI — MOMENT + Chronos-2
-
-The Tier 2 AI subsystem adds **multivariate anomaly detection** (MOMENT) and **probabilistic UOI forecasting** (Chronos-2) running on Ray Serve.
-
-### Training and Retraining
-The continuous learning loop automatically retrains models when operators dismiss anomalies as false positives.
-
-```bash
-# 1. Prepare dataset (Reads feedback from ClickHouse/SQLite)
-python tools/train/prepare_dataset.py --db-path ./data/audit.db
-
-# 2. Fine-tune MOMENT head
-python tools/train/train_moment.py
-
-# 3. Evaluate + fine-tune Chronos
-python tools/train/train_chronos.py
-
-# 4. Deploy canary to Ray Serve
-python serve/deploy_models.py --canary
-```
+### 4 — LLM Analysis (`analysis`)
+The Go API gateway provides a conversational interface backed by `vllm`,
+querying ClickHouse directly to answer operator questions and perform
+Root Cause Analysis.
 
 ---
 
-## Operations & Disaster Recovery
-Please refer to [RUNBOOK.md](./RUNBOOK.md) for detailed operational procedures, including ClickHouse backups, Redpanda recovery, and Ray cluster management.
+## Operations
+See [RUNBOOK.md](./RUNBOOK.md) for ClickHouse backup/restore, Redpanda
+recovery, Ray cluster recovery, and known local-dev gotchas.

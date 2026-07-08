@@ -1,5 +1,4 @@
 import json
-import pytest
 from unittest.mock import MagicMock
 from mitigation.policy import ActionClass, TrustLevel, TRUST_LEVELS
 from mitigation.guardrails import GuardrailsEngine, RateLimiter, BlastRadiusGuard

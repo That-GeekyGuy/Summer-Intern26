@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from feature_eng import extract_features, N_FEATURES, SKLEARN_FEATURE_NAMES
 
 CHANNELS_14 = [

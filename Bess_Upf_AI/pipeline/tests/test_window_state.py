@@ -47,12 +47,16 @@ def test_channel_values_in_correct_order():
     assert all(v == 1.0 for v in arr[1])
 
 
-def test_missing_key_does_not_append():
+def test_missing_key_zero_fills_and_stays_synced():
+    # All channels must advance together every tick (to_array()/is_full() assume
+    # equal-length deques) — a missing reading zero-fills rather than skipping,
+    # so one flaky channel can't desync from the rest and stall the window forever.
     ws = WindowState()
     msg = {ch: 1.0 for ch in ML_CHANNELS}
     del msg[ML_CHANNELS[0]]
     ws.update(msg)
-    assert len(ws._channels[ML_CHANNELS[0]]) == 0
+    assert len(ws._channels[ML_CHANNELS[0]]) == 1
+    assert ws._channels[ML_CHANNELS[0]][0] == 0.0
     assert len(ws._channels[ML_CHANNELS[1]]) == 1
 
 

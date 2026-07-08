@@ -1,9 +1,9 @@
 # serve/tests/test_shadow.py
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import json
-import pytest
 from unittest.mock import MagicMock
 
 

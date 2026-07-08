@@ -14,7 +14,7 @@ except ImportError:
     _TORCH_AVAILABLE = False
 
 try:
-    import ray
+    import ray  # noqa: F401 — availability probe, only `serve` submodule used below
     from ray import serve
     _RAY_AVAILABLE = True
 except ImportError:

@@ -1,4 +1,3 @@
-import pytest
 from mitigation.policy import (
     ActionClass, TrustLevel, classify_anomaly, MIN_CONFIDENCE
 )

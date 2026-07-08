@@ -14,8 +14,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from train.prepare_dataset import (
-    RESAMPLE_SECONDS,
-    FFILL_SLOW_STEPS,
     MOMENT_SEQ_LEN,
     MOMENT_STRIDE,
     resample_and_rate,
