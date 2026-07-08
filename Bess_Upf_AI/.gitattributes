@@ -1,5 +1,5 @@
-# Track large model artifacts via Git LFS.
-# Run `git lfs install` once, then `git lfs pull` on a fresh clone.
-models/random_forest.joblib filter=lfs diff=lfs merge=lfs -text
-*.parquet filter=lfs diff=lfs merge=lfs -text
-*.npz filter=lfs diff=lfs merge=lfs -text
+# Model + dataset artifacts are fetched from MinIO (scripts/fetch-models.sh), not Git LFS.
+
+# Shell scripts run inside Linux containers — force LF so a Windows checkout
+# (autocrlf) doesn't reintroduce a CRLF shebang that breaks `exec` in Docker.
+*.sh text eol=lf

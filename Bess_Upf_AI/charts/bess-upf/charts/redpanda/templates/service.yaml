@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda-headless
+  namespace: {{ .Values.namespace }}
+spec:
+  clusterIP: None
+  selector:
+    app: redpanda
+  ports:
+    - name: kafka
+      port: 9092
+    - name: rpc
+      port: 33145
+    - name: admin
+      port: 9644
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: redpanda
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092

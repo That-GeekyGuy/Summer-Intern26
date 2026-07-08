@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        svc: [analysis, detection, export-job, upf-sim]
+        svc: [analysis, upf-sim]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -31,15 +31,30 @@ jobs:
 
   python:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        svc: [pipeline, serve, mitigation, tools]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install ruff
-      # pipeline/serve/mitigation are v2 stubs, added in Phase 1
-      - run: ruff check tools
+      - run: ruff check ${{ matrix.svc }}
         working-directory: Bess_Upf_AI
+      - name: install deps + test
+        if: matrix.svc != 'tools'
+        # pipeline/mitigation import as packages (e.g. `from pipeline.window
+        # import ...`) so pytest must run one level up with PYTHONPATH=.;
+        # serve's tests self-insert their own path and also work from here.
+        working-directory: Bess_Upf_AI
+        env:
+          PYTHONPATH: .
+        run: |
+          pip install -r ${{ matrix.svc }}/requirements.txt
+          pip install pytest
+          pytest ${{ matrix.svc }}/tests/ -v
 
   frontend:
     runs-on: ubuntu-latest

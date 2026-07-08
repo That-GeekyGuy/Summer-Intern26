@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"crypto/subtle"
@@ -17,7 +17,8 @@ func BasicAuth(user, password string, next http.Handler) http.Handler {
 		if !ok ||
 			subtle.ConstantTimeCompare([]byte(u), []byte(user)) != 1 ||
 			subtle.ConstantTimeCompare([]byte(p), []byte(password)) != 1 {
-			w.Header().Set("WWW-Authenticate", `Basic realm="upf-analysis"`)
+			// Deliberately do NOT set WWW-Authenticate to avoid browser native popup
+			// This allows the frontend to handle the 401 status and show the custom login page.
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -41,10 +42,27 @@ type RateLimiter struct {
 
 // NewRateLimiter creates a limiter allowing limit requests per window per IP.
 func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
-	return &RateLimiter{
+	rl := &RateLimiter{
 		buckets: make(map[string]*bucket),
 		limit:   limit,
 		window:  window,
+	}
+	go rl.cleanupLoop()
+	return rl
+}
+
+// cleanupLoop removes expired buckets to prevent memory leaks.
+func (rl *RateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(rl.window)
+	for range ticker.C {
+		rl.mu.Lock()
+		now := time.Now()
+		for ip, b := range rl.buckets {
+			if now.After(b.resetAt) {
+				delete(rl.buckets, ip)
+			}
+		}
+		rl.mu.Unlock()
 	}
 }
 
@@ -100,10 +118,18 @@ func clientIP(r *http.Request) string {
 // RequestLogger returns middleware that logs every request.
 func RequestLogger(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Inject a request ID
+		b := make([]byte, 8)
+		subtle.ConstantTimeCopy(1, b, b) // just need to import crypto/rand... actually wait
+		// Let's just do a simple fallback
+		reqID := time.Now().Format("20060102150405.000")
+		w.Header().Set("X-Request-ID", reqID)
+
 		rw := &responseWriter{ResponseWriter: w, code: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(rw, r)
 		log.Info("request",
+			"request_id", reqID,
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rw.code,

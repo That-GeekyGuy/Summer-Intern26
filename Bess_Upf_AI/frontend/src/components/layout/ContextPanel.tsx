@@ -4,11 +4,12 @@ import { useAppStore } from "../../store/useAppStore";
 import { COPY } from "../../lib/copy";
 import { displayName, formatLabels, severityColor } from "../../lib/metrics";
 import { fmtTimestamp, fmtEta } from "../../lib/formatters";
+import { AnimatePresence, motion } from "framer-motion";
 
 interface Props { creds: Credentials; }
 
 export function ContextPanel({ creds: _creds }: Props) {
-  const { context, setPrefillChat, setActiveView } = useAppStore();
+  const { context, setPrefillChat, setActiveView, setContext } = useAppStore();
 
   function handleAskAI(question: string) {
     setPrefillChat(question);
@@ -16,51 +17,78 @@ export function ContextPanel({ creds: _creds }: Props) {
   }
 
   return (
-    <aside style={{
-      width: 320,
-      flexShrink: 0,
-      display: "flex",
-      flexDirection: "column",
-      background: "var(--bg-surface)",
-      borderLeft: "1px solid var(--border)",
-      overflow: "hidden",
-    }}>
-      {/* Panel header */}
-      <div style={{
-        padding: "10px 16px",
-        borderBottom: "1px solid var(--border)",
-        fontSize: "var(--text-xs)",
-        color: "var(--text-muted)",
-        fontFamily: "var(--font-mono)",
-        textTransform: "uppercase",
-        letterSpacing: "0.5px",
-        flexShrink: 0,
-      }}>
-        {COPY.contextPanel.defaultTitle}
-      </div>
+    <AnimatePresence>
+      {context.type !== "empty" && (
+        <motion.aside 
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 20 }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          style={{
+            width: 360,
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            boxShadow: "var(--shadow-elevated)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            overflow: "hidden",
+            position: "absolute",
+            right: 0,
+            top: 0,
+            bottom: 0,
+            zIndex: 50,
+          }}
+        >
+          {/* Panel header */}
+          <div style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <span style={{
+              fontSize: "var(--text-xs)",
+              color: "var(--text-secondary)",
+              fontFamily: "var(--font-mono)",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+              fontWeight: 600,
+            }}>
+              {COPY.contextPanel.defaultTitle}
+            </span>
+            <button 
+              onClick={() => setContext({ type: "empty" })}
+              style={{
+                background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18
+              }}
+            >
+              ×
+            </button>
+          </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {context.type === "empty" && (
-          <p style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)", lineHeight: 1.6 }}>
-            {COPY.contextPanel.defaultBody}
-          </p>
-        )}
+          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+            {context.type === "event" && context.event && (
+              <EventDetail
+                event={context.event}
+                onAskAI={handleAskAI}
+              />
+            )}
 
-        {context.type === "event" && context.event && (
-          <EventDetail
-            event={context.event}
-            onAskAI={handleAskAI}
-          />
-        )}
-
-        {context.type === "chat" && (
-          <ChatContext
-            queriesUsed={context.queriesUsed ?? []}
-            anomalyCount={context.anomalyCount ?? 0}
-          />
-        )}
-      </div>
-    </aside>
+            {context.type === "chat" && (
+              <ChatContext
+                queriesUsed={context.queriesUsed ?? []}
+                anomalyCount={context.anomalyCount ?? 0}
+              />
+            )}
+          </div>
+        </motion.aside>
+      )}
+    </AnimatePresence>
   );
 }
 

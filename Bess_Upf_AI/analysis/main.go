@@ -10,15 +10,13 @@ import (
 	"time"
 
 	"bess.internal/upf-analysis/internal/api"
+	"bess.internal/upf-analysis/internal/chclient"
 	detclient "bess.internal/upf-analysis/internal/detector"
 	"bess.internal/upf-analysis/internal/llm"
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/rag"
 	"bess.internal/upf-analysis/internal/simclient"
 	"bess.internal/upf-analysis/internal/store"
-	"bess.internal/upf-analysis/internal/temporal"
-	"bess.internal/upf-analysis/internal/validator"
-	"bess.internal/upf-analysis/internal/vmclient"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -38,7 +36,13 @@ func mustDuration(s string, fallback time.Duration) time.Duration {
 }
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	var logLevel slog.Level
+	if level := env("LOG_LEVEL", "INFO"); level != "" {
+		if err := logLevel.UnmarshalText([]byte(level)); err != nil {
+			logLevel = slog.LevelInfo
+		}
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
 	// ── SQLite audit log ──────────────────────────────────────────────────────
 	audit, err := store.OpenAuditLog(env("SQLITE_PATH", "/data/audit.db"))
@@ -48,43 +52,21 @@ func main() {
 	}
 	defer audit.Close()
 
-	// ── VictoriaMetrics client ────────────────────────────────────────────────
-	vm := vmclient.New(
-		env("VM_URL", "http://victoriametrics:8428"),
-		env("VM_AUTH_USERNAME", ""),
-		env("VM_AUTH_PASSWORD", ""),
+	// ── ClickHouse client ────────────────────────────────────────────────
+	ch := chclient.New(
+		env("CLICKHOUSE_DSN", "http://clickhouse:8123"),
 	)
 
-	// ── Dynamic allowlist (from VM) ───────────────────────────────────────────
-	allowlist := validator.NewDynamicAllowlist(
-		env("VM_URL", "http://victoriametrics:8428"),
-		env("VM_AUTH_USERNAME", ""),
-		env("VM_AUTH_PASSWORD", ""),
-	)
+	// ── Dynamic allowlist (from CH) ───────────────────────────────────────────
+	// Not needed for Clickhouse
+	// allowlist := validator.NewDynamicAllowlist(...)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	// Initial allowlist population — retry up to 3 times, but don't block startup.
-	for i := 0; i < 3; i++ {
-		if err := allowlist.Refresh(ctx); err != nil {
-			log.Warn("allowlist initial refresh failed", "attempt", i+1, "err", err)
-			time.Sleep(3 * time.Second)
-		} else {
-			log.Info("allowlist populated", "metrics", allowlist.Size())
-			break
-		}
-	}
-	allowlist.StartRefreshLoop(ctx,
-		mustDuration(env("ALLOWLIST_REFRESH_INTERVAL", "5m"), 5*time.Minute),
-		log.Warn)
-
 	// ── PromQL validator ──────────────────────────────────────────────────────
-	val := validator.New(
-		allowlist,
-		mustDuration(env("MAX_QUERY_RANGE", "720h"), 720*time.Hour),
-		mustDuration(env("MIN_STEP", "15s"), 15*time.Second),
-	)
+	// Not needed for Clickhouse
+	// val := validator.New(...)
 
 	// ── RAG retriever (keyword search over docs) ──────────────────────────────
 	var ragRetriever rag.Retriever
@@ -116,14 +98,14 @@ func main() {
 	// ── LLM client + orchestrator ─────────────────────────────────────────────
 	llmClient := llm.NewClient(
 		env("VLLM_URL", "http://vllm:8000"),
-		env("VLLM_MODEL", "Qwen/Qwen3-8B"),
+		env("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
 	)
 	orch := llm.NewOrchestrator(llm.OrchestratorConfig{
 		LLM:        llmClient,
-		Validator:  val,
-		VM:         vm,
+		Validator:  nil,
+		CH:         ch,
 		Detector:   det,
-		Allowlist:  allowlist,
+		Allowlist:  nil,
 		RAG:        ragRetriever,
 		Audit:      audit,
 		SessionTTL: mustDuration(env("SESSION_TTL", "30m"), 30*time.Minute),
@@ -134,25 +116,13 @@ func main() {
 	orch.StartSessionCleanup(ctx)
 
 	// ── RCA Engine (Brain 2 structured root cause analysis) ──────────────────────────
-	// Wraps llmClient + vm + validator for anomaly-specific structured completion.
-	rcaEngine := llm.NewRCAEngine(llmClient, vm, val, log)
+	// Wraps llmClient + ch + validator for anomaly-specific structured completion.
+	rcaEngine := llm.NewRCAEngine(llmClient, ch, nil, log)
 	log.Info("RCA engine initialised")
 
-	// ── Temporal intelligence sidecar client (optional) ──────────────────────
-	// If STL_URL is not set, temporal endpoints return 503 — non-fatal.
-	var tempClient *temporal.Client
-	if stlURL := env("STL_URL", ""); stlURL != "" {
-		tempClient = temporal.New(stlURL)
-		log.Info("temporal sidecar client configured", "url", stlURL)
-		// Inject into RCA engine for calendar + correlation context in prompts.
-		rcaEngine.WithTemporalClient(tempClient)
-	} else {
-		log.Warn("STL_URL not set; /api/v1/temporal/* endpoints will return 503")
-	}
-
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	rl := api.NewRateLimiter(60, time.Minute)
-	h := api.NewHandler(orch, rcaEngine, det, sim, vm, tempClient, val, m, reg, log,
+	rl := api.NewRateLimiter(600, time.Minute)
+	h := api.NewHandler(orch, rcaEngine, det, sim, ch, nil, m, reg, log,
 		env("MODELS_DIR", "/models"),
 		env("CHRONOS_URL", "http://chronos:8084"),
 		audit,

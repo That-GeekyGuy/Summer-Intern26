@@ -1,0 +1,4 @@
+apiVersion: v2
+name: pipeline
+description: Bytewax stream processor, 2 replicas
+version: 0.1.0

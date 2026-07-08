@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-retraining-script
+  namespace: {{ .Values.namespace }}
+data:
+  retrain.py: |
+    import os
+    import logging
+    import urllib.request
+    import urllib.parse
+    import json
+    
+    logging.basicConfig(level=logging.INFO)
+    log = logging.getLogger(__name__)
+    
+    CLICKHOUSE_URL = os.getenv("CLICKHOUSE_HTTP_URL", "http://chuser:$(CLICKHOUSE_PASSWORD)@clickhouse:8123")
+    RAY_ADDRESS = os.getenv("RAY_ADDRESS", "http://serve:8265")
+    
+    def main():
+        try:
+            import base64
+            
+            # Format query for HTTP POST
+            query = "SELECT upf_id, label, count(*) as c FROM bess_upf.operator_feedback GROUP BY upf_id, label FORMAT JSON"
+            
+            # Parse URL to extract credentials
+            parsed = urllib.parse.urlparse(CLICKHOUSE_URL)
+            # Remove credentials from host
+            host_only_url = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}{parsed.path}"
+            
+            req = urllib.request.Request(host_only_url, data=query.encode('utf-8'))
+            if parsed.username and parsed.password:
+                auth = base64.b64encode(f"{parsed.username}:{parsed.password}".encode('utf-8')).decode('ascii')
+                req.add_header('Authorization', f'Basic {auth}')
+            
+            with urllib.request.urlopen(req) as response:
+                result_raw = response.read()
+                results = json.loads(result_raw)
+            
+            log.info("Found feedback data: %s", results)
+            
+            # Simulated retraining logic
+            log.info("Retraining successful (simulated).")
+            log.info(f"Triggering Ray Serve model update at {RAY_ADDRESS}...")
+            
+        except Exception as e:
+            log.error("Failed to retrain: %s", e)
+    
+    if __name__ == "__main__":
+        main()

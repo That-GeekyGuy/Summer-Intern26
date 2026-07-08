@@ -58,7 +58,7 @@ export interface Credentials {
 const CREDS_KEY = "upf_monitor_creds";
 
 export function getCredentials(): Credentials | null {
-  const raw = localStorage.getItem(CREDS_KEY);
+  const raw = sessionStorage.getItem(CREDS_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as Credentials;
@@ -68,11 +68,12 @@ export function getCredentials(): Credentials | null {
 }
 
 export function saveCredentials(creds: Credentials): void {
-  localStorage.setItem(CREDS_KEY, JSON.stringify(creds));
+  console.warn("Security Notice: Credentials are saved in sessionStorage in plaintext. This is a temporary prototype solution.");
+  sessionStorage.setItem(CREDS_KEY, JSON.stringify(creds));
 }
 
 export function clearCredentials(): void {
-  localStorage.removeItem(CREDS_KEY);
+  sessionStorage.removeItem(CREDS_KEY);
 }
 
 // ---- HTTP helper ----------------------------------------------------------
@@ -119,11 +120,13 @@ export async function sendChatMessage(
 export async function fetchAnomalies(
   creds: Credentials,
   since?: number,
-  severity?: string
+  severity?: string,
+  metric?: string
 ): Promise<AnomalyListResponse> {
   const params = new URLSearchParams();
   if (since !== undefined) params.set("since", String(since));
   if (severity) params.set("severity", severity);
+  if (metric) params.set("metric", metric);
   const qs = params.toString() ? "?" + params.toString() : "";
   return request<AnomalyListResponse>(`/api/v1/anomalies${qs}`, creds);
 }
@@ -144,6 +147,33 @@ export async function setScenario(
 }
 
 // ---- Temporal intelligence ------------------------------------------------
+
+export async function submitFeedback(
+  creds: Credentials,
+  metricName: string,
+  timestamp: string | number,
+  isTruePositive: boolean
+): Promise<void> {
+  let ts = timestamp;
+  if (typeof timestamp === "string") {
+    ts = Math.floor(new Date(timestamp).getTime() / 1000);
+  }
+  const resp = await fetch("/api/v1/feedback", {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + btoa(`${creds.username}:${creds.password}`),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      metric_name: metricName,
+      timestamp: ts,
+      is_true_positive: isTruePositive,
+    }),
+  });
+  if (!resp.ok) {
+    throw new Error(`Failed to submit feedback: ${resp.status}`);
+  }
+}
 
 export type Regime = "low" | "normal" | "peak" | "surge";
 
@@ -210,8 +240,10 @@ export async function fetchHotzone(creds: Credentials): Promise<HotzoneResponse>
 // Does NOT go through the LLM — sub-10ms, zero token budget consumed.
 
 export interface InstantSample {
-  labels: Record<string, string>;
-  value: number;
+  labels?: Record<string, string>;
+  value?: number;
+  Labels?: Record<string, string>;
+  Value?: number;
 }
 
 export interface InstantQueryResponse {
@@ -225,6 +257,25 @@ export async function queryInstant(
 ): Promise<InstantQueryResponse> {
   const qs = new URLSearchParams({ q: promql }).toString();
   return request<InstantQueryResponse>(`/api/v1/query?${qs}`, creds);
+}
+
+export interface PulseResponse {
+  sessions: number;
+  n3rx: number;
+  n6tx: number;
+  drops: number;
+}
+
+export async function fetchPulse(creds: Credentials): Promise<PulseResponse> {
+  return request<PulseResponse>("/api/v1/pulse", creds);
+}
+
+export interface HealthResponse {
+  [service: string]: string;
+}
+
+export async function fetchHealth(creds: Credentials): Promise<HealthResponse> {
+  return request<HealthResponse>("/api/v1/health", creds);
 }
 
 // ---- Ablation benchmark report --------------------------------------------

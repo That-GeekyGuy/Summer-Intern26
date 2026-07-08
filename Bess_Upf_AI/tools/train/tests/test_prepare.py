@@ -1,11 +1,5 @@
 """
-Unit tests for prepare_dataset.py.
-
-Run inside the tools Docker image:
-    docker run --rm bess-ml-tools python -m pytest train/tests/ -v
-
-These tests do NOT contact MinIO — they test feature engineering and label logic
-with synthetic in-memory data.
+Unit tests for prepare_dataset.py (Tier 2 + TSFM).
 """
 from __future__ import annotations
 
@@ -20,191 +14,123 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from train.prepare_dataset import (
-    SCRAPE_DT,
-    TRANSITION_N,
-    _assign_labels,
-    _counter_rate,
-    _gauge_rate,
-    _pivot_scenario,
-    ROLLING_WINDOW,
-    FEATURE_COLS,
+    MOMENT_SEQ_LEN,
+    MOMENT_STRIDE,
+    resample_and_rate,
+    ffill_slow_channels,
+    compute_binary_label,
+    build_moment_windows,
 )
 
+# ── Resample and rate ─────────────────────────────────────────────────────────
 
-# ── Counter rate ──────────────────────────────────────────────────────────────
-
-def test_counter_rate_normal():
-    """Rate is (diff / SCRAPE_DT), positive increments produce positive rates."""
-    s = pd.Series([0.0, 150.0, 300.0, 450.0])
-    rate = _counter_rate(s)
-    # First value is NaN (no prior sample)
-    assert np.isnan(rate.iloc[0])
-    # Subsequent rates should be 10.0 (150 bytes / 15 s)
-    assert rate.iloc[1] == pytest.approx(10.0)
-    assert rate.iloc[2] == pytest.approx(10.0)
-    assert rate.iloc[3] == pytest.approx(10.0)
-
-
-def test_counter_rate_reset_becomes_nan():
-    """Counter reset (decrease) must produce NaN, not a negative rate."""
-    s = pd.Series([1000.0, 1500.0, 200.0, 700.0])
-    rate = _counter_rate(s)
-    assert np.isnan(rate.iloc[0])   # first diff always NaN
-    assert rate.iloc[1] == pytest.approx((1500.0 - 1000.0) / SCRAPE_DT)
-    assert np.isnan(rate.iloc[2])   # reset: 1500 → 200 must be NaN, not -86.67
-    assert rate.iloc[3] == pytest.approx((700.0 - 200.0) / SCRAPE_DT)
-
-
-def test_counter_rate_zero_increment():
-    """Zero increment (flatline counter) should produce rate of 0.0."""
-    s = pd.Series([500.0, 500.0, 500.0])
-    rate = _counter_rate(s)
-    assert np.isnan(rate.iloc[0])
-    assert rate.iloc[1] == pytest.approx(0.0)
-    assert rate.iloc[2] == pytest.approx(0.0)
+def test_resample_and_rate_normal():
+    """Test 15s resampling and counter to rate conversion."""
+    times = pd.date_range("2026-06-22 10:00:00", periods=5, freq="5s", tz="UTC")
+    df = pd.DataFrame({
+        "timestamp": times,
+        "port_bytes_count{dir=rx_iface=N3}": [0.0, 50.0, 100.0, 150.0, 200.0], # counter
+        "tsi_value": [1.0, 1.2, 1.4, 1.6, 1.8] # gauge
+    })
+    
+    wide = resample_and_rate(df)
+    
+    # 5s data over 20s total will result in 2 rows at 15s cadence (00 and 15)
+    assert len(wide) == 2
+    
+    # First diff is NaN
+    assert np.isnan(wide["port_bytes_count{dir=rx_iface=N3}"].iloc[0])
+    
+    # Second row rate = (last value at 15s - last value at 00s) / 15
+    # The last value at bucket 10:00:00 (covers 00, 05, 10) is 100
+    # The last value at bucket 10:00:15 (covers 15, 20) is 200
+    # Difference is 100, over 15 seconds = 100/15
+    assert wide["port_bytes_count{dir=rx_iface=N3}"].iloc[1] == pytest.approx(100.0 / 15.0)
 
 
-def test_gauge_rate_can_be_negative():
-    """Gauge rate allows negative values (sessions dropping is valid)."""
-    s = pd.Series([12000.0, 11000.0, 10000.0])
-    rate = _gauge_rate(s)
-    assert np.isnan(rate.iloc[0])
-    assert rate.iloc[1] == pytest.approx(-1000.0 / SCRAPE_DT)
-    assert rate.iloc[2] == pytest.approx(-1000.0 / SCRAPE_DT)
+# ── Forward fill ──────────────────────────────────────────────────────────────
+
+def test_ffill_slow_channels():
+    """Test forward filling for slow cadence columns."""
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2026-06-22 10:00:00", periods=10, freq="15s", tz="UTC"),
+        "tsi_value": [1.0, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 2.0]
+    })
+    
+    ffilled = ffill_slow_channels(df)
+    
+    # Should fill up to FFILL_SLOW_STEPS (6)
+    assert ffilled["tsi_value"].iloc[0] == 1.0
+    assert ffilled["tsi_value"].iloc[6] == 1.0
+    assert np.isnan(ffilled["tsi_value"].iloc[7]) # Limit exceeded
+    assert ffilled["tsi_value"].iloc[9] == 2.0
 
 
-# ── Rolling window ────────────────────────────────────────────────────────────
+# ── Binary label ──────────────────────────────────────────────────────────────
 
-def test_rolling_window_is_20_samples():
-    """5-minute window at 15-second cadence must be exactly 20 samples."""
-    assert ROLLING_WINDOW == 20, f"expected 20, got {ROLLING_WINDOW}"
-
-
-def test_rolling_mean_correct_width():
-    """Rolling mean should use the last 20 samples."""
-    s = pd.Series([float(i) for i in range(50)])
-    roll_mean = s.rolling(window=ROLLING_WINDOW, min_periods=1).mean()
-    # At index 19 (20th sample), mean should be mean(0..19) = 9.5
-    assert roll_mean.iloc[19] == pytest.approx(9.5)
-    # At index 25, mean should be mean(6..25) = 15.5
-    assert roll_mean.iloc[25] == pytest.approx(15.5)
-
-
-# ── Transition exclusion ──────────────────────────────────────────────────────
-
-def _make_scenario_df(modes_by_ts: dict) -> pd.Series:
-    """Build a mode Series indexed by ts_sec."""
-    return pd.Series(modes_by_ts)
+def test_compute_binary_label():
+    """Threshold should be 75th percentile of the training set only."""
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2026-06-22 10:00:00", periods=10, freq="15s", tz="UTC"),
+        "tsi_value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    })
+    
+    split_ts = df["timestamp"].iloc[5] # First 5 rows are training
+    
+    # Training set tsi_value: [1.0, 2.0, 3.0, 4.0, 5.0]
+    # 75th percentile = 4.0
+    binary, threshold = compute_binary_label(df, "tsi_value", split_ts)
+    
+    assert threshold == 4.0
+    assert binary.iloc[0] == 0
+    assert binary.iloc[3] == 0
+    assert binary.iloc[4] == 1 # 5.0 > 4.0
+    assert binary.iloc[9] == 1
 
 
-def test_transition_rows_excluded():
-    """Rows within TRANSITION_N samples of a scenario boundary get label='transition'."""
-    ts_range = list(range(0, 600, SCRAPE_DT))   # 40 timestamps
-    wide = pd.DataFrame(index=ts_range)
-    # Scenario switches at ts=300 (index 20)
-    modes = {t: ("session_spike" if t >= 300 else "normal") for t in ts_range}
-    mode_series = pd.Series(modes)
+# ── MOMENT windows ────────────────────────────────────────────────────────────
 
-    labels = _assign_labels(wide, mode_series)
-
-    # At index 20 (ts=300), mode changes → should be 'transition'
-    assert labels[300] == "transition"
-    # TRANSITION_N samples before: ts = 300 - TRANSITION_N*15
-    boundary = 300
-    for offset in range(TRANSITION_N + 1):
-        ts_before = boundary - offset * SCRAPE_DT
-        ts_after  = boundary + offset * SCRAPE_DT
-        if ts_before in labels.index:
-            assert labels[ts_before] == "transition", f"ts={ts_before} should be transition"
-        if ts_after in labels.index:
-            assert labels[ts_after] == "transition", f"ts={ts_after} should be transition"
-
-    # Far from boundary: should be normal or session_spike, not transition
-    assert labels[0] == "normal"
-    assert labels[ts_range[-1]] == "session_spike"
+def test_build_moment_windows_too_short():
+    """Should return empty arrays if dataset is shorter than seq_len."""
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2026-06-22 10:00:00", periods=10, freq="15s", tz="UTC"),
+        "tsi_value": [1.0] * 10,
+        "uoi_binary": [0] * 10,
+    })
+    
+    channel_map = {"tsi_value": ("tsi_value",)}
+    
+    windows, labels, names = build_moment_windows(
+        df, channel_map, "uoi_binary", seq_len=MOMENT_SEQ_LEN, stride=MOMENT_STRIDE
+    )
+    
+    assert len(windows) == 0
+    assert len(labels) == 0
 
 
-def test_transition_label_applied_symmetrically():
-    """TRANSITION_N exclusion applies equally before and after the boundary."""
-    ts_range = list(range(0, 1200, SCRAPE_DT))  # 80 timestamps
-    wide = pd.DataFrame(index=ts_range)
-    # Mode switches at ts=600 (midpoint)
-    modes = {t: ("flatline" if t >= 600 else "normal") for t in ts_range}
-    labels = _assign_labels(wide, pd.Series(modes))
-
-    n = TRANSITION_N
-    boundary = 600
-    for offset in range(1, n + 1):
-        ts_before = boundary - offset * SCRAPE_DT
-        ts_after  = boundary + offset * SCRAPE_DT
-        assert labels.get(ts_before) == "transition", f"before: ts={ts_before}"
-        assert labels.get(ts_after)  == "transition", f"after: ts={ts_after}"
-
-    # One sample beyond exclusion zone should NOT be transition
-    just_before = boundary - (n + 1) * SCRAPE_DT
-    just_after  = boundary + (n + 1) * SCRAPE_DT
-    assert labels.get(just_before) == "normal"
-    assert labels.get(just_after)  == "flatline"
-
-
-# ── Scenario pivot ────────────────────────────────────────────────────────────
-
-def _make_raw_scenario_df(ts_mode_pairs: list[tuple]) -> pd.DataFrame:
-    """Build the raw DataFrame that _pivot_scenario expects."""
-    rows = []
-    for ts, mode, val in ts_mode_pairs:
-        rows.append({
-            "ts_sec": ts,
-            "labels_dict": {"__name__": "upf_sim_scenario", "mode": mode, "job": "upf"},
-            "value": val,
-        })
-    return pd.DataFrame(rows)
-
-
-def test_pivot_scenario_returns_active_mode():
-    """The active mode (value==1) should be returned for each timestamp."""
-    raw = _make_raw_scenario_df([
-        (100, "normal", 1.0),
-        (100, "session_spike", 0.0),
-        (115, "normal", 0.0),
-        (115, "session_spike", 1.0),
-    ])
-    result = _pivot_scenario(raw)
-    assert result[100] == "normal"
-    assert result[115] == "session_spike"
-
-
-def test_pivot_scenario_missing_ts_defaults_to_normal():
-    """Timestamps with no active mode (all zeros) default to 'normal' in _assign_labels."""
-    raw = _make_raw_scenario_df([
-        (200, "normal", 0.0),
-        (200, "session_spike", 0.0),
-    ])
-    result = _pivot_scenario(raw)
-    # No mode has value==1, so ts=200 should not appear in result
-    assert 200 not in result.index
-
-
-# ── Feature column list ───────────────────────────────────────────────────────
-
-def test_feature_count():
-    """Total feature column count must be 39 (7 rate + 4 ratio + 28 rolling)."""
-    assert len(FEATURE_COLS) == 39, f"expected 39, got {len(FEATURE_COLS)}"
-
-
-def test_feature_cols_no_duplicates():
-    assert len(FEATURE_COLS) == len(set(FEATURE_COLS)), "duplicate feature names"
-
-
-def test_feature_cols_include_required():
-    required = [
-        "rate_pfcp_sessions",
-        "rate_bytes_N3_rx", "rate_bytes_N3_tx",
-        "rate_bytes_N6_rx", "rate_bytes_N6_tx",
-        "rate_drops_N3", "rate_drops_N6",
-        "rx_tx_ratio_N3", "rx_tx_ratio_N6",
-        "drop_fraction_N3", "drop_fraction_N6",
-        "rate_pfcp_sessions_mean_5m", "rate_pfcp_sessions_std_5m",
-    ]
-    missing = [f for f in required if f not in FEATURE_COLS]
-    assert not missing, f"missing features: {missing}"
+def test_build_moment_windows_valid():
+    """Test sliding window generation."""
+    seq_len = 10
+    stride = 5
+    n_rows = 20
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2026-06-22 10:00:00", periods=n_rows, freq="15s", tz="UTC"),
+        "ch1_name": [1.0] * n_rows,
+        "uoi_binary": [0] * (n_rows - 1) + [1], # last item is anomaly
+    })
+    
+    channel_map = {"ch1": ("ch1_name",)}
+    
+    windows, labels, names = build_moment_windows(
+        df, channel_map, "uoi_binary", seq_len=seq_len, stride=stride
+    )
+    
+    # 20 rows, seq_len=10, stride=5 -> 3 windows (0-10, 5-15, 10-20)
+    assert len(windows) == 3
+    assert windows.shape == (3, 1, 10)
+    assert names == ["ch1"]
+    
+    # Labels should match the last element of each window
+    assert labels[0] == 0 # label of row 9
+    assert labels[1] == 0 # label of row 14
+    assert labels[2] == 1 # label of row 19

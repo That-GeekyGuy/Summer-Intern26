@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { AnomalyEvent } from "../../api/client";
 import { severityColor } from "../../lib/metrics";
+import { submitFeedback, getCredentials } from "../../api/client";
 
 interface RCAReport {
   severity: string;
@@ -177,8 +179,23 @@ function ChannelBar({ name, score, maxScore }: { name: string; score: number; ma
 // ----- main component --------------------------------------------------------
 
 export function RCAPanel({ event }: Props) {
+  const [feedbackState, setFeedbackState] = useState<"idle" | "submitting" | "confirmed" | "dismissed">("idle");
+
   const rca = parseRCA(event.rca_report);
   const channelScores = parseChannelScores(event.feature_contributions);
+
+  const handleFeedback = async (isTruePositive: boolean) => {
+    const creds = getCredentials();
+    if (!creds) return;
+    setFeedbackState("submitting");
+    try {
+      await submitFeedback(creds, event.metric_name, event.timestamp, isTruePositive);
+      setFeedbackState(isTruePositive ? "confirmed" : "dismissed");
+    } catch (err) {
+      console.error(err);
+      setFeedbackState("idle");
+    }
+  };
 
   const isAI = event.event_type === "ml" && event.metric_name?.includes("_ai");
   const hasChannelScores = channelScores && Object.keys(channelScores).length > 0;
@@ -462,6 +479,46 @@ export function RCAPanel({ event }: Props) {
           </div>
         ) : null
       )}
+
+      {/* Operator Feedback Widget */}
+      <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", fontWeight: 600 }}>Operator Feedback</div>
+        <div style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)", marginBottom: 4 }}>Help improve the model by confirming or dismissing this anomaly.</div>
+        
+        {feedbackState === "idle" && (
+          <div style={{ display: "flex", gap: 12 }}>
+            <button
+              onClick={() => handleFeedback(true)}
+              style={{
+                flex: 1, padding: "6px 12px", borderRadius: 4, border: "1px solid var(--signal-ok)", background: "rgba(16, 185, 129, 0.1)", color: "var(--signal-ok)", cursor: "pointer", fontSize: "var(--text-xs)", fontWeight: 600
+              }}
+            >
+              👍 Confirm (True Positive)
+            </button>
+            <button
+              onClick={() => handleFeedback(false)}
+              style={{
+                flex: 1, padding: "6px 12px", borderRadius: 4, border: "1px solid var(--signal-critical)", background: "rgba(239, 68, 68, 0.1)", color: "var(--signal-critical)", cursor: "pointer", fontSize: "var(--text-xs)", fontWeight: 600
+              }}
+            >
+              👎 Dismiss (False Positive)
+            </button>
+          </div>
+        )}
+
+        {feedbackState === "submitting" && (
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>Submitting feedback...</div>
+        )}
+
+        {feedbackState === "confirmed" && (
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--signal-ok)", fontWeight: 600 }}>✓ Anomaly confirmed. Thank you!</div>
+        )}
+
+        {feedbackState === "dismissed" && (
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--signal-warning)", fontWeight: 600 }}>✗ Anomaly dismissed. Model will be adjusted.</div>
+        )}
+      </div>
+
     </div>
   );
 }

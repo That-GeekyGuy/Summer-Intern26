@@ -61,7 +61,7 @@ export const COPY = {
     contextActive: (n: number) => n === 0
       ? "No events in context"
       : `${n} event${n === 1 ? "" : "s"} in context`,
-    loadingMsg: "Querying VictoriaMetrics and detection service…",
+    loadingMsg: "Querying ClickHouse and analytical engine…",
     errorPrefix: "Unable to reach LLM backend — check vLLM service health in the System Health panel.",
     suggestedTitle:  "Suggested questions",
     groups: [

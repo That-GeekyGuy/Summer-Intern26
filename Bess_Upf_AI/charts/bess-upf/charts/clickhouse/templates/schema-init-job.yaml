@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clickhouse-schema-init
+  namespace: {{ .Values.namespace }}
+  annotations:
+    # docker-entrypoint-initdb.d/init.sql (mounted on the StatefulSet) runs
+    # once at each pod's first boot — but that happens before the 3-node
+    # Keeper quorum can possibly exist (clickhouse-0 boots alone first), so
+    # every ReplicatedMergeTree CREATE TABLE in init.sql fails immediately
+    # and the entrypoint script aborts partway through (confirmed: only the
+    # Kafka staging table `upf_metrics_kafka` existed, none of the actual
+    # ReplicatedMergeTree tables or materialized views). This Job waits for
+    # the real 3-node cluster to be up, then re-runs the same init.sql via a
+    # live client connection — safe to run alongside/after the entrypoint's
+    # partial attempt since every statement is IF NOT EXISTS.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: schema-init
+          image: {{ .Values.image }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              # --user/--password required: CLICKHOUSE_USER/PASSWORD env vars
+              # on the StatefulSet configure THAT user, not "default" — the
+              # default user's connections get AUTHENTICATION_FAILED without
+              # explicit credentials (confirmed via direct exec test).
+              CH_ARGS="--user {{ .Values.user }} --password ${CLICKHOUSE_PASSWORD}"
+              until clickhouse-client $CH_ARGS --host clickhouse-0.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                    --query "SELECT 1" >/dev/null 2>&1 \
+                 && clickhouse-client $CH_ARGS --host clickhouse-1.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                    --query "SELECT 1" >/dev/null 2>&1 \
+                 && clickhouse-client $CH_ARGS --host clickhouse-2.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                    --query "SELECT 1" >/dev/null 2>&1; do
+                echo "waiting for all 3 clickhouse nodes..."; sleep 5
+              done
+              # ReplicatedMergeTree schema does NOT auto-propagate to sibling
+              # nodes — each replica must independently run its own CREATE
+              # TABLE (confirmed: running init.sql against clickhouse-0 only
+              # left clickhouse-1/2 with zero local tables, causing
+              # "Unknown table" errors whenever the round-robin `clickhouse`
+              # Service happened to route to one of them). Kafka-engine
+              # tables and materialized views are also node-local by design
+              # (each node independently consumes its own Kafka partitions),
+              # so the full init.sql genuinely needs to run on all 3 nodes.
+              for host in clickhouse-0 clickhouse-1 clickhouse-2; do
+                clickhouse-client $CH_ARGS --host ${host}.clickhouse-headless.{{ .Values.namespace }}.svc.cluster.local \
+                  --multiquery < /init.sql
+              done
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-credentials
+                  key: password
+          volumeMounts:
+            - name: initdb
+              mountPath: /init.sql
+              subPath: init.sql
+      volumes:
+        - name: initdb
+          configMap:
+            name: clickhouse-initdb

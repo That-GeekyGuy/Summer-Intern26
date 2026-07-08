@@ -1,0 +1,89 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: bess-upf-serve
+  namespace: {{ .Values.namespace }}
+  annotations:
+    # kuberay-operator 1.1.0's RayCluster CRD predates the structured
+    # spec.gcsFaultToleranceOptions field (added in later KubeRay versions) —
+    # GCS fault tolerance on this version is enabled via this annotation plus
+    # RAY_REDIS_ADDRESS on the head container below.
+    ray.io/ft-enabled: "true"
+spec:
+  rayVersion: "2.30.0"
+  headGroupSpec:
+    serviceType: ClusterIP
+    rayStartParams:
+      # 0.0.0.0 required so the KubeRay operator can health-check the dashboard
+      # from outside the pod's network namespace. Ray's dashboard/job-submission
+      # API has no built-in auth (ShadowRay / CVE-2023-48022) — no Service or
+      # Ingress exposes port 8265 externally, but anything else in-namespace can
+      # still reach it until Phase 4b adds NetworkPolicy isolation.
+      dashboard-host: "0.0.0.0"
+    template:
+      spec:
+        {{- if .Values.global.security.rbac.enabled }}
+        serviceAccountName: serve
+        {{- end }}
+        imagePullSecrets:
+          - name: {{ .Values.imagePullSecret }}
+        containers:
+          - name: ray-head
+            image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
+            imagePullPolicy: IfNotPresent
+            env:
+              - name: MODELS_DIR
+                value: /models
+              - name: KAFKA_BROKER
+                value: redpanda:9092
+              - name: SHADOW_TOPIC
+                value: upf.shadow.detections
+              - name: RAY_REDIS_ADDRESS
+                value: "ray-gcs-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+              - name: RAY_SERVE_PROXY_READY_CHECK_TIMEOUT_S
+                value: "120"
+              - name: RAY_SERVE_ACTOR_HEALTH_CHECK_TIMEOUT_S
+                value: "120"
+            ports:
+              - containerPort: 8000
+                name: serve
+              - containerPort: 6379
+                name: gcs
+              - containerPort: 8265
+                name: dashboard
+            volumeMounts:
+              - name: models
+                mountPath: /models
+                readOnly: true
+        volumes:
+          - name: models
+            hostPath:
+              path: /models
+  workerGroupSpecs:
+    - groupName: default
+      replicas: {{ .Values.workerReplicas }}
+      minReplicas: {{ .Values.workerReplicas }}
+      maxReplicas: {{ .Values.workerReplicas }}
+      rayStartParams: {}
+      template:
+        spec:
+          {{- if .Values.global.security.rbac.enabled }}
+          serviceAccountName: serve
+          {{- end }}
+          imagePullSecrets:
+            - name: {{ .Values.imagePullSecret }}
+          containers:
+            - name: ray-worker
+              image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: MODELS_DIR
+                  value: /models
+              volumeMounts:
+                - name: models
+                  mountPath: /models
+                  readOnly: true
+          volumes:
+            - name: models
+              hostPath:
+                path: /models

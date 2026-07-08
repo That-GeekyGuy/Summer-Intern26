@@ -1,0 +1,179 @@
+{{- if .Values.global.security.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-nginx
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-analysis
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchLabels:
+      app: analysis
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-analysis-and-pipeline-to-serve
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: ray.io/cluster
+        operator: In
+        values:
+          - bess-upf-serve
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: analysis
+    - podSelector:
+        matchLabels:
+          app: pipeline
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-serve-intra
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: ray.io/cluster
+        operator: In
+        values:
+          - bess-upf-serve
+  ingress:
+  - from:
+    - podSelector:
+        matchExpressions:
+          - key: ray.io/cluster
+            operator: In
+            values:
+              - bess-upf-serve
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-clickhouse
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchLabels:
+      app: clickhouse
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: analysis
+    - podSelector:
+        matchLabels:
+          app: pipeline
+    - podSelector:
+        matchLabels:
+          app: clickhouse
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-redpanda
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchLabels:
+      app: redpanda
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: upf-sim
+    - podSelector:
+        matchLabels:
+          app: pipeline
+    - podSelector:
+        matchLabels:
+          job-name: redpanda-topic-init
+    - podSelector:
+        matchExpressions:
+          - key: ray.io/cluster
+            operator: In
+            values:
+              - bess-upf-serve
+    - podSelector:
+        matchLabels:
+          app: redpanda
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-ray-redis
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchLabels:
+      app: ray-gcs-redis
+  ingress:
+  - from:
+    - podSelector:
+        matchExpressions:
+          - key: ray.io/cluster
+            operator: In
+            values:
+              - bess-upf-serve
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-mitigation
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchLabels:
+      app: mitigation
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: pipeline
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-ingress-nginx
+  namespace: {{ .Values.global.namespace | default "bess-upf" }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+  ingress:
+  - {}
+{{- end }}

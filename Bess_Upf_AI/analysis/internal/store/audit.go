@@ -1,9 +1,10 @@
-﻿package store
+package store
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -40,15 +41,27 @@ CREATE TABLE IF NOT EXISTS query_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_session   ON query_audit(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_created   ON query_audit(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS anomaly_feedback (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric_name      TEXT    NOT NULL,
+    timestamp        INTEGER NOT NULL,
+    is_true_positive INTEGER NOT NULL,
+    created_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_metric ON anomaly_feedback(metric_name, timestamp DESC);
 `
 
 // OpenAuditLog opens (or creates) the SQLite audit database at path.
 func OpenAuditLog(path string) (*AuditLog, error) {
+	// Enable WAL mode and busy_timeout in the connection string
+	if !strings.Contains(path, "?") {
+		path += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open audit sqlite: %w", err)
 	}
-	db.SetMaxOpenConns(1)
 	// WAL mode allows concurrent readers while a writer holds the lock.
 	// Required because the audit endpoint reads concurrently with LLM writes.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
@@ -147,3 +160,17 @@ func (a *AuditLog) Log(ctx context.Context, entry AuditEntry) error {
 
 // Close closes the underlying database.
 func (a *AuditLog) Close() error { return a.db.Close() }
+
+// RecordFeedback stores a human feedback event (confirm or dismiss) for an anomaly.
+func (a *AuditLog) RecordFeedback(ctx context.Context, metricName string, anomalyTimestamp int64, isTruePositive bool) error {
+	val := 0
+	if isTruePositive {
+		val = 1
+	}
+	_, err := a.db.ExecContext(ctx,
+		`INSERT INTO anomaly_feedback (metric_name, timestamp, is_true_positive, created_at)
+         VALUES (?, ?, ?, ?)`,
+		metricName, anomalyTimestamp, val, time.Now().Unix(),
+	)
+	return err
+}

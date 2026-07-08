@@ -1,0 +1,13 @@
+ray[serve]==2.30.0
+# click>=8.1.4 breaks `ray` CLI import (copy.deepcopy on a click Sentinel
+# raises "not a valid Sentinel" — confirmed via in-cluster ray-head crash log,
+# fails inside ray.scripts.scripts before any of our code runs). Pin below it.
+click<8.1.4
+torch==2.1.0
+transformers
+numpy
+pandas
+scikit-learn==1.4.2
+joblib
+pyarrow
+confluent-kafka

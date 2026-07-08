@@ -3,19 +3,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Credentials } from "../../api/client";
 import { useAppStore } from "../../store/useAppStore";
 import { TopBar } from "./TopBar";
-import { Sidebar } from "./Sidebar";
+import { FloatingDock } from "./FloatingDock";
 import { ContextPanel } from "./ContextPanel";
 import { Toast } from "../primitives/Toast";
 import { OnboardingOverlay } from "../primitives/OnboardingOverlay";
 import { ENABLE_SCENARIO } from "../../lib/constants";
+import { AnimatePresence, motion } from "framer-motion";
 
 // Views
 import { OverviewPage } from "../../features/overview/OverviewPage";
 import { AnomalyFeedPage } from "../../features/anomalies/AnomalyFeedPage";
 import { ChatPage } from "../../features/chat/ChatPage";
 import { ForecastPage } from "../../features/forecast/ForecastPage";
-import { InsightsPage } from "../../features/insights/InsightsPage";
 import { BenchmarkPage } from "../../features/benchmark/BenchmarkPage";
+import { InsightsPage } from "../../features/insights/InsightsPage";
 
 const ScenarioPage = ENABLE_SCENARIO
   ? React.lazy(() => import("../../features/scenario/ScenarioPage").then(m => ({ default: m.ScenarioPage })))
@@ -44,8 +45,8 @@ export function AppShell({ creds, onLogout }: Props) {
       case "anomalies": return <AnomalyFeedPage creds={creds} />;
       case "chat":      return <ChatPage creds={creds} />;
       case "forecast":  return <ForecastPage creds={creds} />;
-      case "insights":   return <InsightsPage creds={creds} />;
       case "benchmark":  return <BenchmarkPage creds={creds} />;
+      case "insights":  return <InsightsPage creds={creds} />;
       case "scenario":
         if (!ENABLE_SCENARIO || !ScenarioPage) return (
           <div style={{ padding: 24, color: "var(--text-muted)" }}>
@@ -67,22 +68,56 @@ export function AppShell({ creds, onLogout }: Props) {
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        background: "var(--bg-base)",
+        background: "transparent",
         color: "var(--text-primary)",
         fontFamily: "var(--font-body)",
+        padding: "16px 24px",
       }}>
+        {/* Minimal TopBar */}
         <TopBar creds={creds} onLogout={onLogout} />
 
-        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-          <Sidebar creds={creds} />
+        <div style={{ 
+          display: "flex", 
+          flex: 1, 
+          gap: 24, 
+          overflow: "hidden", 
+          position: "relative",
+          marginTop: 16,
+          paddingBottom: 80 // Leave space for FloatingDock
+        }}>
 
-          {/* Main content */}
-          <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            {renderMain()}
+          {/* Animated Main Content Wrapper */}
+          <main style={{ 
+            flex: 1, 
+            overflow: "hidden", 
+            display: "flex", 
+            flexDirection: "column",
+            background: "var(--bg-surface)",
+            borderRadius: "var(--radius)",
+            border: "1px solid var(--border)",
+            boxShadow: "var(--shadow-soft)",
+            position: "relative",
+          }}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeView}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column" }}
+              >
+                {renderMain()}
+              </motion.div>
+            </AnimatePresence>
           </main>
 
+          {/* Floating Context Panel Overlay/Side */}
           <ContextPanel creds={creds} />
         </div>
+
+        {/* Floating Dock Navigation */}
+        <FloatingDock />
 
         {/* Toast notifications */}
         <div style={{

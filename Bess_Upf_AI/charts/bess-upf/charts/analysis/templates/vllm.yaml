@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-mock-script
+  namespace: {{ .Values.namespace }}
+data:
+  mock_vllm.py: |
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import json
+    import time
+
+    class MockVLLM(BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path == "/v1/chat/completions":
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8')
+                try:
+                    req_json = json.loads(body)
+                    messages = req_json.get('messages', [])
+                    tools = req_json.get('tools', [])
+                except Exception:
+                    messages, tools = [], []
+                
+                # Mock response
+                response_content = "This is a mock LLM response. I am pretending to be an intelligent assistant!"
+                
+                res = {
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": req_json.get("model", "mock-model"),
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": response_content,
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+                }
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode('utf-8'))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    if __name__ == "__main__":
+        server = HTTPServer(('0.0.0.0', 8000), MockVLLM)
+        print("Starting mock vLLM on port 8000...")
+        server.serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "2Gi"
+        - name: hf-cache
+          emptyDir: {}
+{{- if .Values.vllm.mock.enabled }}
+        - name: script-vol
+          configMap:
+            name: vllm-mock-script
+{{- end }}
+      containers:
+        - name: vllm
+{{- if .Values.vllm.mock.enabled }}
+          image: python:3.11-slim
+          command: ["python", "-u", "/script/mock_vllm.py"]
+          volumeMounts:
+            - name: script-vol
+              mountPath: /script
+{{- else }}
+          image: {{ .Values.vllm.image }}
+          args:
+            - "--model"
+            - "{{ .Values.vllm.model }}"
+            - "--quantization"
+            - "{{ .Values.vllm.quantization }}"
+            - "--max-model-len"
+            - "{{ .Values.vllm.maxModelLen }}"
+            - "--gpu-memory-utilization"
+            - "{{ .Values.vllm.gpuMemoryUtilization }}"
+            - "--trust-remote-code"
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vllm.hfTokenSecretName }}
+                  key: token
+                  optional: true
+          resources:
+            limits:
+              nvidia.com/gpu: {{ .Values.vllm.resources.limits.gpu | quote }}
+            requests:
+              nvidia.com/gpu: {{ .Values.vllm.resources.requests.gpu | quote }}
+          volumeMounts:
+            - mountPath: /dev/shm
+              name: dshm
+            - mountPath: /root/.cache/huggingface
+              name: hf-cache
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /v1/models
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+{{- end }}
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: vllm
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000

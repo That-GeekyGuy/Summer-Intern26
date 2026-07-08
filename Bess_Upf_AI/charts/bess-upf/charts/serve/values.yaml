@@ -1,0 +1,5 @@
+namespace: bess-upf
+registry: ghcr.io/that-geekyguy
+tag: phase4a
+imagePullSecret: ghcr-pull-secret
+workerReplicas: 2

@@ -1,0 +1,48 @@
+global:
+  registry: ghcr.io/that-geekyguy
+  tag: phase4a
+  imagePullSecret: ghcr-pull-secret
+  namespace: bess-upf
+  security:
+    rbac:
+      enabled: true
+    mtls:
+      enabled: true
+    networkPolicy:
+      enabled: false
+
+pipeline:
+  repository: bess-upf-pipeline
+  tag: local-dev
+  metricsUrl: "http://upf-sim:8090/metrics"
+
+analysis:
+  repository: bess-upf-analysis
+  tag: local-dev
+
+frontend:
+  repository: bess-upf-frontend
+  tag: local-dev
+
+serve:
+  repository: bess-upf-serve
+  tag: local-dev
+
+mitigation:
+  repository: bess-upf-mitigation
+  tag: local-dev
+
+upf-sim:
+  enabled: true
+
+ingress-nginx:
+  enabled: true
+  controller:
+    service:
+      type: NodePort
+    livenessProbe:
+      failureThreshold: 10
+      timeoutSeconds: 10
+    readinessProbe:
+      failureThreshold: 10
+      timeoutSeconds: 10

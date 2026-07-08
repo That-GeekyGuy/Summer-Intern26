@@ -1,0 +1,30 @@
+dependencies:
+- name: redpanda
+  repository: ""
+  version: 0.1.0
+- name: clickhouse
+  repository: ""
+  version: 0.1.0
+- name: serve
+  repository: ""
+  version: 0.1.0
+- name: pipeline
+  repository: ""
+  version: 0.1.0
+- name: mitigation
+  repository: ""
+  version: 0.1.0
+- name: ingress-nginx
+  repository: https://kubernetes.github.io/ingress-nginx
+  version: 4.11.3
+- name: frontend
+  repository: ""
+  version: 0.1.0
+- name: upf-sim
+  repository: ""
+  version: 0.1.0
+- name: analysis
+  repository: ""
+  version: 0.1.0
+digest: sha256:9c4fac29d46c6dd5695f7d1cc72f3cdd31320a9b27b0bb1bcd826690bd31f914
+generated: "2026-07-08T11:44:39.0422729+05:30"

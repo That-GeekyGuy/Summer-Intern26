@@ -2,7 +2,13 @@ import { fmtBytes, fmtDrops, fmtSessions } from "./formatters";
 
 // Format a numeric value using the appropriate unit for a given metric name.
 // Predictive events store values in rate units (bytes/s, drops/s, sessions).
+// ML multivariate events store a composite anomaly score — show as raw score.
 export function fmtMetricVal(metricName: string, value: number): string {
+  if (isNaN(value)) return "—";
+  // Composite/AI score metrics — not a physical unit
+  if (metricName.includes("multivariate") || metricName.includes("ai")) {
+    return Math.abs(value) < 0.001 ? "—" : value.toFixed(3);
+  }
   if (metricName.includes("bytes")) return fmtBytes(value);
   if (metricName.includes("dropped")) return fmtDrops(value);
   return fmtSessions(value);

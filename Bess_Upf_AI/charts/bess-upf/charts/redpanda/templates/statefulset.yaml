@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: {{ .Values.namespace }}
+spec:
+  serviceName: redpanda-headless
+  replicas: {{ .Values.replicas }}
+  # podManagementPolicy Parallel caused all 3 pods to start simultaneously,
+  # and CoreDNS took minutes to register each pod's headless-service DNS
+  # record — confirmed via getent (the OS resolver, not just redpanda's own
+  # c-ares) also failing to resolve a sibling pod for 2.5+ minutes from inside
+  # a freshly-started pod. Default OrderedReady staggers pod creation so each
+  # one's DNS entry has time to propagate before the next pod needs it.
+  selector:
+    matchLabels:
+      app: redpanda
+  template:
+    metadata:
+      annotations:
+        {{- if .Values.global.security.mtls.enabled }}
+        linkerd.io/inject: enabled
+        {{- end }}
+      labels:
+        app: redpanda
+    spec:
+      {{- if .Values.global.security.rbac.enabled }}
+      serviceAccountName: redpanda
+      {{- end }}
+      containers:
+        - name: redpanda
+          image: {{ .Values.image }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              # The raw `redpanda` binary only accepts --redpanda-cfg (verified via
+              # `redpanda --help` in-cluster); `redpanda start ...` is not a valid
+              # invocation on this image. rpk is the correct wrapper CLI. node_id
+              # isn't an rpk flag or -X config-opt either — it auto-assigns from
+              # the seed/cluster-join process, so it's intentionally omitted.
+              # rpk's dev-mode auto-adds --reserve-memory/--overprovisioned itself
+              # (confirmed via container logs) — repeating those after -- crashed
+              # with "cannot be specified more than once". --smp/--memory are NOT
+              # auto-added though, and without --smp 1 redpanda tries to grab
+              # AIO slots for every host CPU and exceeds fs.aio-max-nr on this
+              # kind node — so only those two are re-added here.
+              # Every node lists ONLY redpanda-0 as seed. An earlier attempt
+              # (with podManagementPolicy: Parallel) made every node list all
+              # 3 seeds, reasoning that single-seed left 1/2 stuck as raft
+              # learners — but that was the wrong diagnosis: all 3 pods were
+              # starting simultaneously back then too, so the real cause was
+              # CoreDNS not having propagated peer DNS records yet (same root
+              # cause fixed below via OrderedReady). Under OrderedReady,
+              # redpanda-1/2 don't exist as pods until redpanda-0 is Ready, so
+              # an all-seeds list deadlocks node 0 waiting on peers that can't
+              # exist yet (confirmed via "pods not found" for 1/2 while node 0
+              # kept retrying their DNS). Single-seed is the correct pairing
+              # with OrderedReady: node 0 bootstraps alone, then each
+              # subsequent node joins the by-then-already-running node 0.
+              # Trailing dot on both FQDNs below forces an absolute DNS lookup.
+              # c-ares (redpanda's resolver) tries ndots:5 search-domain
+              # expansion first regardless of dot count unless the name ends
+              # in a literal ".", which stalls/fails cross-pod RPC joins.
+              exec rpk redpanda start \
+                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local.:33145" \
+                --kafka-addr internal://0.0.0.0:9092 \
+                --advertise-kafka-addr internal://$(hostname -i):9092 \
+                --rpc-addr 0.0.0.0:33145 \
+                --advertise-rpc-addr $(hostname -f).:33145 \
+                -- --smp 1 --memory 1G
+          ports:
+            - containerPort: 9092
+              name: kafka
+            - containerPort: 33145
+              name: rpc
+            - containerPort: 9644
+              name: admin
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+          readinessProbe:
+            exec:
+              command: ["rpk", "cluster", "health"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.storage }}

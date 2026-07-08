@@ -1,4 +1,4 @@
-﻿package llm
+package llm
 
 import (
 	"context"
@@ -14,15 +14,15 @@ import (
 	"bess.internal/upf-analysis/internal/rag"
 	"bess.internal/upf-analysis/internal/store"
 	"bess.internal/upf-analysis/internal/validator"
-	"bess.internal/upf-analysis/internal/vmclient"
+	"bess.internal/upf-analysis/internal/chclient"
 )
 
 const systemPrompt = `You are an expert 5G network analyst specializing in User Plane Function (UPF) metrics for BESS-UPF systems. You help network engineers investigate anomalies, understand trends, and diagnose issues in the 5G data plane.
 
 IMPORTANT — always follow these rules:
 1. Call get_metric_metadata first when you are unsure of metric names. Never guess or invent metric names.
-2. If query_prometheus is rejected with a validation error, read the error carefully and reformulate using only listed metrics.
-3. Narrow query scope with label matchers (e.g. {job="upf"}).
+2. If query_clickhouse is rejected with a validation error, read the error carefully and reformulate using only listed metrics.
+3. Narrow query scope with SQL filters (e.g. upf_id='...').
 4. Report actual numeric values from your queries — never estimate.
 5. Check get_anomalies early to understand what the detection service has already flagged for current conditions.
 6. REACTIVE events (event_type="reactive"): anomalies happening NOW or recently observed. Use language like "is elevated", "has spiked", "currently exceeds", "was detected at".
@@ -110,7 +110,7 @@ type ChatResponse struct {
 type Orchestrator struct {
 	llm       *Client
 	validator *validator.Validator
-	vm        *vmclient.Client
+	ch        *chclient.Client
 	det       *detclient.Client
 	allowlist Allowlist
 	rag       rag.Retriever
@@ -125,7 +125,7 @@ type Orchestrator struct {
 type OrchestratorConfig struct {
 	LLM        *Client
 	Validator  *validator.Validator
-	VM         *vmclient.Client
+	CH         *chclient.Client
 	Detector   *detclient.Client
 	Allowlist  Allowlist
 	RAG        rag.Retriever
@@ -154,7 +154,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	return &Orchestrator{
 		llm:       cfg.LLM,
 		validator: cfg.Validator,
-		vm:        cfg.VM,
+		ch:        cfg.CH,
 		det:       cfg.Detector,
 		allowlist: cfg.Allowlist,
 		rag:       cfg.RAG,
@@ -276,8 +276,8 @@ func (o *Orchestrator) executeTool(ctx context.Context, call ToolCall,
 	queriesUsed *[]string, anomalies *[]detclient.AnomalyEvent,
 ) (string, error) {
 	switch call.Function.Name {
-	case ToolQueryPrometheus:
-		return o.execQueryPrometheus(ctx, call, sessionID, userMessage, queriesUsed)
+	case ToolQueryClickHouse:
+		return o.execQueryClickHouse(ctx, call, sessionID, userMessage, queriesUsed)
 	case ToolGetAnomalies:
 		return o.execGetAnomalies(ctx, call, anomalies)
 	case ToolGetPredictions:
@@ -289,64 +289,41 @@ func (o *Orchestrator) executeTool(ctx context.Context, call ToolCall,
 	}
 }
 
-type queryPrometheusArgs struct {
-	PromQL    string `json:"promql"`
-	TimeRange string `json:"time_range"`
-	Step      string `json:"step"`
+type queryClickHouseArgs struct {
+	SQL string `json:"sql"`
 }
 
-func (o *Orchestrator) execQueryPrometheus(ctx context.Context, call ToolCall,
+func (o *Orchestrator) execQueryClickHouse(ctx context.Context, call ToolCall,
 	sessionID, userMessage string, queriesUsed *[]string,
 ) (string, error) {
-	var args queryPrometheusArgs
+	var args queryClickHouseArgs
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return jsonError("invalid arguments: " + err.Error()), nil
 	}
 
-	timeRange, err := parseDuration(args.TimeRange)
-	if err != nil {
-		return jsonError("invalid time_range: " + err.Error()), nil
-	}
-	step := time.Minute
-	if args.Step != "" {
-		if s, err := parseDuration(args.Step); err == nil {
-			step = s
-		}
-	}
-
-	// Validate before execution — this is the security-critical path.
-	valErr := o.validator.Validate(args.PromQL, timeRange, step)
 	auditEntry := store.AuditEntry{
 		SessionID:   sessionID,
 		UserMessage: userMessage,
 		ToolName:    call.Function.Name,
 		ToolArgs:    call.Function.Arguments,
 	}
-	if valErr != nil {
-		auditEntry.ValidationError = valErr.Error()
-		auditEntry.ExecutionStatus = "rejected"
-		_ = o.audit.Log(ctx, auditEntry)
 
-		if o.m != nil {
-			reason := classifyValidationError(valErr.Error())
-			o.m.ValidatorRejects.WithLabelValues(reason).Inc()
-		}
-
-		return jsonError("PromQL validation failed: " + valErr.Error()), nil
+	if o.ch == nil {
+		return jsonError("ClickHouse client is not configured"), nil
 	}
 
-	result, err := o.vm.QueryRange(ctx, args.PromQL, timeRange, step, 10)
+	result, err := o.ch.QueryInstant(ctx, args.SQL)
 	if err != nil {
-		auditEntry.ExecutionStatus = "vm_error: " + err.Error()
+		auditEntry.ExecutionStatus = "ch_error: " + err.Error()
 		_ = o.audit.Log(ctx, auditEntry)
 		return jsonError("query execution failed: " + err.Error()), nil
 	}
 
 	auditEntry.ExecutionStatus = "ok"
-	auditEntry.RowCount = result.SeriesCount
+	auditEntry.RowCount = len(result)
 	_ = o.audit.Log(ctx, auditEntry)
 
-	*queriesUsed = append(*queriesUsed, args.PromQL)
+	*queriesUsed = append(*queriesUsed, args.SQL)
 
 	b, _ := json.Marshal(result)
 	return string(b), nil
@@ -390,9 +367,47 @@ func (o *Orchestrator) execGetAnomalies(ctx context.Context, call ToolCall, anom
 		return jsonError("invalid since: " + err.Error()), nil
 	}
 
-	events, err := o.det.GetAnomalies(ctx, since, args.Metric, args.Severity)
+	tsFilter := time.Now().Add(-since).Format("2006-01-02 15:04:05")
+	q := fmt.Sprintf(`
+		SELECT
+			ts,
+			anomaly_score,
+			threshold,
+			top_anomalous_channels,
+			model_version
+		FROM anomaly_events
+		WHERE ts >= '%s'
+	`, tsFilter)
+
+	if args.Severity == "critical" {
+		q += " AND anomaly_score > threshold * 1.5"
+	}
+
+	q += " ORDER BY ts DESC LIMIT 100"
+
+	rows, err := o.ch.QueryJSON(ctx, q)
 	if err != nil {
-		return jsonError("detection service error: " + err.Error()), nil
+		return jsonError("database query error: " + err.Error()), nil
+	}
+
+	var events []detclient.AnomalyEvent
+	for _, row := range rows {
+		tsStr, _ := row["ts"].(string)
+		t, _ := time.Parse("2006-01-02 15:04:05.000", tsStr)
+		if t.IsZero() { t = time.Now() }
+		
+		score, _ := row["anomaly_score"].(float64)
+		thresh, _ := row["threshold"].(float64)
+		
+		events = append(events, detclient.AnomalyEvent{
+			Timestamp:          t,
+			MetricName:         "system",
+			ExpectedValue:      &thresh,
+			DeviationMagnitude: score - thresh,
+			Severity:           "critical",
+			EventType:          "pattern",
+			RuleName:           "v2-isolation-forest",
+		})
 	}
 	*anomalies = append(*anomalies, events...)
 
@@ -471,7 +486,7 @@ func (o *Orchestrator) execGetMetricMetadata() (string, error) {
 	b, _ := json.Marshal(map[string]any{
 		"metrics": operator,
 		"total":   len(operator),
-		"note":    "Use these exact names in query_prometheus. Internal runtime metrics (go_*, prometheus_*, process_*) are omitted.",
+		"note":    "Use these exact names in query_clickhouse. Internal runtime metrics (go_*, prometheus_*, process_*) are omitted.",
 	})
 	return string(b), nil
 }

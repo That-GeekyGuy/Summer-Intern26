@@ -100,7 +100,7 @@ func TestGetAnomaliesToolDescription(t *testing.T) {
 // TestToolSetCompleteness verifies all expected tools are registered.
 func TestToolSetCompleteness(t *testing.T) {
 	expected := map[string]bool{
-		ToolQueryPrometheus:   false,
+		ToolQueryClickHouse:   false,
 		ToolGetAnomalies:      false,
 		ToolGetPredictions:    false,
 		ToolGetMetricMetadata: false,

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ray-gcs-redis
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ray-gcs-redis
+  template:
+    metadata:
+      labels:
+        app: ray-gcs-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ray-gcs-redis
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: ray-gcs-redis
+  ports:
+    - port: 6379
