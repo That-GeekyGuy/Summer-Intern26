@@ -58,12 +58,16 @@ spec:
               # kept retrying their DNS). Single-seed is the correct pairing
               # with OrderedReady: node 0 bootstraps alone, then each
               # subsequent node joins the by-then-already-running node 0.
+              # Trailing dot on both FQDNs below forces an absolute DNS lookup.
+              # c-ares (redpanda's resolver) tries ndots:5 search-domain
+              # expansion first regardless of dot count unless the name ends
+              # in a literal ".", which stalls/fails cross-pod RPC joins.
               exec rpk redpanda start \
-                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local:33145" \
+                --seeds "redpanda-0.redpanda-headless.{{ .Values.namespace }}.svc.cluster.local.:33145" \
                 --kafka-addr internal://0.0.0.0:9092 \
                 --advertise-kafka-addr internal://$(hostname -i):9092 \
                 --rpc-addr 0.0.0.0:33145 \
-                --advertise-rpc-addr $(hostname -f):33145 \
+                --advertise-rpc-addr $(hostname -f).:33145 \
                 -- --smp 1 --memory 1G
           ports:
             - containerPort: 9092
@@ -80,6 +84,7 @@ spec:
               command: ["rpk", "cluster", "health"]
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 6
   volumeClaimTemplates:
     - metadata:

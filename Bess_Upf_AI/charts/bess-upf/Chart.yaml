@@ -22,5 +22,6 @@ dependencies:
     version: "0.1.0"
   - name: upf-sim
     version: "0.1.0"
+    condition: upf-sim.enabled
   - name: analysis
     version: "0.1.0"

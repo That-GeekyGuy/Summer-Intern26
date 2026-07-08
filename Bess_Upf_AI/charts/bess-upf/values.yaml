@@ -32,8 +32,17 @@ mitigation:
   repository: bess-upf-mitigation
   tag: local-dev
 
+upf-sim:
+  enabled: true
+
 ingress-nginx:
   enabled: true
   controller:
     service:
       type: NodePort
+    livenessProbe:
+      failureThreshold: 10
+      timeoutSeconds: 10
+    readinessProbe:
+      failureThreshold: 10
+      timeoutSeconds: 10

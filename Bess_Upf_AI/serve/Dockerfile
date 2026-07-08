@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py feature_eng.py moment_loader.py shadow_publisher.py ./
+COPY app.py feature_eng.py moment_loader.py shadow_publisher.py deploy_models.py ./
 
 ENV PYTHONPATH=/app
 CMD ["serve", "run", "app:app_node", "--host", "0.0.0.0", "--port", "8000"]

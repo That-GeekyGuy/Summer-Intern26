@@ -35,11 +35,12 @@ def _window_mapper(
     return state, payload
 
 
-def _call_detect_batch(batch: list[tuple[str, tuple[dict, list]]]) -> list[dict]:
+def _call_detect_batch(item: tuple[str, list[tuple[dict, list]]]) -> list[dict]:
+    upf_id, entries = item
     reqs = []
     stat_anomalies = []
-    
-    for upf_id, (msg, channels_array) in batch:
+
+    for msg, channels_array in entries:
         stat_anomaly = False
         stat_score = 0.0
         stat_channels = []
@@ -100,7 +101,7 @@ def _call_detect_batch(batch: list[tuple[str, tuple[dict, list]]]) -> list[dict]
         log.error("detect_batch call failed: %s", exc)
         ml_results = [{"anomaly": False, "anomaly_score": 0.0} for _ in reqs]
 
-    for (upf_id, (msg, _)), (stat_anomaly, stat_score, stat_channels), ml_res in zip(batch, stat_anomalies, ml_results):
+    for (msg, _), (stat_anomaly, stat_score, stat_channels), ml_res in zip(entries, stat_anomalies, ml_results):
         if stat_anomaly:
             ml_res["anomaly"] = True
             ml_res["anomaly_score"] = max(ml_res.get("anomaly_score", 0.0), stat_score)
@@ -148,7 +149,7 @@ windowed = op.stateful_map("window", keyed, _window_mapper)
 windowed_full = op.filter("window-full", windowed, lambda k_v: k_v[1] is not None)
 
 # Batch items up to 50 or 1 second, whichever comes first
-batched = op.batch("batch", windowed_full, max_size=50, timeout=timedelta(seconds=1))
+batched = op.collect("batch", windowed_full, max_size=50, timeout=timedelta(seconds=1))
 
 anomalies = op.flat_map("detect-batch", batched, _call_detect_batch)
 

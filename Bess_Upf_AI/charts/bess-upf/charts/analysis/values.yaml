@@ -6,7 +6,7 @@ replicas: 1
 
 vllm:
   mock:
-    enabled: false
+    enabled: true
   image: "vllm/vllm-openai:v0.4.3"
   model: "Qwen/Qwen2.5-7B-Instruct-AWQ"
   quantization: "awq"
