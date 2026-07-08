@@ -16,8 +16,19 @@ spec:
       containers:
         - name: deployer
           image: "{{ .Values.registry }}/bess-upf-serve:{{ .Values.tag }}"
-          command: ["python", "/app/deploy_models.py"]
-          env:
-            - name: RAY_ADDRESS
-              value: "http://bess-upf-serve-head-svc:8265"
+          imagePullPolicy: IfNotPresent
+          # deploy_models.py must run inside the cluster's own Ray runtime
+          # (ray job submit) — running it as a bare pod command only sets
+          # RAY_ADDRESS and never actually attaches, so it silently deploys
+          # to a throwaway local Ray instance that vanishes with the pod.
+          command:
+            - ray
+            - job
+            - submit
+            - --address=http://bess-upf-serve-head-svc:8265
+            - --working-dir
+            - /app
+            - --
+            - python
+            - deploy_models.py
       restartPolicy: OnFailure

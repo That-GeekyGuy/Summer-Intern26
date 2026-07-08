@@ -119,14 +119,17 @@ export function ForecastPage({ creds }: Props) {
     return map;
   }, [dbData]);
 
-  // Chronos-2 P10/P50/P90 uncertainty intervals per metric
-  // staleTime 2 min: recheck after 2 min so any new Chronos forecast is reflected promptly
+  // P10/P50/P90 forecast uncertainty intervals per metric.
+  // NOTE: serve/app.py's /forecast endpoint is currently a hardcoded stub
+  // (always returns available:false, all-zero bands) — no model is wired
+  // up yet. Polling fast doesn't make this data real; it just means the
+  // "unavailable" state itself is reflected promptly instead of stale.
   const intervalQueries = useQueries({
     queries: FORECAST_METRICS.map(m => ({
       queryKey: ["intervals", m.metric],
       queryFn: () => fetchIntervals(creds, m.sql),
-      refetchInterval: 2 * 60_000,   // re-fetch every 2 min
-      staleTime: 90_000,
+      refetchInterval: POLL_INTERVALS.forecast,
+      staleTime: POLL_INTERVALS.forecast / 2,
       retry: 0,
     })),
   });

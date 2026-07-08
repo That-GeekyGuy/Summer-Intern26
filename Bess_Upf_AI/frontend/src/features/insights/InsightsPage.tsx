@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Credentials, fetchAnomalies, queryInstant } from "../../api/client";
+import { POLL_INTERVALS } from "../../lib/constants";
 
 interface Props { creds: Credentials; }
 
@@ -184,7 +185,8 @@ export function InsightsPage({ creds }: Props) {
   const { data: anomalyData } = useQuery({
     queryKey: ["anomalies-insights"],
     queryFn: () => fetchAnomalies(creds),
-    staleTime: 60_000,
+    refetchInterval: POLL_INTERVALS.anomalies,
+    staleTime: POLL_INTERVALS.anomalies / 2,
     retry: 1,
   });
 
@@ -224,7 +226,7 @@ export function InsightsPage({ creds }: Props) {
 
       return stats;
     },
-    refetchInterval: 5 * 60_000,
+    refetchInterval: POLL_INTERVALS.forecast,
   });
 
   const { channels, matrix } = useMemo(() => {

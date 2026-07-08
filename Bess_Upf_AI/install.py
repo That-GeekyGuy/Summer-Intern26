@@ -122,6 +122,7 @@ def helm_deploy(tag, include_generator, timeout_min):
         "--set", "frontend.tag=" + tag,
         "--set", "serve.tag=" + tag,
         "--set", "mitigation.tag=" + tag,
+        "--set", "upf-sim.tag=" + tag,
         "--set", "upf-sim.enabled=" + ("true" if include_generator else "false"),
         "--force-conflicts",
         "--timeout", "{}m".format(timeout_min),
