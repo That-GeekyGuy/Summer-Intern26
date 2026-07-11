@@ -9,12 +9,11 @@ import (
 	"sync"
 	"time"
 
-	detclient "bess.internal/upf-analysis/internal/detector"
+	"bess.internal/upf-analysis/internal/chclient"
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/rag"
 	"bess.internal/upf-analysis/internal/store"
 	"bess.internal/upf-analysis/internal/validator"
-	"bess.internal/upf-analysis/internal/chclient"
 )
 
 const systemPrompt = `You are an expert 5G network analyst specializing in User Plane Function (UPF) metrics for BESS-UPF systems. You help network engineers investigate anomalies, understand trends, and diagnose issues in the 5G data plane.
@@ -24,11 +23,9 @@ IMPORTANT — always follow these rules:
 2. If query_clickhouse is rejected with a validation error, read the error carefully and reformulate using only listed metrics.
 3. Narrow query scope with SQL filters (e.g. upf_id='...').
 4. Report actual numeric values from your queries — never estimate.
-5. Check get_anomalies early to understand what the detection service has already flagged for current conditions.
-6. REACTIVE events (event_type="reactive"): anomalies happening NOW or recently observed. Use language like "is elevated", "has spiked", "currently exceeds", "was detected at".
-   PREDICTIVE events (event_type="predictive"): linear-regression forecasts of FUTURE states — use get_predictions to retrieve them. Use language like "is forecast to", "is projected to breach", "trend suggests will reach", "is on track to exceed". NEVER describe a predictive event as something currently observed or already happening.
-7. When asked about capacity headroom, future risk, or projected trends, call get_predictions to retrieve forecast events.
-8. Use at most 3 tool calls per response, then synthesize and answer with the data you have. Do not loop indefinitely collecting data.`
+5. Check get_anomalies early to understand what has already been flagged for current conditions.
+6. REACTIVE events (event_type="reactive") come from statistical rules (z-score, trend deviation). ML events (event_type="ml") come from the isolation forest / MOMENT models. Both represent conditions currently observed or recently detected — use language like "is elevated", "has spiked", "currently exceeds", "was detected at". There is no forecasting/predictive event source yet; do not claim future projections beyond what /api/v1/intervals (Chronos-2 uncertainty bands) reports.
+7. Use at most 3 tool calls per response, then synthesize and answer with the data you have. Do not loop indefinitely collecting data.`
 
 // Session holds the conversation history for one chat session.
 type Session struct {
@@ -103,7 +100,7 @@ type Allowlist interface {
 type ChatResponse struct {
 	Answer      string
 	QueriesUsed []string
-	Anomalies   []detclient.AnomalyEvent
+	Anomalies   []chclient.AnomalyEvent
 }
 
 // Orchestrator drives the LLM agentic tool-calling loop.
@@ -111,7 +108,6 @@ type Orchestrator struct {
 	llm       *Client
 	validator *validator.Validator
 	ch        *chclient.Client
-	det       *detclient.Client
 	allowlist Allowlist
 	rag       rag.Retriever
 	audit     *store.AuditLog
@@ -126,7 +122,6 @@ type OrchestratorConfig struct {
 	LLM        *Client
 	Validator  *validator.Validator
 	CH         *chclient.Client
-	Detector   *detclient.Client
 	Allowlist  Allowlist
 	RAG        rag.Retriever
 	Audit      *store.AuditLog
@@ -155,7 +150,6 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		llm:       cfg.LLM,
 		validator: cfg.Validator,
 		ch:        cfg.CH,
-		det:       cfg.Detector,
 		allowlist: cfg.Allowlist,
 		rag:       cfg.RAG,
 		audit:     cfg.Audit,
@@ -197,7 +191,7 @@ func (o *Orchestrator) Chat(ctx context.Context, sessionID, userMessage string) 
 	}
 
 	var queriesUsed []string
-	var anomalies []detclient.AnomalyEvent
+	var anomalies []chclient.AnomalyEvent
 
 	for i := 0; i < o.maxIter; i++ {
 		// On the last allowed iteration, omit tools to force a text answer
@@ -273,15 +267,13 @@ func (o *Orchestrator) Chat(ctx context.Context, sessionID, userMessage string) 
 // executeTool dispatches a single tool call and returns the JSON result string.
 func (o *Orchestrator) executeTool(ctx context.Context, call ToolCall,
 	sessionID, userMessage string,
-	queriesUsed *[]string, anomalies *[]detclient.AnomalyEvent,
+	queriesUsed *[]string, anomalies *[]chclient.AnomalyEvent,
 ) (string, error) {
 	switch call.Function.Name {
 	case ToolQueryClickHouse:
 		return o.execQueryClickHouse(ctx, call, sessionID, userMessage, queriesUsed)
 	case ToolGetAnomalies:
 		return o.execGetAnomalies(ctx, call, anomalies)
-	case ToolGetPredictions:
-		return o.execGetPredictions(ctx, call, anomalies)
 	case ToolGetMetricMetadata:
 		return o.execGetMetricMetadata()
 	default:
@@ -357,7 +349,7 @@ type getAnomaliesArgs struct {
 	Severity string `json:"severity"`
 }
 
-func (o *Orchestrator) execGetAnomalies(ctx context.Context, call ToolCall, anomalies *[]detclient.AnomalyEvent) (string, error) {
+func (o *Orchestrator) execGetAnomalies(ctx context.Context, call ToolCall, anomalies *[]chclient.AnomalyEvent) (string, error) {
 	var args getAnomaliesArgs
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return jsonError("invalid arguments: " + err.Error()), nil
@@ -390,23 +382,38 @@ func (o *Orchestrator) execGetAnomalies(ctx context.Context, call ToolCall, anom
 		return jsonError("database query error: " + err.Error()), nil
 	}
 
-	var events []detclient.AnomalyEvent
+	var events []chclient.AnomalyEvent
 	for _, row := range rows {
 		tsStr, _ := row["ts"].(string)
 		t, _ := time.Parse("2006-01-02 15:04:05.000", tsStr)
-		if t.IsZero() { t = time.Now() }
-		
+		if t.IsZero() {
+			t = time.Now()
+		}
+
 		score, _ := row["anomaly_score"].(float64)
 		thresh, _ := row["threshold"].(float64)
-		
-		events = append(events, detclient.AnomalyEvent{
-			Timestamp:          t,
-			MetricName:         "system",
-			ExpectedValue:      &thresh,
-			DeviationMagnitude: score - thresh,
-			Severity:           "critical",
-			EventType:          "pattern",
-			RuleName:           "v2-isolation-forest",
+		modelVer, _ := row["model_version"].(string)
+
+		var channels []string
+		if chArr, ok := row["top_anomalous_channels"].([]any); ok {
+			for _, ch := range chArr {
+				if chStr, ok := ch.(string); ok {
+					channels = append(channels, chStr)
+				}
+			}
+		}
+
+		eventType, severity, featureContributions := chclient.ClassifyAnomaly(modelVer, score, thresh, channels)
+
+		events = append(events, chclient.AnomalyEvent{
+			Timestamp:            t,
+			MetricName:           "system",
+			ExpectedValue:        &thresh,
+			DeviationMagnitude:   score - thresh,
+			Severity:             severity,
+			EventType:            eventType,
+			RuleName:             modelVer,
+			FeatureContributions: featureContributions,
 		})
 	}
 	*anomalies = append(*anomalies, events...)
@@ -416,39 +423,6 @@ func (o *Orchestrator) execGetAnomalies(ctx context.Context, call ToolCall, anom
 		shown = shown[len(shown)-5:] // keep 5 most recent
 	}
 	b, _ := json.Marshal(map[string]any{"anomalies": shown, "total": len(events)})
-	return string(b), nil
-}
-
-type getPredictionsArgs struct {
-	Since  string `json:"since"`
-	Metric string `json:"metric"`
-}
-
-func (o *Orchestrator) execGetPredictions(ctx context.Context, call ToolCall, anomalies *[]detclient.AnomalyEvent) (string, error) {
-	var args getPredictionsArgs
-	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-		return jsonError("invalid arguments: " + err.Error()), nil
-	}
-	since, err := parseDuration(args.Since)
-	if err != nil {
-		return jsonError("invalid since: " + err.Error()), nil
-	}
-
-	events, err := o.det.GetPredictions(ctx, since, args.Metric)
-	if err != nil {
-		return jsonError("detection service error: " + err.Error()), nil
-	}
-	*anomalies = append(*anomalies, events...)
-
-	shown := events
-	if len(shown) > 5 {
-		shown = shown[len(shown)-5:]
-	}
-	b, _ := json.Marshal(map[string]any{
-		"predictions": shown,
-		"total":       len(events),
-		"note":        "These are FORECAST events — projected future states, not currently observed conditions. Use 'is forecast to', 'is projected to breach' language.",
-	})
 	return string(b), nil
 }
 
@@ -526,8 +500,8 @@ func parseTextToolCalls(content string) []ToolCall {
 			args = "{}"
 		}
 		calls = append(calls, ToolCall{
-			ID:   fmt.Sprintf("fallback-%d", len(calls)),
-			Type: "function",
+			ID:       fmt.Sprintf("fallback-%d", len(calls)),
+			Type:     "function",
 			Function: FunctionCall{Name: parsed.Name, Arguments: args},
 		})
 		if j < 0 {

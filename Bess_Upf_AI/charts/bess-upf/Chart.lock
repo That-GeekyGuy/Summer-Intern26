@@ -26,5 +26,8 @@ dependencies:
 - name: analysis
   repository: ""
   version: 0.1.0
-digest: sha256:9c4fac29d46c6dd5695f7d1cc72f3cdd31320a9b27b0bb1bcd826690bd31f914
-generated: "2026-07-08T11:44:39.0422729+05:30"
+- name: chronos
+  repository: ""
+  version: 0.1.0
+digest: sha256:504512cd19c9542554d1f1c2a91557a345e796b86e44679d6e28e4ba92620bc9
+generated: "2026-07-10T14:57:44.757314862+05:30"

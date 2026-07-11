@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chronos
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: chronos
+  template:
+    metadata:
+      labels:
+        app: chronos
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      containers:
+        - name: chronos
+          image: "{{ .Values.registry }}/bess-upf-chronos:{{ .Values.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MODELS_DIR
+              value: /models
+            - name: STEP_SECONDS
+              value: "60"
+          ports:
+            - containerPort: 8084
+          # amazon/chronos-t5-small on CPU: a handful of predict() calls per
+          # poll interval, not a hot path — modest resources are enough.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+      volumes:
+        - name: models
+          hostPath:
+            path: /models

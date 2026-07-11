@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: chronos
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: chronos
+  ports:
+    - protocol: TCP
+      port: 8084
+      targetPort: 8084

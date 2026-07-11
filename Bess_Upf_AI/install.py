@@ -24,7 +24,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 CLUSTER_NAME = "bess-upf"
 NAMESPACE = "bess-upf"
 REGISTRY = "ghcr.io/that-geekyguy"
-SERVICES = ["pipeline", "analysis", "serve", "frontend", "mitigation"]
+SERVICES = ["pipeline", "analysis", "serve", "frontend", "mitigation", "chronos", "tools"]
 GENERATOR_SERVICE = "upf-sim"
 
 
@@ -122,9 +122,10 @@ def helm_deploy(tag, include_generator, timeout_min):
         "--set", "frontend.tag=" + tag,
         "--set", "serve.tag=" + tag,
         "--set", "mitigation.tag=" + tag,
+        "--set", "chronos.tag=" + tag,
         "--set", "upf-sim.tag=" + tag,
         "--set", "upf-sim.enabled=" + ("true" if include_generator else "false"),
-        "--force-conflicts",
+        "--force",
         "--timeout", "{}m".format(timeout_min),
     ])
 

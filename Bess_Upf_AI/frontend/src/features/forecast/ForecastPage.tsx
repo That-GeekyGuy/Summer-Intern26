@@ -119,15 +119,13 @@ export function ForecastPage({ creds }: Props) {
     return map;
   }, [dbData]);
 
-  // P10/P50/P90 forecast uncertainty intervals per metric.
-  // NOTE: serve/app.py's /forecast endpoint is currently a hardcoded stub
-  // (always returns available:false, all-zero bands) — no model is wired
-  // up yet. Polling fast doesn't make this data real; it just means the
-  // "unavailable" state itself is reflected promptly instead of stale.
+  // P10/P50/P90 forecast uncertainty intervals per metric, served by the
+  // Chronos-2 (amazon/chronos-t5-small) sidecar. /api/v1/intervals takes the
+  // metric key (not SQL) and builds its own bucketed ClickHouse context query.
   const intervalQueries = useQueries({
     queries: FORECAST_METRICS.map(m => ({
       queryKey: ["intervals", m.metric],
-      queryFn: () => fetchIntervals(creds, m.sql),
+      queryFn: () => fetchIntervals(creds, m.metric),
       refetchInterval: POLL_INTERVALS.forecast,
       staleTime: POLL_INTERVALS.forecast / 2,
       retry: 0,

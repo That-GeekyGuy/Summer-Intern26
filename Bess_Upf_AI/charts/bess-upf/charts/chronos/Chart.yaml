@@ -1,0 +1,5 @@
+apiVersion: v2
+name: chronos
+description: Chronos-2 forecast sidecar service
+version: 0.1.0
+appVersion: phase4a

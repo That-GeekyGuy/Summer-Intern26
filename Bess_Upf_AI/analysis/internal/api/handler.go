@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"bess.internal/upf-analysis/internal/chclient"
-	detclient "bess.internal/upf-analysis/internal/detector"
 	"bess.internal/upf-analysis/internal/llm"
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/simclient"
@@ -33,11 +32,11 @@ type ChatRequest struct {
 // ChatResponse is the HTTP response body for POST /api/v1/chat.
 // Anomalies is populated so the frontend reasoning trail can show referenced events.
 type ChatResponse struct {
-	SessionID    string                   `json:"session_id"`
-	Answer       string                   `json:"answer"`
-	QueriesUsed  []string                 `json:"queries_used"`
-	AnomalyCount int                      `json:"anomaly_count"`
-	Anomalies    []detclient.AnomalyEvent `json:"anomalies,omitempty"`
+	SessionID    string                  `json:"session_id"`
+	Answer       string                  `json:"answer"`
+	QueriesUsed  []string                `json:"queries_used"`
+	AnomalyCount int                     `json:"anomaly_count"`
+	Anomalies    []chclient.AnomalyEvent `json:"anomalies,omitempty"`
 }
 
 const maxChatMessageBytes = 4096
@@ -46,7 +45,6 @@ const maxChatMessageBytes = 4096
 type Handler struct {
 	orch        *llm.Orchestrator
 	rca         *llm.RCAEngine
-	det         *detclient.Client
 	sim         *simclient.Client
 	ch          *chclient.Client
 	val         *validator.Validator // used to validate frontend /query requests
@@ -59,9 +57,9 @@ type Handler struct {
 	audit       *store.AuditLog // nil-safe
 }
 
-func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, det *detclient.Client, sim *simclient.Client, ch *chclient.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger, modelsDir, chronosURL string, audit *store.AuditLog) *Handler {
+func NewHandler(orch *llm.Orchestrator, rca *llm.RCAEngine, sim *simclient.Client, ch *chclient.Client, val *validator.Validator, m *metrics.M, reg prometheus.Gatherer, log *slog.Logger, modelsDir, chronosURL string, audit *store.AuditLog) *Handler {
 	return &Handler{
-		orch: orch, rca: rca, det: det, sim: sim, ch: ch, val: val, m: m, reg: reg, log: log,
+		orch: orch, rca: rca, sim: sim, ch: ch, val: val, m: m, reg: reg, log: log,
 		modelsDir:   modelsDir,
 		chronosURL:  chronosURL,
 		chronosHTTP: &http.Client{Timeout: 30 * time.Second},
@@ -96,8 +94,9 @@ func (h *Handler) Register(mux *http.ServeMux, authUser, authPass string, rl *Ra
 	// Chronos-2 uncertainty intervals proxy — calls internal Chronos sidecar.
 	mux.Handle("GET /api/v1/intervals", auth(http.HandlerFunc(h.handleIntervals)))
 
-	// Internal endpoint: called by detection service only, not routed through Caddy.
-	// No auth — this path is only reachable on the internal Docker network.
+	// Internal endpoint: not routed through Caddy, no external caller wired up yet.
+	// Intended to be triggered by the pipeline after a MOMENT/isolation-forest
+	// anomaly to request LLM-generated RCA. No auth — internal Docker network only.
 	mux.HandleFunc("POST /internal/analyze_anomaly", h.handleAnalyzeAnomaly)
 }
 
@@ -116,7 +115,9 @@ func (h *Handler) handleAggregatedHealth(w http.ResponseWriter, r *http.Request)
 		"sim":        "ok",
 		"clickhouse": "ok",
 	}
-	if h.ch == nil { status["clickhouse"] = "down" }
+	if h.ch == nil {
+		status["clickhouse"] = "down"
+	}
 	// V2: VM and detection are removed.
 	if h.sim == nil {
 		status["sim"] = "down"
@@ -227,8 +228,8 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleAnomalies proxies to the detection service's /anomalies endpoint.
-// Query params: since (unix seconds), metric, severity — forwarded as-is.
+// handleAnomalies queries ClickHouse's anomaly_events table directly.
+// Query params: since (unix seconds). Metric/severity filtering happens client-side.
 func (h *Handler) handleAnomalies(w http.ResponseWriter, r *http.Request) {
 	since := time.Hour // default: last hour
 	if s := r.URL.Query().Get("since"); s != "" {
@@ -262,19 +263,18 @@ func (h *Handler) handleAnomalies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var anomalies []detclient.AnomalyEvent
+	var anomalies []chclient.AnomalyEvent
 	for i, row := range rows {
-		// Map ClickHouse fields to V1 AnomalyEvent for frontend compatibility
 		tsStr, _ := row["ts"].(string)
 		t, _ := time.Parse("2006-01-02 15:04:05.000", tsStr)
 		if t.IsZero() {
 			t = time.Now()
 		}
-		
+
 		score, _ := row["anomaly_score"].(float64)
 		thresh, _ := row["threshold"].(float64)
 		modelVer, _ := row["model_version"].(string)
-		
+
 		var channels []string
 		if chArr, ok := row["top_anomalous_channels"].([]any); ok {
 			for _, ch := range chArr {
@@ -288,22 +288,26 @@ func (h *Handler) handleAnomalies(w http.ResponseWriter, r *http.Request) {
 			metricName = channels[0]
 		}
 
-		anomalies = append(anomalies, detclient.AnomalyEvent{
-			ID:                 int64(i),
-			MetricName:         metricName,
-			Labels:             modelVer,
-			Timestamp:          t,
-			ObservedValue:      score,
-			ExpectedValue:      &thresh,
-			DeviationMagnitude: score - thresh,
-			Severity:           "critical",
-			EventType:          "pattern",
-			RuleName:           "v2-isolation-forest",
+		eventType, severity, featureContributions := chclient.ClassifyAnomaly(modelVer, score, thresh, channels)
+
+		anomalies = append(anomalies, chclient.AnomalyEvent{
+			ID:                   int64(i),
+			MetricName:           metricName,
+			Labels:               modelVer,
+			Timestamp:            t,
+			ObservedValue:        score,
+			ExpectedValue:        &thresh,
+			DeviationMagnitude:   score - thresh,
+			Severity:             severity,
+			EventType:            eventType,
+			RuleName:             modelVer,
+			FeatureContributions: featureContributions,
+			CreatedAt:            t,
 		})
 	}
 
 	if anomalies == nil {
-		anomalies = []detclient.AnomalyEvent{}
+		anomalies = []chclient.AnomalyEvent{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -353,7 +357,8 @@ func newSessionID() string {
 }
 
 // handleAnalyzeAnomaly is an INTERNAL endpoint — not routed through Caddy or exposed to the internet.
-// It is called by the detection service after a MOMENT anomaly event to request LLM-generated RCA.
+// Intended to be called by the pipeline after a MOMENT anomaly event to request LLM-generated RCA;
+// no caller is wired up yet.
 // POST /internal/analyze_anomaly
 func (h *Handler) handleAnalyzeAnomaly(w http.ResponseWriter, r *http.Request) {
 	if h.rca == nil {
@@ -433,6 +438,14 @@ func (h *Handler) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	report["available"] = true
+
+	// split_info.episodes can be tens of MB on a large training run (one entry
+	// per detected episode) and BenchmarkPage only reads split_info's summary
+	// fields (n_episodes, n_train, n_eval, ...), never the per-episode list.
+	if splitInfo, ok := report["split_info"].(map[string]any); ok {
+		delete(splitInfo, "episodes")
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(report) //nolint:errcheck
 }
@@ -473,12 +486,13 @@ func (h *Handler) handleFeedback(w http.ResponseWriter, r *http.Request) {
 // then POSTs to the Chronos /intervals endpoint and returns P10/P50/P90 bands.
 // GET /api/v1/intervals?q=<promql>&horizon=<short|medium|long>
 func (h *Handler) handleIntervals(w http.ResponseWriter, r *http.Request) {
+	// q is a channel key (e.g. "pfcp_sessions_total"), not raw SQL — see
+	// chclient.QueryRawValues for the fixed set of supported channels.
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		http.Error(w, `{"error":"q parameter required"}`, http.StatusBadRequest)
 		return
 	}
-	// (PromQL validation removed: ClickHouse requires raw SQL)
 	horizon := r.URL.Query().Get("horizon")
 	if horizon == "" {
 		horizon = "short"

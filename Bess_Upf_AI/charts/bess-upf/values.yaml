@@ -32,6 +32,10 @@ mitigation:
   repository: bess-upf-mitigation
   tag: local-dev
 
+chronos:
+  repository: bess-upf-chronos
+  tag: local-dev
+
 upf-sim:
   enabled: true
 

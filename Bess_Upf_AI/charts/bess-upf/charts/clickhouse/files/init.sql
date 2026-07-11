@@ -29,7 +29,8 @@ SETTINGS
     kafka_topic_list           = 'upf.metrics.raw',
     kafka_group_name           = 'clickhouse-metrics',
     kafka_format               = 'JSONEachRow',
-    kafka_skip_broken_messages = 1;
+    kafka_skip_broken_messages = 1,
+    stream_flush_interval_ms   = 1000;
 
 CREATE TABLE IF NOT EXISTS upf_metrics (
     upf_id                     LowCardinality(String),
@@ -86,7 +87,8 @@ SETTINGS
     kafka_topic_list           = 'upf.anomalies.critical',
     kafka_group_name           = 'clickhouse-anomaly',
     kafka_format               = 'JSONEachRow',
-    kafka_skip_broken_messages = 1;
+    kafka_skip_broken_messages = 1,
+    stream_flush_interval_ms   = 1000;
 
 CREATE TABLE IF NOT EXISTS anomaly_events (
     upf_id                  LowCardinality(String),
@@ -129,7 +131,8 @@ SETTINGS
     kafka_topic_list         = 'upf.shadow.detections',
     kafka_group_name         = 'clickhouse-shadow',
     kafka_format             = 'JSONEachRow',
-    kafka_skip_broken_messages = 1;
+    kafka_skip_broken_messages = 1,
+    stream_flush_interval_ms = 1000;
 
 CREATE TABLE IF NOT EXISTS shadow_detections (
     upf_id        LowCardinality(String),
@@ -176,7 +179,8 @@ CREATE TABLE IF NOT EXISTS action_audit_kafka (
     kafka_topic_list  = 'upf.action_audit',
     kafka_group_name  = 'clickhouse-audit',
     kafka_format      = 'JSONEachRow',
-    kafka_skip_broken_messages = 1;
+    kafka_skip_broken_messages = 1,
+    stream_flush_interval_ms = 1000;
 
 CREATE TABLE IF NOT EXISTS action_audit (
     action_id      String,
@@ -224,7 +228,8 @@ CREATE TABLE IF NOT EXISTS operator_feedback_kafka (
     kafka_topic_list  = 'upf.feedback',
     kafka_group_name  = 'clickhouse-feedback',
     kafka_format      = 'JSONEachRow',
-    kafka_skip_broken_messages = 1;
+    kafka_skip_broken_messages = 1,
+    stream_flush_interval_ms = 1000;
 
 CREATE TABLE IF NOT EXISTS operator_feedback (
     action_id      String,

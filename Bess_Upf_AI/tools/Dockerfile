@@ -7,11 +7,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY train/ /app/train/
-COPY infer/ /app/infer/
+RUN chown -R ml:ml /app/train/data
 
 USER ml
 
-# Default: run the inference sidecar.
-# Override CMD to run training:
-#   docker run --rm -v ./models:/models ... bess-ml-tools python train/prepare_dataset.py
-CMD ["python", "infer/server.py"]
+# Override CMD to run a specific training/tooling script, e.g.:
+#   docker run --rm -v ./models:/models ... bess-upf-tools python train/prepare_dataset.py
+CMD ["python", "train/train.py"]

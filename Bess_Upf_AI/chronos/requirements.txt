@@ -1,0 +1,5 @@
+fastapi>=0.111,<0.120
+uvicorn[standard]>=0.29,<0.30
+transformers
+chronos-forecasting
+numpy

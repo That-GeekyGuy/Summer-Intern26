@@ -6,7 +6,6 @@ import "encoding/json"
 const (
 	ToolQueryClickHouse   = "query_clickhouse"
 	ToolGetAnomalies      = "get_anomalies"
-	ToolGetPredictions    = "get_predictions"
 	ToolGetMetricMetadata = "get_metric_metadata"
 )
 
@@ -34,7 +33,7 @@ func Tools() []ToolDefinition {
 			Type: "function",
 			Function: ToolFunctionDef{
 				Name:        ToolGetAnomalies,
-				Description: "Retrieve recent REACTIVE anomaly events — conditions currently observed or recently detected by statistical rules (z-score, trend deviation, threshold breach). Do NOT use this for future projections; use get_predictions for that.",
+				Description: "Retrieve recent anomaly events detected by statistical rules (z-score, trend deviation) or the isolation forest / MOMENT ML models. Check event_type in the result: 'reactive' for rule-based, 'ml' for model-based.",
 				Parameters: mustJSON(map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -50,27 +49,6 @@ func Tools() []ToolDefinition {
 							"type":        "string",
 							"description": "Optional: filter by severity.",
 							"enum":        []string{"low", "medium", "high", "critical"},
-						},
-					},
-					"required": []string{"since"},
-				}),
-			},
-		},
-		{
-			Type: "function",
-			Function: ToolFunctionDef{
-				Name:        ToolGetPredictions,
-				Description: "Retrieve PREDICTIVE forecast events — linear-regression projections that a metric will breach a capacity ceiling within the forecast horizon. These represent FUTURE projected states, not real-time observations. Use language like 'is forecast to', 'is projected to breach', 'trend suggests' — NEVER describe these as something seen, detected, or measured right now.",
-				Parameters: mustJSON(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"since": map[string]any{
-							"type":        "string",
-							"description": "How far back to look for forecast events, e.g. '1h', '2h'.",
-						},
-						"metric": map[string]any{
-							"type":        "string",
-							"description": "Optional: filter by metric name.",
 						},
 					},
 					"required": []string{"since"},

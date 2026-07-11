@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: generate-benchmark-script
+  namespace: {{ .Values.namespace }}
+data:
+  run.sh: |
+    #!/bin/sh
+    set -e
+    cd /app
+
+    # If an operator has staged a real eval split under /models (e.g. from
+    # prepare_dataset.py --source=local against a real metrics export), use it.
+    # Otherwise fall back to a quick synthetic dataset so the benchmark page is
+    # never empty after a fresh deploy — this is a smoke-test baseline, not a
+    # substitute for evaluating against real UPF traffic. Kept short (2 days)
+    # because ablation.py's Tier 2a/2b evaluation loops score one row/window at
+    # a time to measure per-request latency; at 45 days (~259k rows) that loop
+    # alone blows past the post-upgrade hook's helm --timeout.
+    if [ ! -f /models/dataset_eval.parquet ] || [ ! -f /models/dataset_train.parquet ]; then
+      echo "no operator-provided dataset_eval/train.parquet in /models -- generating a synthetic baseline"
+      python train/generate_synthetic_data.py --start 2026-01-01 --days 2
+      python train/prepare_dataset.py --source=synthetic
+    fi
+
+    python train/ablation.py --models-dir /models --data-dir train/data

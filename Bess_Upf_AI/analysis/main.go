@@ -11,7 +11,6 @@ import (
 
 	"bess.internal/upf-analysis/internal/api"
 	"bess.internal/upf-analysis/internal/chclient"
-	detclient "bess.internal/upf-analysis/internal/detector"
 	"bess.internal/upf-analysis/internal/llm"
 	"bess.internal/upf-analysis/internal/metrics"
 	"bess.internal/upf-analysis/internal/rag"
@@ -78,9 +77,6 @@ func main() {
 		log.Info("RAG docs loaded", "dir", docsDir)
 	}
 
-	// ── Detection service client ──────────────────────────────────────────────
-	det := detclient.New(env("DETECTION_URL", "http://detection:8081"))
-
 	// ── Simulator client (optional — nil-safe in handler) ────────────────────
 	var sim *simclient.Client
 	if simURL := env("SIM_URL", ""); simURL != "" {
@@ -104,7 +100,6 @@ func main() {
 		LLM:        llmClient,
 		Validator:  nil,
 		CH:         ch,
-		Detector:   det,
 		Allowlist:  nil,
 		RAG:        ragRetriever,
 		Audit:      audit,
@@ -122,7 +117,7 @@ func main() {
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	rl := api.NewRateLimiter(600, time.Minute)
-	h := api.NewHandler(orch, rcaEngine, det, sim, ch, nil, m, reg, log,
+	h := api.NewHandler(orch, rcaEngine, sim, ch, nil, m, reg, log,
 		env("MODELS_DIR", "/models"),
 		env("CHRONOS_URL", "http://chronos:8084"),
 		audit,

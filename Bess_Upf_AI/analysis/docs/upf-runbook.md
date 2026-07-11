@@ -1,5 +1,16 @@
 # BESS-UPF Analysis Runbook
 
+> **Stale sections warning**: this doc predates the V2 migration to ClickHouse-backed
+> detection. There is no standalone `detection` Deployment/Service anymore — anomaly
+> detection now runs inline in the Bytewax pipeline (statistical z-score + a call to
+> `serve`'s `/detect_batch`, which runs Isolation Forest / Random Forest / MOMENT),
+> writing to Kafka topic `upf.anomalies.critical`, consumed straight into ClickHouse's
+> `anomaly_events` table via a Kafka-engine materialized view (see
+> `charts/bess-upf/charts/clickhouse/files/init.sql`). The "Detection Service" and
+> "Tier 1/2/3" sections below describe the old architecture and are kept for historical
+> context only — commands referencing `deploy/detection` or `charts/.../detection/`
+> will not work against the current cluster.
+
 ## Overview
 
 This document covers operational procedures for the detection and LLM analysis services added in the second phase of the BESS-UPF metrics stack.
@@ -48,9 +59,12 @@ Trend deviation threshold (default 0.25): fraction of predicted value (0.25 = 25
 
 Provides a chat API at `/api/v1/chat`. Uses vLLM with explicit tool-calling:
 - `query_clickhouse`: validated SQL queries against ClickHouse `upf_metrics` and `anomaly_events`
-- `get_anomalies`: retrieves reactive events from the detection service
-- `get_predictions`: retrieves predictive forecast events from the detection service
+- `get_anomalies`: retrieves reactive (statistical) and ml (isolation forest / MOMENT) events directly from `bess_upf.anomaly_events`
 - `get_metric_metadata`: lists allowed metric names
+
+There is no `get_predictions` tool — the V2 pipeline has no predictive/forecast anomaly
+event source. Forecast uncertainty bands come from a separate endpoint, `/api/v1/intervals`,
+backed by the `chronos` service.
 
 ### Querying the chat API
 

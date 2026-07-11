@@ -25,3 +25,5 @@ dependencies:
     condition: upf-sim.enabled
   - name: analysis
     version: "0.1.0"
+  - name: chronos
+    version: "0.1.0"

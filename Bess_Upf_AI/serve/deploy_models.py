@@ -42,14 +42,15 @@ def deploy(canary: bool = False):
     # Let failures propagate — a Job that silently no-ops and reports
     # success is worse than one that fails loudly and gets noticed.
     #
-    # host="0.0.0.0" is required: serve.run() defaults its HTTP proxy to
-    # 127.0.0.1 (loopback-only) for security, which made /detect_batch
+    # host="0.0.0.0" is required: serve.run()'s HTTP proxy otherwise
+    # defaults to 127.0.0.1 (loopback-only), which made /detect_batch
     # completely unreachable from any other pod (pipeline included) via
     # either the Service or the pod IP directly — confirmed by a socket
     # connect test failing even from the ray-head pod to its own pod IP,
-    # while localhost worked. This is the actual reason anomalies never
-    # fired via the ML path even after fixing the ray job submit issue.
-    serve.run(app_node, name="ml-serve", route_prefix="/", host="0.0.0.0", port=8000)
+    # while localhost worked. In Ray 2.30, host/port are configured via
+    # serve.start(http_options=...) rather than as serve.run() kwargs.
+    serve.start(http_options={"host": "0.0.0.0", "port": 8000})
+    serve.run(app_node, name="ml-serve", route_prefix="/")
     log.info("Deployment successful. ML Serve is active.")
 
 if __name__ == "__main__":

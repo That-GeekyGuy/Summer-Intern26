@@ -169,16 +169,11 @@ def eval_tier2a(df_train: pd.DataFrame, df_eval: pd.DataFrame, feature_cols: lis
         return [{"available": False, "id": "T2a-IF", "label": "Isolation Forest"},
                 {"available": False, "id": "T2a-RF", "label": "Random Forest"}]
 
-    paths = {
-        "if":     MODELS_DIR / "isolation_forest.joblib",
-        "rf":     MODELS_DIR / "random_forest.joblib",
-        "scaler": MODELS_DIR / "scaler.joblib",
-    }
-    for k, p in paths.items():
-        if not p.exists():
-            log.warning("T2a: %s not found — skipping", p.name)
-            return [{"available": False, "id": "T2a-IF", "label": "Isolation Forest"},
-                    {"available": False, "id": "T2a-RF", "label": "Random Forest"}]
+    scaler_path = MODELS_DIR / "scaler.joblib"
+    if not scaler_path.exists():
+        log.warning("T2a: scaler.joblib not found — skipping IF and RF")
+        return [{"available": False, "id": "T2a-IF", "label": "Isolation Forest"},
+                {"available": False, "id": "T2a-RF", "label": "Random Forest"}]
 
     meta_path    = MODELS_DIR / "metadata.json"
     if_threshold = -0.01
@@ -188,9 +183,7 @@ def eval_tier2a(df_train: pd.DataFrame, df_eval: pd.DataFrame, feature_cols: lis
 
     # Security: joblib files are produced by our own train.py (local filesystem only).
     # Never load these from untrusted sources — joblib uses pickle internally.
-    clf_if = joblib.load(str(paths["if"]))
-    clf_rf = joblib.load(str(paths["rf"]))
-    scaler = joblib.load(str(paths["scaler"]))
+    scaler = joblib.load(str(scaler_path))
 
     cols   = [c for c in feature_cols if c in df_eval.columns]
     X      = df_eval[cols].values.astype(float)
@@ -201,18 +194,27 @@ def eval_tier2a(df_train: pd.DataFrame, df_eval: pd.DataFrame, feature_cols: lis
     X_clean   = np.where(np.isnan(X), col_means, X)
     X_sc      = scaler.transform(X_clean)
 
+    # IF and RF are evaluated independently — one model missing shouldn't hide the other.
+    candidates = [
+        ("T2a-IF", "Isolation Forest", MODELS_DIR / "isolation_forest.joblib",
+         lambda clf, row: int(clf.decision_function(row)[0] < if_threshold)),
+        ("T2a-RF", "Random Forest", MODELS_DIR / "random_forest.joblib",
+         lambda clf, row: int(clf.predict(row)[0])),
+    ]
+
     results = []
-    for tid, label, get_pred in [
-        ("T2a-IF", "Isolation Forest",
-         lambda row: int(clf_if.decision_function(row)[0] < if_threshold)),
-        ("T2a-RF", "Random Forest",
-         lambda row: int(clf_rf.predict(row)[0])),
-    ]:
+    for tid, label, model_path, get_pred in candidates:
+        if not model_path.exists():
+            log.warning("T2a: %s not found — skipping %s", model_path.name, tid)
+            results.append({"available": False, "id": tid, "label": label})
+            continue
+
+        clf = joblib.load(str(model_path))
         lats:  list[float] = []
         preds: list[int]   = []
         for i in range(len(X_sc)):
             t0 = time.perf_counter()
-            preds.append(get_pred(X_sc[i:i+1]))
+            preds.append(get_pred(clf, X_sc[i:i+1]))
             lats.append((time.perf_counter() - t0) * 1000)
         m = _metrics(y_true, np.array(preds, dtype=int), lats)
         log.info("%s: F1=%.3f  recall=%.3f  precision=%.3f", tid, m["f1"], m["recall"], m["precision"])
