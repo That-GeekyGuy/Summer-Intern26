@@ -14,6 +14,7 @@ Usage:
 Requires Python 3.7+ and, already installed on PATH: docker, kind, kubectl, helm.
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -213,6 +214,39 @@ def get_worker_nodes():
     ).stdout
     names = [n for n in out.split() if n]
     return names or [CLUSTER_NAME + "-control-plane"]
+
+
+def parse_port_binding(bindings_json_text, container_port):
+    """Parse `docker inspect -f '{{json .HostConfig.PortBindings}}'` output
+    and return the host port bound to container_port/tcp, or None if there's
+    no such binding (including malformed/empty input).
+    """
+    try:
+        bindings = json.loads(bindings_json_text)
+    except (ValueError, TypeError):
+        return None
+    if not bindings:
+        return None
+    entries = bindings.get("{}/tcp".format(container_port))
+    if not entries:
+        return None
+    host_port = entries[0].get("HostPort")
+    return int(host_port) if host_port else None
+
+
+def get_current_port_mapping():
+    """Return the host port currently bound to INGRESS_NODE_PORT on the
+    control-plane container, or None if the container doesn't exist or has
+    no such binding.
+    """
+    result = subprocess.run(
+        ["docker", "inspect", "-f", "{{json .HostConfig.PortBindings}}",
+         CLUSTER_NAME + "-control-plane"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return parse_port_binding(result.stdout.strip(), INGRESS_NODE_PORT)
 
 
 def build_and_load(tag, include_generator):

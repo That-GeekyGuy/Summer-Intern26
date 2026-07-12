@@ -23,5 +23,28 @@ class TestRenderKindConfig(unittest.TestCase):
         self.assertIn("hostPort: 8080", text)
 
 
+class TestParsePortBinding(unittest.TestCase):
+    def test_extracts_host_port_for_matching_container_port(self):
+        raw = '{"30080/tcp":[{"HostIp":"","HostPort":"8080"}],"6443/tcp":[{"HostIp":"127.0.0.1","HostPort":"42617"}]}'
+        self.assertEqual(install.parse_port_binding(raw, 30080), 8080)
+
+    def test_returns_none_when_container_port_absent(self):
+        raw = '{"6443/tcp":[{"HostIp":"127.0.0.1","HostPort":"42617"}]}'
+        self.assertIsNone(install.parse_port_binding(raw, 30080))
+
+    def test_returns_none_for_null_bindings(self):
+        self.assertIsNone(install.parse_port_binding("null", 30080))
+
+    def test_returns_none_for_empty_object(self):
+        self.assertIsNone(install.parse_port_binding("{}", 30080))
+
+    def test_returns_none_for_malformed_json(self):
+        self.assertIsNone(install.parse_port_binding("not json", 30080))
+
+    def test_returns_none_for_empty_entries_list(self):
+        raw = '{"30080/tcp":[]}'
+        self.assertIsNone(install.parse_port_binding(raw, 30080))
+
+
 if __name__ == "__main__":
     unittest.main()
