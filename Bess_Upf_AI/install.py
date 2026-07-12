@@ -10,6 +10,11 @@ Usage:
     python install.py --generator        # include upf-sim; use for local dev without a real UPF
     python install.py --tag phase4a      # image tag to build/deploy (default: local-dev)
     python install.py --skip-build       # redeploy without rebuilding images
+    python install.py --services=analysis,frontend
+                                          # rebuild/reload only the named services (comma-separated)
+                                          # instead of all of them, then roll their pods to pick up
+                                          # the fresh image (kind load alone doesn't restart anything
+                                          # already running under the same tag).
 
 Requires Python 3.7+ and, already installed on PATH: docker, kind, kubectl, helm.
 """
@@ -28,6 +33,12 @@ NAMESPACE = "bess-upf"
 REGISTRY = "ghcr.io/that-geekyguy"
 SERVICES = ["pipeline", "analysis", "serve", "frontend", "mitigation", "chronos", "tools"]
 GENERATOR_SERVICE = "upf-sim"
+
+# Services backed by a plain apps/v1 Deployment — `kubectl rollout restart
+# deployment/<name>` applies directly. `serve` (a RayCluster, not a
+# Deployment) and `tools` (only ever used inside Job pod specs, never a
+# running Deployment) are handled separately in rollout_restart_services.
+DEPLOYMENT_SERVICES = {"pipeline", "analysis", "frontend", "mitigation", "chronos", GENERATOR_SERVICE}
 
 # Fixed NodePort the ingress-nginx controller is pinned to (via a --set flag
 # in helm_deploy) so kind's extraPortMappings has a stable target. Must stay
@@ -374,15 +385,56 @@ def get_current_port_mapping():
     return parse_port_binding(result.stdout.strip(), INGRESS_NODE_PORT)
 
 
-def build_and_load(tag, include_generator):
-    services = list(SERVICES)
+def resolve_build_services(services_arg, include_generator):
+    """Resolve --services into the concrete list of services to build/load
+    this run. None (flag omitted) means everything (SERVICES, plus
+    GENERATOR_SERVICE when --generator is set). Validates names against the
+    known set and rejects requesting upf-sim without --generator (it won't
+    be deployed, so building it would be pointless).
+    """
+    all_services = list(SERVICES)
     if include_generator:
-        services.append(GENERATOR_SERVICE)
+        all_services.append(GENERATOR_SERVICE)
+    if services_arg is None:
+        return all_services
+
+    requested = [s.strip() for s in services_arg.split(",") if s.strip()]
+    valid = set(SERVICES) | {GENERATOR_SERVICE}
+    unknown = [s for s in requested if s not in valid]
+    if unknown:
+        sys.exit("ERROR: unknown service(s) in --services: {}. Valid: {}".format(
+            ", ".join(unknown), ", ".join(sorted(valid))))
+    if GENERATOR_SERVICE in requested and not include_generator:
+        sys.exit("ERROR: --services includes '{}' but --generator wasn't passed; "
+                  "it won't be deployed, so building it is pointless. Add --generator too.".format(
+                      GENERATOR_SERVICE))
+    return requested
+
+
+def build_and_load(tag, services):
     nodes = ",".join(get_worker_nodes())
     for svc in services:
         image = "{}/bess-upf-{}:{}".format(REGISTRY, svc, tag)
         run(["docker", "build", "-t", image, os.path.join(ROOT, svc)])
         run(["kind", "load", "docker-image", image, "--name", CLUSTER_NAME, "--nodes", nodes])
+
+
+def rollout_restart_services(services):
+    """Force already-running pods to pick up freshly (re)built images.
+    `kind load` only refreshes the node's local image cache under the same
+    tag — Kubernetes has no signal that the content changed, so an existing
+    pod keeps running its old container until something restarts it.
+    """
+    for svc in services:
+        if svc in DEPLOYMENT_SERVICES:
+            run(["kubectl", "rollout", "restart", "deployment/" + svc, "-n", NAMESPACE])
+        elif svc == "serve":
+            # RayCluster, not a Deployment — kuberay-operator recreates
+            # deleted pods from the current (freshly-loaded) image.
+            run(["kubectl", "delete", "pod", "-n", NAMESPACE, "-l", "ray.io/cluster=bess-upf-serve"])
+        elif svc == "tools":
+            print("tools: no running Deployment to restart — picked up automatically "
+                  "by the next Job that uses it (e.g. the benchmark-report hook).")
 
 
 def helm_deploy(tag, include_generator, timeout_min, env_values, vllm_config):
@@ -446,6 +498,10 @@ def main():
     parser.add_argument("--tag", default="local-dev", help="Image tag to build and deploy (default: local-dev)")
     parser.add_argument("--skip-build", action="store_true",
                          help="Skip docker build/kind load (redeploy existing images)")
+    parser.add_argument("--services", default=None,
+                         help="Comma-separated services to rebuild/reload (default: all). "
+                              "E.g. --services=analysis,frontend. Rebuilt services are rolled "
+                              "afterwards so their pods actually pick up the new image.")
     parser.add_argument("--timeout", type=int, default=10, help="Minutes to wait per stage (default: 10)")
     args = parser.parse_args()
 
@@ -471,11 +527,16 @@ def main():
     if cluster_recreated and args.skip_build:
         print("Cluster was just (re)created — it has no images loaded yet, ignoring --skip-build for this run.")
 
+    build_services = []
     if not skip_build:
-        print("== 4/6 Building and loading images ({}generator) ==".format("" if include_generator else "no "))
-        build_and_load(args.tag, include_generator)
+        build_services = resolve_build_services(args.services, include_generator)
+        print("== 4/6 Building and loading images ({}) ==".format(", ".join(build_services)))
+        build_and_load(args.tag, build_services)
     else:
-        print("== 4/6 Skipping build (--skip-build) ==")
+        if args.services:
+            print("== 4/6 Skipping build (--skip-build) — --services={} ignored ==".format(args.services))
+        else:
+            print("== 4/6 Skipping build (--skip-build) ==")
 
     vram_mib = detect_vram_mib()
     vllm_config = resolve_vllm_config(env_values, vram_mib)
@@ -486,6 +547,10 @@ def main():
 
     print("== 5/6 Helm deploy ==")
     helm_deploy(args.tag, include_generator, args.timeout, env_values, vllm_config)
+
+    if build_services and not cluster_recreated:
+        print("Rolling {} to pick up the freshly built image(s)...".format(", ".join(build_services)))
+        rollout_restart_services(build_services)
 
     print("== 6/6 Waiting for stack ==")
     if not wait_for_stack(args.timeout * 60):

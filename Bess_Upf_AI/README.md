@@ -82,6 +82,12 @@ flowchart TD
 python install.py                  # full stack; upf-sim (generator) OFF by default
 python install.py --generator      # include upf-sim — use for local dev without a real UPF
 python install.py --skip-build     # redeploy without rebuilding images
+python install.py --services=analysis,frontend
+                                    # rebuild/reload only the named services instead of all —
+                                    # much faster when you've only touched one service. Rolls
+                                    # the affected pods afterwards so they actually pick up the
+                                    # new image (kind load alone doesn't restart anything already
+                                    # running under the same tag).
 ```
 
 This brings up (or reuses) a local `kind` cluster, builds and loads every

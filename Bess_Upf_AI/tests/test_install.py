@@ -195,5 +195,45 @@ class TestHelmSetFlagsFromVllm(unittest.TestCase):
         self.assertIn("analysis.vllm.gpuMemoryUtilization=0.85", flags)
 
 
+class TestResolveBuildServices(unittest.TestCase):
+    def test_none_returns_all_services_without_generator(self):
+        self.assertEqual(
+            install.resolve_build_services(None, False),
+            list(install.SERVICES),
+        )
+
+    def test_none_returns_all_services_plus_generator(self):
+        self.assertEqual(
+            install.resolve_build_services(None, True),
+            list(install.SERVICES) + [install.GENERATOR_SERVICE],
+        )
+
+    def test_explicit_subset(self):
+        self.assertEqual(
+            install.resolve_build_services("analysis,frontend", False),
+            ["analysis", "frontend"],
+        )
+
+    def test_whitespace_and_empty_entries_are_tolerated(self):
+        self.assertEqual(
+            install.resolve_build_services(" analysis , frontend ,, ", False),
+            ["analysis", "frontend"],
+        )
+
+    def test_unknown_service_exits(self):
+        with self.assertRaises(SystemExit):
+            install.resolve_build_services("bogus", False)
+
+    def test_generator_service_without_generator_flag_exits(self):
+        with self.assertRaises(SystemExit):
+            install.resolve_build_services(install.GENERATOR_SERVICE, False)
+
+    def test_generator_service_with_generator_flag_is_allowed(self):
+        self.assertEqual(
+            install.resolve_build_services(install.GENERATOR_SERVICE, True),
+            [install.GENERATOR_SERVICE],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
