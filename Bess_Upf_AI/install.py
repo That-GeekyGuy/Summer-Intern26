@@ -27,6 +27,11 @@ REGISTRY = "ghcr.io/that-geekyguy"
 SERVICES = ["pipeline", "analysis", "serve", "frontend", "mitigation", "chronos", "tools"]
 GENERATOR_SERVICE = "upf-sim"
 
+# Fixed NodePort the ingress-nginx controller is pinned to (via a --set flag
+# in helm_deploy) so kind's extraPortMappings has a stable target. Must stay
+# in sync with k8s/kind-config.yaml's containerPort and render_kind_config().
+INGRESS_NODE_PORT = 30080
+
 # .env keys that map straight onto a Helm value path. Only keys present (and
 # non-empty) in .env produce a --set flag, so anything left unset falls back
 # to the chart's own values.yaml defaults.
@@ -108,6 +113,35 @@ def ensure_hf_token_secret(env_values):
         capture_output=True, text=True, check=True,
     ).stdout
     kubectl_apply_yaml(yaml_text)
+
+
+def render_kind_config(local_port):
+    """Render the kind cluster config YAML, with extraPortMappings wiring
+    the given host port to the pinned ingress NodePort on the control-plane
+    node. Mirrors k8s/kind-config.yaml's structure (3 workers, each with the
+    ./models mount) plus the port mapping.
+    """
+    return """kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: {node_port}
+        hostPort: {local_port}
+        protocol: TCP
+  - role: worker
+    extraMounts:
+      - hostPath: ./models
+        containerPath: /models
+  - role: worker
+    extraMounts:
+      - hostPath: ./models
+        containerPath: /models
+  - role: worker
+    extraMounts:
+      - hostPath: ./models
+        containerPath: /models
+""".format(node_port=INGRESS_NODE_PORT, local_port=local_port)
 
 
 def run(cmd, **kw):
