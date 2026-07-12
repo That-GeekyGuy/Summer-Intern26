@@ -25,6 +25,20 @@ spec:
           # rather than guess the host UID.
           securityContext:
             runAsUser: 0
+          env:
+            # Tier 2b downloads MOMENT-1-large (+ its flan-t5-large backbone)
+            # from HuggingFace. Without this, the cache defaults to $HOME
+            # inside the container, which is wiped on every fresh pod (this
+            # is a Helm hook — a new pod every install/upgrade, and again on
+            # every backoffLimit retry), so the multi-hundred-MB-to-GB
+            # download repeats every single run and is the dominant cause of
+            # this job blowing past helm's --timeout. /models is the one
+            # mount that's actually persistent across pod restarts, so
+            # pointing the cache there makes every run after the first one
+            # fast, and lets huggingface_hub resume a partial download across
+            # backoff retries within the same run instead of restarting cold.
+            - name: HF_HOME
+              value: /models/.hf-cache
           volumeMounts:
             - name: models
               mountPath: /models
