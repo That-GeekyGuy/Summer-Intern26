@@ -58,5 +58,19 @@ class TestResolveLocalPort(unittest.TestCase):
             install.resolve_local_port({"LOCAL_PORT": "not-a-port"})
 
 
+class TestShouldSkipBuild(unittest.TestCase):
+    def test_skip_requested_and_cluster_reused_skips(self):
+        self.assertTrue(install.should_skip_build(True, False))
+
+    def test_skip_requested_but_cluster_recreated_forces_build(self):
+        self.assertFalse(install.should_skip_build(True, True))
+
+    def test_no_skip_requested_and_cluster_reused_builds(self):
+        self.assertFalse(install.should_skip_build(False, False))
+
+    def test_no_skip_requested_and_cluster_recreated_builds(self):
+        self.assertFalse(install.should_skip_build(False, True))
+
+
 if __name__ == "__main__":
     unittest.main()

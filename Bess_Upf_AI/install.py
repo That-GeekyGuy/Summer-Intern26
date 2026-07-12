@@ -91,6 +91,14 @@ def resolve_local_port(env_values):
         sys.exit("ERROR: LOCAL_PORT in .env must be an integer, got {!r}".format(raw))
 
 
+def should_skip_build(skip_build_flag, cluster_recreated):
+    """A freshly (re)created cluster has no images loaded yet, so --skip-build
+    can never actually be honored in that case — it only applies when the
+    existing cluster was reused unchanged.
+    """
+    return skip_build_flag and not cluster_recreated
+
+
 # MITIGATION_API_PORT feeds a containerPort (must stay a YAML int); everything
 # else is treated as a plain string via --set-string to dodge --set's YAML
 # type coercion (a password of "123" or a "true"-looking value staying literal).
@@ -174,13 +182,18 @@ def check_prereqs():
 
 
 def ensure_cluster(local_port):
+    """Ensure the kind cluster exists with local_port mapped to the pinned
+    ingress NodePort. Returns True if the cluster was (re)created (so it has
+    no images loaded yet), False if an existing, correctly-mapped cluster
+    was reused unchanged.
+    """
     existing = subprocess.run(["kind", "get", "clusters"], capture_output=True, text=True).stdout.split()
     if CLUSTER_NAME in existing:
         current_port = get_current_port_mapping()
         if current_port == local_port:
             print("kind cluster '{}' already exists, reusing (port {} already mapped).".format(
                 CLUSTER_NAME, local_port))
-            return
+            return False
         print("kind cluster '{}' exists but maps host port {} (want {}); recreating.".format(
             CLUSTER_NAME, current_port, local_port))
         run(["kind", "delete", "cluster", "--name", CLUSTER_NAME])
@@ -191,6 +204,7 @@ def ensure_cluster(local_port):
         run(["kind", "create", "cluster", "--name", CLUSTER_NAME, "--config", config_path])
     finally:
         os.unlink(config_path)
+    return True
 
 
 def kubectl_apply_yaml(yaml_text):
@@ -354,7 +368,7 @@ def main():
 
     print("== 2/6 Ensuring kind cluster ==")
     local_port = resolve_local_port(env_values)
-    ensure_cluster(local_port)
+    cluster_recreated = ensure_cluster(local_port)
 
     print("== 3/6 Namespace + kuberay-operator + pull secret ==")
     ensure_namespace()
@@ -362,7 +376,11 @@ def main():
     ensure_ghcr_secret()
     ensure_hf_token_secret(env_values)
 
-    if not args.skip_build:
+    skip_build = should_skip_build(args.skip_build, cluster_recreated)
+    if cluster_recreated and args.skip_build:
+        print("Cluster was just (re)created — it has no images loaded yet, ignoring --skip-build for this run.")
+
+    if not skip_build:
         print("== 4/6 Building and loading images ({}generator) ==".format("" if include_generator else "no "))
         build_and_load(args.tag, include_generator)
     else:
