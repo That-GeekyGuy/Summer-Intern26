@@ -109,9 +109,9 @@ spec:
                   optional: true
           resources:
             limits:
-              nvidia.com/gpu: {{ .Values.vllm.resources.limits.gpu | quote }}
+              nvidia.com/gpu: {{ index .Values.vllm.resources.limits "nvidia.com/gpu" | quote }}
             requests:
-              nvidia.com/gpu: {{ .Values.vllm.resources.requests.gpu | quote }}
+              nvidia.com/gpu: {{ index .Values.vllm.resources.requests "nvidia.com/gpu" | quote }}
           volumeMounts:
             - mountPath: /dev/shm
               name: dshm
