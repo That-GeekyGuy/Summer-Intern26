@@ -79,8 +79,8 @@ flowchart TD
 ### Install
 
 ```bash
-python install.py                  # full stack, generator (upf-sim) included
-python install.py --no-generator   # skip upf-sim — use when a real UPF feeds Kafka
+python install.py                  # full stack; upf-sim (generator) OFF by default
+python install.py --generator      # include upf-sim — use for local dev without a real UPF
 python install.py --skip-build     # redeploy without rebuilding images
 ```
 
@@ -88,9 +88,9 @@ This brings up (or reuses) a local `kind` cluster, builds and loads every
 service image, installs `kuberay-operator`, helm-installs the full chart,
 and waits until every pod is actually healthy. Safe to re-run.
 
-```bash
-kubectl get pods -n bess-upf -w
-```
+The frontend/API are reachable at `http://localhost:8080` immediately after
+install completes — no manual `kubectl port-forward` needed. Override the
+port via `.env`'s `LOCAL_PORT` (see `.env.example`).
 
 ### Accessing the UI
 

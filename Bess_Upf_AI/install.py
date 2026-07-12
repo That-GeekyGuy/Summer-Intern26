@@ -6,8 +6,8 @@ loads every service image, and helm-installs the full chart. Safe to
 re-run — every step is idempotent.
 
 Usage:
-    python install.py                    # full install, generator (upf-sim) included
-    python install.py --no-generator     # skip upf-sim; use on a server fed by a real UPF
+    python install.py                    # full install; upf-sim (generator) OFF by default
+    python install.py --generator        # include upf-sim; use for local dev without a real UPF
     python install.py --tag phase4a      # image tag to build/deploy (default: local-dev)
     python install.py --skip-build       # redeploy without rebuilding images
 
@@ -246,16 +246,16 @@ def wait_for_stack(timeout_s):
 
 def main():
     parser = argparse.ArgumentParser(description="One-shot BESS-UPF v2 installer")
-    parser.add_argument("--no-generator", action="store_true",
-                         help="Skip upf-sim (the synthetic UPF traffic generator). "
-                              "Use on a server fed by a real UPF instead of the simulator.")
+    parser.add_argument("--generator", action="store_true",
+                         help="Deploy upf-sim (the synthetic UPF traffic generator). "
+                              "Off by default — most environments are fed by a real UPF.")
     parser.add_argument("--tag", default="local-dev", help="Image tag to build and deploy (default: local-dev)")
     parser.add_argument("--skip-build", action="store_true",
                          help="Skip docker build/kind load (redeploy existing images)")
     parser.add_argument("--timeout", type=int, default=10, help="Minutes to wait per stage (default: 10)")
     args = parser.parse_args()
 
-    include_generator = not args.no_generator
+    include_generator = args.generator
     env_values = load_dotenv()
     if env_values:
         print("Loaded {} value(s) from .env".format(len(env_values)))
