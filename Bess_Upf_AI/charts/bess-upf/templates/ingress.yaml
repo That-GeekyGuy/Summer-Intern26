@@ -14,7 +14,7 @@ metadata:
 spec:
   tls:
     - hosts:
-        - bess-upf.local
+        - {{ .Values.global.ingressHost | default "bess-upf.local" | quote }}
       secretName: bess-upf-tls
   ingressClassName: nginx
   rules:
@@ -40,7 +40,7 @@ spec:
               service:
                 name: mitigation
                 port:
-                  number: 8081
+                  number: {{ .Values.mitigation.apiPort | default 8081 }}
           - path: /()(.*)
             pathType: ImplementationSpecific
             backend:

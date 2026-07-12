@@ -4,6 +4,14 @@ tag: phase4a
 imagePullSecret: ghcr-pull-secret
 replicas: 1
 
+# Gates all /api/v1/* routes. Override via .env (ANALYSIS_AUTH_USER/PASSWORD).
+authUser: admin
+authPassword: bess_admin
+
+# Internal service URLs — only change if renaming the corresponding Kubernetes Service.
+vllmUrl: http://vllm:8000
+simUrl: http://upf-sim:8090
+
 vllm:
   mock:
     enabled: true

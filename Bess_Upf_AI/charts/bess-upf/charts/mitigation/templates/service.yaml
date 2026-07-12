@@ -8,5 +8,5 @@ spec:
     app: mitigation
   ports:
     - name: http
-      port: 8081
-      targetPort: 8081
+      port: {{ .Values.apiPort | default 8081 }}
+      targetPort: {{ .Values.apiPort | default 8081 }}

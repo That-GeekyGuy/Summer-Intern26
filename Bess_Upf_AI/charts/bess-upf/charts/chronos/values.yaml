@@ -3,3 +3,5 @@ registry: ghcr.io/that-geekyguy
 tag: phase4a
 imagePullSecret: ghcr-pull-secret
 replicas: 1
+
+stepSeconds: "60"

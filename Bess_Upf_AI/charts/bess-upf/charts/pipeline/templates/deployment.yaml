@@ -28,13 +28,13 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: KAFKA_BROKER
-              value: redpanda:9092
+              value: {{ .Values.kafkaBroker | default "redpanda:9092" | quote }}
             - name: RAY_SERVE_URL
-              value: http://serve:8000
+              value: {{ .Values.rayServeUrl | default "http://serve:8000" | quote }}
             - name: BYTEWAX_CHECKPOINT_DIR
               value: /data/bytewax-checkpoint
             - name: SCRAPE_INTERVAL_SECS
-              value: "1.0"
+              value: {{ .Values.scrapeIntervalSecs | default "1.0" | quote }}
             - name: UPF_SIM_METRICS
               value: {{ .Values.metricsUrl | default "http://upf-sim:8090/metrics" | quote }}
             - name: CLICKHOUSE_PASSWORD
@@ -45,9 +45,9 @@ spec:
             - name: CLICKHOUSE_DSN
               value: http://chuser:$(CLICKHOUSE_PASSWORD)@clickhouse:8123/bess_upf
             - name: CHRONOS_URL
-              value: http://chronos:8084
+              value: {{ .Values.chronosUrl | default "http://chronos:8084" | quote }}
             - name: FORECAST_CHECK_INTERVAL_SECS
-              value: "60"
+              value: {{ .Values.forecastCheckIntervalSecs | default "60" | quote }}
           volumeMounts:
             - name: data
               mountPath: /data

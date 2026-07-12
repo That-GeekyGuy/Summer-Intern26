@@ -28,8 +28,8 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: KAFKA_BROKER
-              value: redpanda:9092
+              value: {{ .Values.kafkaBroker | default "redpanda:9092" | quote }}
             - name: API_PORT
-              value: "8081"
+              value: {{ .Values.apiPort | default 8081 | quote }}
           ports:
-            - containerPort: 8081
+            - containerPort: {{ .Values.apiPort | default 8081 }}

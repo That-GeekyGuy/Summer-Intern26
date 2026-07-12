@@ -34,11 +34,11 @@ spec:
             - name: ANALYSIS_AUTH_PASSWORD
               value: {{ .Values.authPassword | default "bess_admin" | quote }}
             - name: VLLM_URL
-              value: http://vllm:8000
+              value: {{ .Values.vllmUrl | default "http://vllm:8000" | quote }}
             - name: RAG_DOCS_DIR
               value: /docs
             - name: SIM_URL
-              value: http://upf-sim:8090
+              value: {{ .Values.simUrl | default "http://upf-sim:8090" | quote }}
             - name: MODELS_DIR
               value: /models
           volumeMounts:

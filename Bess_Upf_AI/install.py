@@ -27,6 +27,88 @@ REGISTRY = "ghcr.io/that-geekyguy"
 SERVICES = ["pipeline", "analysis", "serve", "frontend", "mitigation", "chronos", "tools"]
 GENERATOR_SERVICE = "upf-sim"
 
+# .env keys that map straight onto a Helm value path. Only keys present (and
+# non-empty) in .env produce a --set flag, so anything left unset falls back
+# to the chart's own values.yaml defaults.
+ENV_TO_HELM = {
+    "INGRESS_HOST": "global.ingressHost",
+    "ANALYSIS_AUTH_USER": "analysis.authUser",
+    "ANALYSIS_AUTH_PASSWORD": "analysis.authPassword",
+    "VLLM_URL": "analysis.vllmUrl",
+    "SIM_URL": "analysis.simUrl",
+    "RAY_SERVE_URL": "pipeline.rayServeUrl",
+    "CHRONOS_URL": "pipeline.chronosUrl",
+    "UPF_SIM_METRICS_URL": "pipeline.metricsUrl",
+    "SCRAPE_INTERVAL_SECS": "pipeline.scrapeIntervalSecs",
+    "FORECAST_CHECK_INTERVAL_SECS": "pipeline.forecastCheckIntervalSecs",
+    "CHRONOS_STEP_SECONDS": "chronos.stepSeconds",
+    "MITIGATION_API_PORT": "mitigation.apiPort",
+    "CLICKHOUSE_PASSWORD": "clickhouse.password",
+}
+# .env keys that fan out to more than one Helm value path.
+ENV_TO_HELM_MULTI = {
+    "KAFKA_BROKER": ["pipeline.kafkaBroker", "mitigation.kafkaBroker"],
+}
+
+
+def load_dotenv():
+    """Read .env (if present) into a dict and merge it into os.environ.
+
+    Comment lines (#) and blanks are skipped; values may be quoted. Existing
+    os.environ entries win (so a real env var still overrides .env), matching
+    common dotenv convention.
+    """
+    path = os.path.join(ROOT, ".env")
+    values = {}
+    if not os.path.isfile(path):
+        return values
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip()
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+                val = val[1:-1]
+            values[key] = val
+            os.environ.setdefault(key, val)
+    return values
+
+
+# MITIGATION_API_PORT feeds a containerPort (must stay a YAML int); everything
+# else is treated as a plain string via --set-string to dodge --set's YAML
+# type coercion (a password of "123" or a "true"-looking value staying literal).
+_NUMERIC_ENV_KEYS = {"MITIGATION_API_PORT"}
+
+
+def helm_set_flags_from_env(env_values):
+    flags = []
+    for key, path in ENV_TO_HELM.items():
+        val = env_values.get(key)
+        if val:
+            flag = "--set" if key in _NUMERIC_ENV_KEYS else "--set-string"
+            flags += [flag, "{}={}".format(path, val)]
+    for key, paths in ENV_TO_HELM_MULTI.items():
+        val = env_values.get(key)
+        if val:
+            for path in paths:
+                flags += ["--set-string", "{}={}".format(path, val)]
+    return flags
+
+
+def ensure_hf_token_secret(env_values):
+    token = env_values.get("HF_TOKEN")
+    if not token:
+        return
+    yaml_text = subprocess.run(
+        ["kubectl", "create", "secret", "generic", "hf-token",
+         "--namespace", NAMESPACE, "--from-literal=token=" + token,
+         "--dry-run=client", "-o", "yaml"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    kubectl_apply_yaml(yaml_text)
+
 
 def run(cmd, **kw):
     print("$ " + " ".join(cmd))
@@ -110,7 +192,7 @@ def build_and_load(tag, include_generator):
         run(["kind", "load", "docker-image", image, "--name", CLUSTER_NAME, "--nodes", nodes])
 
 
-def helm_deploy(tag, include_generator, timeout_min):
+def helm_deploy(tag, include_generator, timeout_min, env_values):
     chart_dir = os.path.join(ROOT, "charts", "bess-upf")
     run(["helm", "dependency", "update"], cwd=chart_dir)
     run([
@@ -125,6 +207,7 @@ def helm_deploy(tag, include_generator, timeout_min):
         "--set", "chronos.tag=" + tag,
         "--set", "upf-sim.tag=" + tag,
         "--set", "upf-sim.enabled=" + ("true" if include_generator else "false"),
+    ] + helm_set_flags_from_env(env_values) + [
         "--force",
         "--timeout", "{}m".format(timeout_min),
     ])
@@ -173,6 +256,9 @@ def main():
     args = parser.parse_args()
 
     include_generator = not args.no_generator
+    env_values = load_dotenv()
+    if env_values:
+        print("Loaded {} value(s) from .env".format(len(env_values)))
 
     print("== 1/6 Checking prerequisites ==")
     check_prereqs()
@@ -184,6 +270,7 @@ def main():
     ensure_namespace()
     install_kuberay_operator()
     ensure_ghcr_secret()
+    ensure_hf_token_secret(env_values)
 
     if not args.skip_build:
         print("== 4/6 Building and loading images ({}generator) ==".format("" if include_generator else "no "))
@@ -192,7 +279,7 @@ def main():
         print("== 4/6 Skipping build (--skip-build) ==")
 
     print("== 5/6 Helm deploy ==")
-    helm_deploy(args.tag, include_generator, args.timeout)
+    helm_deploy(args.tag, include_generator, args.timeout, env_values)
 
     print("== 6/6 Waiting for stack ==")
     if not wait_for_stack(args.timeout * 60):

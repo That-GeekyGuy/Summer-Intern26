@@ -1,6 +1,8 @@
 namespace: bess-upf
 image: clickhouse/clickhouse-server:24.3-alpine
 user: chuser
-# A secure random password will be auto-generated during helm install
-# via secret.yaml using randAlphaNum and persisted across upgrades via lookup.
+# Leave blank to auto-generate a secure random password on first install
+# (persisted across upgrades via lookup in secret.yaml). Set explicitly
+# (e.g. via .env's CLICKHOUSE_PASSWORD) to pin it instead.
+password: ""
 storage: 5Gi

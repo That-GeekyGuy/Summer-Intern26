@@ -30,3 +30,6 @@ charts/bess-upf/charts/*.tgz
 node_modules/
 vendor/
 *.exe
+
+# subagent-driven-development scratch workspace (progress ledger, task briefs, reports)
+.superpowers/

@@ -3,6 +3,7 @@ global:
   tag: phase4a
   imagePullSecret: ghcr-pull-secret
   namespace: bess-upf
+  ingressHost: bess-upf.local
   security:
     rbac:
       enabled: true

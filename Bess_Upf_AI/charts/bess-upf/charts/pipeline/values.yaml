@@ -3,3 +3,13 @@ registry: ghcr.io/that-geekyguy
 tag: phase4a
 imagePullSecret: ghcr-pull-secret
 replicas: 2
+
+# Internal service URLs — only change if renaming the corresponding Kubernetes Service.
+kafkaBroker: redpanda:9092
+rayServeUrl: http://serve:8000
+chronosUrl: http://chronos:8084
+metricsUrl: http://upf-sim:8090/metrics
+
+# Polling/check intervals.
+scrapeIntervalSecs: "1.0"
+forecastCheckIntervalSecs: "60"
