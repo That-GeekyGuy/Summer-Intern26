@@ -241,6 +241,86 @@ def ensure_ghcr_secret():
     kubectl_apply_yaml(yaml_text)
 
 
+def parse_nvidia_smi_output(text):
+    """Parse `nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits`
+    output into the max VRAM (MiB) across all reported GPUs, or None if
+    there's no usable number in the output.
+    """
+    values = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            values.append(int(line))
+        except ValueError:
+            continue
+    return max(values) if values else None
+
+
+def detect_vram_mib():
+    """Best-effort local VRAM detection. Returns None (→ mock) whenever
+    nvidia-smi is missing, errors, or produces nothing parseable — this
+    covers no-GPU boxes, non-NVIDIA GPUs, and CI/test runners equally.
+    """
+    if shutil.which("nvidia-smi") is None:
+        return None
+    result = subprocess.run(
+        ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return parse_nvidia_smi_output(result.stdout)
+
+
+# (min_vram_mib, model, max_model_len, gpu_memory_utilization), ascending.
+# Below the first threshold (or no GPU detected) → mock.
+VLLM_TIERS = [
+    (8192, "Qwen/Qwen2.5-3B-Instruct-AWQ", 4096, "0.85"),
+    (16384, "Qwen/Qwen2.5-7B-Instruct-AWQ", 2048, "0.8"),
+    (24576, "Qwen/Qwen2.5-14B-Instruct-AWQ", 4096, "0.85"),
+]
+
+
+def resolve_vllm_tier(vram_mib):
+    """Return (model, max_model_len, gpu_mem_util) for the highest tier
+    vram_mib qualifies for, or None if vram_mib is None or below the
+    lowest tier's threshold (caller should use mock).
+    """
+    if vram_mib is None:
+        return None
+    chosen = None
+    for min_mib, model, max_len, util in VLLM_TIERS:
+        if vram_mib >= min_mib:
+            chosen = (model, max_len, util)
+    return chosen
+
+
+def resolve_vllm_config(env_values, vram_mib):
+    """Resolve final vLLM settings from .env's VLLM_MODE/VLLM_MODEL_OVERRIDE
+    and detected VRAM. Returns a dict with keys: mock (bool), model
+    (str|None), max_model_len (int|None), gpu_mem_util (str|None).
+    """
+    mode = (env_values.get("VLLM_MODE") or "auto").strip().lower()
+    override = env_values.get("VLLM_MODEL_OVERRIDE") or None
+
+    if mode == "mock":
+        return {"mock": True, "model": None, "max_model_len": None, "gpu_mem_util": None}
+
+    if mode == "real":
+        tier = resolve_vllm_tier(vram_mib) or resolve_vllm_tier(16384)
+        model, max_len, util = tier
+        return {"mock": False, "model": override or model, "max_model_len": max_len, "gpu_mem_util": util}
+
+    # auto
+    tier = resolve_vllm_tier(vram_mib)
+    if tier is None:
+        return {"mock": True, "model": None, "max_model_len": None, "gpu_mem_util": None}
+    model, max_len, util = tier
+    return {"mock": False, "model": override or model, "max_model_len": max_len, "gpu_mem_util": util}
+
+
 def get_worker_nodes():
     out = subprocess.run(
         ["docker", "ps", "--filter", "name=" + CLUSTER_NAME + "-worker", "--format", "{{.Names}}"],
