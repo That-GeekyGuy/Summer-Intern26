@@ -12,26 +12,33 @@ interface Props { creds: Credentials; }
 
 // Always-on monitoring targets — displayed even when no alarm is active.
 // capacities must match config/detection/rules.yml forecast.targets[*].capacity
+//
+// Calibrated to this dev cluster's actual traffic source (upf-sim, single
+// node): BaseSessions=12,000, diurnal ±30%/jitter ±2% (~8.2k-15.9k normal),
+// SpikeMultiplier=4x (~48k typical spike, ~64k worst-case diurnal-peak+spike).
+// A production deployment with real fleet-scale traffic would need different
+// values — these are sized so a triggered Scenario spike is visible and can
+// realistically cross capacity, not sit at a fraction of a percent forever.
 const FORECAST_METRICS = [
   {
     metric: "pfcp_sessions_total",
     label: "per node",
     sql: 'SELECT upf_id as node, pfcp_sessions_total as value FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) ORDER BY ts DESC LIMIT 1',
-    capacity: 2_000_000,
+    capacity: 50_000,
     severity: "high",
   },
   {
     metric: "pfcp_sessions_total_cluster",
     label: "cluster",
     sql: 'SELECT sum(pfcp_sessions_total) as value FROM (SELECT upf_id, argMax(pfcp_sessions_total, ts) as pfcp_sessions_total FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(1)) GROUP BY upf_id)',
-    capacity: 4_000_000,
+    capacity: 65_000,
     severity: "critical",
   },
   {
     metric: "port_bytes_count",
     label: "N3 rx",
     sql: 'SELECT sum(port_bytes_N3_rx_rate) as value FROM (SELECT upf_id, argMax(port_bytes_N3_rx_rate, ts) as port_bytes_N3_rx_rate FROM bess_upf.upf_metrics WHERE ts >= (now() - toIntervalMinute(5)) GROUP BY upf_id)',
-    capacity: 10_000_000_000,
+    capacity: 75_000_000,
     severity: "high",
   },
   {

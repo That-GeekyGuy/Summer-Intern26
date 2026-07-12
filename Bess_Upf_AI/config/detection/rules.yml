@@ -1,11 +1,21 @@
 # Detection rule configuration for the upf-detector service.
-# Mounted read-only at /etc/detection/rules.yml inside the container.
-# Restart the detection service after changes: docker compose restart detection
 #
-# Simulator scale (set via .env) — carrier-grade UPF:
-#   SIM_BASE_SESSIONS=1000000   →  10 lakh baseline, diurnal ±30%: 700k–1.3M
-#   SIM_BYTES_PER_SESSION=5000  → N3 rx baseline ~6 GB/s, spike ~24 GB/s
-#   SIM_SPIKE_MULTIPLIER=4.0    → spike to 40 lakhs (4 million) sessions
+# ORPHANED: this file describes the pre-V2, docker-compose-based architecture
+# (a standalone "detection" service polling Prometheus/PromQL). The current
+# V2 deployment (charts/bess-upf/*) has no such service — see
+# analysis/docs/upf-runbook.md. It is not mounted or read by anything live.
+# The `forecast.targets[*]` section below is kept in sync with
+# frontend/src/features/forecast/ForecastPage.tsx's FORECAST_METRICS purely
+# as documentation for whoever eventually builds the real predictive tier
+# (see plan phase D) — it is not itself consumed anywhere yet.
+#
+# Simulator scale — this dev cluster's actual upf-sim (single node, Go env
+# vars BASE_SESSIONS/BYTES_PER_SESSION/SPIKE_MULTIPLIER, not the SIM_* names
+# below, which belonged to a different, older simulator):
+#   BASE_SESSIONS=12000        → diurnal ±30%, jitter ±2%: ~8.2k–15.9k normal
+#   BYTES_PER_SESSION=1000     → N3 rx baseline ~9.9-19.1 MB/s
+#   SPIKE_MULTIPLIER=4.0       → ~48k sessions typical spike, ~64k worst-case
+#                                 (diurnal peak coinciding with a spike)
 
 polling_interval: 60s
 window: 30m   # rolling window used by zscore and trend rules
@@ -66,27 +76,30 @@ forecast:
   targets:
     # Per-node PDU session count vs per-node capacity ceiling.
     # pfcp_sessions_total is a GAUGE (active sessions right now).
-    # Observed: diurnal 700k–1.3M (7–13 lakhs); spike 4M (40 lakhs).
-    # Capacity at 20 lakhs sits 54% above 1.3M normal peak.
+    # Observed: diurnal ~8.2k-15.9k normal; typical spike ~48k; worst-case
+    # (diurnal peak + spike) ~64k. Capacity at 50k sits just under typical
+    # spike (fires "high" early) but under the worst-case breach.
     - metric: pfcp_sessions_total
       promql: 'pfcp_sessions_total{job="upf"}'
-      capacity: 2000000       # 20 lakhs per node; normal peak 1.3M; spike 4M
+      capacity: 50000          # typical spike ~48k sits at 96% of this
       severity: high
 
-    # Cluster-wide session count — sum across all UPF nodes.
-    # Two-stage alerting: per-node (high) fires first, cluster (critical) fires mid-spike.
+    # Cluster-wide session count — sum across all UPF nodes (currently a
+    # single simulated node, so this equals the per-node value; kept as a
+    # separate, higher threshold so a worst-case spike still staggers:
+    # per-node "high" fires first, cluster "critical" only on worst-case).
     - metric: pfcp_sessions_total_cluster
       promql: 'sum(pfcp_sessions_total{job="upf"})'
-      capacity: 4000000       # 40 lakhs; 2 nodes × 20 lakhs; scale with fleet
+      capacity: 65000          # only the diurnal-peak+spike worst case (~64k) nears this
       severity: critical
 
-    # N3 inbound throughput vs link capacity (80 Gbps = 10 GB/s).
+    # N3 inbound throughput vs link capacity.
     # port_bytes_count is a COUNTER — rate() to get bytes/s.
-    # Observed rates: baseline 4.2–7.8 GB/s; spike 24 GB/s.
-    # Capacity at 10 GB/s sits between 7.8 GB/s normal peak and 24 GB/s spike.
+    # Observed rates: baseline ~9.9-19.1 MB/s; typical spike ~57.6 MB/s;
+    # worst-case ~76.4 MB/s.
     - metric: port_bytes_count
       promql: 'sum(rate(port_bytes_count{job="upf",iface="N3",dir="rx"}[5m]))'
-      capacity: 10000000000   # 10 GB/s (80 Gbps link); normal peak ~7.8 GB/s; spike 24 GB/s
+      capacity: 75000000       # 75 MB/s; typical spike sits at 77%, worst-case breaches
       severity: high
 
     # Packet drop rate acceleration — fire when the drop rate has a positive OLS slope.

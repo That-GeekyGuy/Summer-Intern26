@@ -282,7 +282,8 @@ def eval_tier2b(windows: np.ndarray, labels: np.ndarray) -> list[dict]:
             tensor = torch.tensor(arr, dtype=torch.float32).unsqueeze(0)
             _, c, t = tensor.shape
             with torch.no_grad():
-                out   = pipeline(tensor, input_mask=torch.ones(1, t, dtype=torch.bool))
+                # MOMENTPipeline.forward is keyword-only (x_enc, input_mask, mask, **kwargs)
+                out   = pipeline(x_enc=tensor, input_mask=torch.ones(1, t, dtype=torch.bool))
             recon = out.reconstruction.numpy()[0]
             if recon.shape[0] == t and recon.shape[-1] == c:
                 recon = recon.T
@@ -329,7 +330,8 @@ def eval_tier2b(windows: np.ndarray, labels: np.ndarray) -> list[dict]:
                 tensor = torch.tensor(arr, dtype=torch.float32).unsqueeze(0)
                 _, c, t = tensor.shape
                 with torch.no_grad():
-                    out = pipeline(tensor, input_mask=torch.ones(1, t, dtype=torch.bool))
+                    # MOMENTPipeline.forward is keyword-only (x_enc, input_mask, mask, **kwargs)
+                    out = pipeline(x_enc=tensor, input_mask=torch.ones(1, t, dtype=torch.bool))
                     emb = out.reconstruction.reshape(1, -1)
                     ft_scores.append(float(head.error(emb).item()))
                 ft_lats.append((time.perf_counter() - t0) * 1000)

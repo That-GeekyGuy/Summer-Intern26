@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,9 +45,12 @@ type FeatureContribution struct {
 // anomaly_score/threshold plus the channels that tripped it, so contributions are
 // weighted evenly across those channels rather than measured per-channel.
 func ClassifyAnomaly(modelVersion string, score, threshold float64, channels []string) (eventType, severity, featureContributionsJSON string) {
-	if strings.Contains(modelVersion, "statistical") || strings.Contains(modelVersion, "zscore") {
+	switch {
+	case strings.Contains(modelVersion, "forecast"):
+		eventType = "predictive"
+	case strings.Contains(modelVersion, "statistical") || strings.Contains(modelVersion, "zscore"):
 		eventType = "reactive"
-	} else {
+	default:
 		eventType = "ml"
 	}
 
@@ -227,11 +231,27 @@ func (c *Client) QueryRawValues(ctx context.Context, channel string, lookback, s
 
 	vals := make([]float64, 0, len(rows))
 	for _, row := range rows {
-		if v, ok := row["value"].(float64); ok {
+		if v, ok := asFloat64(row["value"]); ok {
 			vals = append(vals, v)
 		}
 	}
 	return vals, nil
+}
+
+// asFloat64 converts a JSON-decoded ClickHouse value to float64. ClickHouse's
+// JSON output format quotes UInt64/Int64 columns as strings (to avoid JS
+// number-precision loss), so values arrive as either a float64 or a string
+// depending on the source column's type.
+func asFloat64(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case string:
+		f, err := strconv.ParseFloat(t, 64)
+		return f, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // QueryJSON runs a SQL query and returns raw JSON maps.

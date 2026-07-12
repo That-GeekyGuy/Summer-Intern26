@@ -249,7 +249,9 @@ func (h *Handler) handleAnomalies(w http.ResponseWriter, r *http.Request) {
 			anomaly_score,
 			threshold,
 			top_anomalous_channels,
-			model_version
+			model_version,
+			predicted_crossing_time,
+			forecast_horizon
 		FROM anomaly_events
 		WHERE ts >= '%s'
 		ORDER BY ts DESC
@@ -290,19 +292,28 @@ func (h *Handler) handleAnomalies(w http.ResponseWriter, r *http.Request) {
 
 		eventType, severity, featureContributions := chclient.ClassifyAnomaly(modelVer, score, thresh, channels)
 
+		var predictedCrossingTime *int64
+		if v, ok := row["predicted_crossing_time"].(float64); ok {
+			unix := int64(v)
+			predictedCrossingTime = &unix
+		}
+		forecastHorizon, _ := row["forecast_horizon"].(string)
+
 		anomalies = append(anomalies, chclient.AnomalyEvent{
-			ID:                   int64(i),
-			MetricName:           metricName,
-			Labels:               modelVer,
-			Timestamp:            t,
-			ObservedValue:        score,
-			ExpectedValue:        &thresh,
-			DeviationMagnitude:   score - thresh,
-			Severity:             severity,
-			EventType:            eventType,
-			RuleName:             modelVer,
-			FeatureContributions: featureContributions,
-			CreatedAt:            t,
+			ID:                    int64(i),
+			MetricName:            metricName,
+			Labels:                modelVer,
+			Timestamp:             t,
+			ObservedValue:         score,
+			ExpectedValue:         &thresh,
+			DeviationMagnitude:    score - thresh,
+			Severity:              severity,
+			EventType:             eventType,
+			RuleName:              modelVer,
+			ForecastHorizon:       forecastHorizon,
+			PredictedCrossingTime: predictedCrossingTime,
+			FeatureContributions:  featureContributions,
+			CreatedAt:             t,
 		})
 	}
 

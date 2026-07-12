@@ -37,6 +37,17 @@ spec:
               value: "1.0"
             - name: UPF_SIM_METRICS
               value: {{ .Values.metricsUrl | default "http://upf-sim:8090/metrics" | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-credentials
+                  key: password
+            - name: CLICKHOUSE_DSN
+              value: http://chuser:$(CLICKHOUSE_PASSWORD)@clickhouse:8123/bess_upf
+            - name: CHRONOS_URL
+              value: http://chronos:8084
+            - name: FORECAST_CHECK_INTERVAL_SECS
+              value: "60"
           volumeMounts:
             - name: data
               mountPath: /data

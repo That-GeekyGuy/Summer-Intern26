@@ -39,3 +39,13 @@ spec:
               value: /docs
             - name: SIM_URL
               value: http://upf-sim:8090
+            - name: MODELS_DIR
+              value: /models
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+      volumes:
+        - name: models
+          hostPath:
+            path: /models

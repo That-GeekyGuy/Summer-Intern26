@@ -2,8 +2,14 @@ boto3>=1.34
 botocore>=1.34
 pyarrow>=15.0
 pandas>=2.2
-numpy>=1.26
+# Capped <2 to match serve/requirements.txt's numpy (constrained there by
+# torch==2.1.0, which predates numpy 2.0 and can't use it) — joblib-pickled
+# sklearn models trained here must stay loadable by serve's runtime; numpy
+# 2.x restructured its internal module layout (numpy._core) in a way that's
+# NOT unpicklable by numpy <2.0 (confirmed: "No module named 'numpy._core'").
+numpy>=1.26,<2
 scikit-learn>=1.4
 joblib>=1.4
+torch>=2.1
 fastapi>=0.111
 uvicorn[standard]>=0.29

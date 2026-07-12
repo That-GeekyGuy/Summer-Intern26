@@ -154,7 +154,8 @@ def get_moment_embeddings(windows: np.ndarray, device: str) -> np.ndarray:
                 # Use the encoder to get patch embeddings
                 # patch_embeddings shape: (batch, n_patches, d_model)
                 try:
-                    out = model(batch, input_mask=torch.ones(batch.shape[0], seq_len, dtype=torch.bool).to(device))
+                    # MOMENTPipeline.forward is keyword-only (x_enc, input_mask, mask, **kwargs)
+                    out = model(x_enc=batch, input_mask=torch.ones(batch.shape[0], seq_len, dtype=torch.bool).to(device))
                     # Use reconstruction output as embedding basis
                     # Shape: (batch, n_channels, seq_len) → flatten to (batch, n_channels*seq_len)
                     emb = out.reconstruction.reshape(batch.shape[0], -1)

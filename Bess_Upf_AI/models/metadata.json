@@ -1,25 +1,25 @@
 {
-  "trained_at": "2026-06-29T14:36:53.038906+00:00",
+  "trained_at": "2026-07-11T15:53:11.857223+00:00",
   "dataset_time_range": {
     "start": 1767225600,
-    "end": 1798761585
+    "end": 1767398385
   },
   "label_counts": {
-    "normal": 1582522,
-    "anomaly": 519878
+    "normal": 8783,
+    "anomaly": 2737
   },
   "eval_metrics": {
     "isolation_forest": {
-      "roc_auc": 0.9199,
-      "false_positive_rate": 0.0097,
-      "recall_anomaly": 0.1131
+      "roc_auc": 0.9228,
+      "false_positive_rate": 0.0,
+      "recall_anomaly": 0.022
     },
     "random_forest": {
-      "roc_auc": 0.9239
+      "roc_auc": 0.9173
     }
   },
   "thresholds": {
-    "isolation_forest": 4.852312941640985e-17,
+    "isolation_forest": 0.0,
     "random_forest": 0.5
   },
   "feature_names": [
@@ -65,9 +65,9 @@
   ],
   "earliness": {
     "anomaly": {
-      "start_ts": 1767236865,
-      "if_seconds_after_start": 26265,
-      "rf_seconds_after_start": 0
+      "start_ts": 1767237840,
+      "if_seconds_after_start": 28020,
+      "rf_seconds_after_start": 420
     }
   },
   "warnings": []

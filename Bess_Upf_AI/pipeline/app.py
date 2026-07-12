@@ -105,7 +105,11 @@ def _call_detect_batch(item: tuple[str, list[tuple[dict, list]]]) -> list[dict]:
         if stat_anomaly:
             ml_res["anomaly"] = True
             ml_res["anomaly_score"] = max(ml_res.get("anomaly_score", 0.0), stat_score)
-            ml_res["model_version"] = ml_res.get("model_version", "statistical-zscore-v1")
+            # Unconditional: ml_res already has a real model_version from serve
+            # (e.g. "v2-sklearn@cpu"), so a .get(..., default) here would never
+            # fire — the reactive z-score tier must win so ClassifyAnomaly tags
+            # this "reactive" instead of "ml".
+            ml_res["model_version"] = "statistical-zscore-v1"
             
             # extend instead of override
             existing_channels = ml_res.get("top_anomalous_channels", [])

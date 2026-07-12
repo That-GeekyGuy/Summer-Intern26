@@ -59,3 +59,28 @@ def extract_features(channels: list[list[float]], channel_names: list[str]) -> l
         feats += [float(np.mean(w)), float(np.std(w)), float(np.min(w)), float(np.max(w))]
 
     return [0.0 if not np.isfinite(v) else v for v in feats]
+
+
+def channel_zscores(channels: list[list[float]], channel_names: list[str]) -> dict[str, float]:
+    """Per-channel |z-score| of the latest sample vs its own 5m rolling mean/std.
+
+    Reuses the same rolling window `extract_features` already computes, so this
+    is a pragmatic attribution proxy (not true SHAP) for which raw channel(s)
+    look most deviant whenever any tier (IF/RF/MOMENT) flags an anomaly —
+    those models only ever produce a single aggregate score, not a per-channel
+    breakdown.
+    """
+    scores: dict[str, float] = {}
+    for name, row in zip(channel_names, channels):
+        mapped = _CHAN_MAP.get(name)
+        if not mapped:
+            continue
+        arr = np.asarray(row, dtype=float)
+        if arr.size == 0:
+            continue
+        w = arr[-300:]
+        mean, std = float(np.mean(w)), float(np.std(w))
+        last = float(arr[-1])
+        z = abs(last - mean) / (std + 1e-9)
+        scores[name] = z if np.isfinite(z) else 0.0
+    return scores

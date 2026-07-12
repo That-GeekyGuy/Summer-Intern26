@@ -32,7 +32,7 @@ except ImportError:
             return None
     serve = _NoopServe()  # type: ignore[assignment]
 
-from feature_eng import extract_features
+from feature_eng import channel_zscores, extract_features
 
 log = logging.getLogger(__name__)
 
@@ -162,6 +162,13 @@ class MLServeDeployment:
                 anomaly = True
             channel_scores["moment_score"] = moment_score
 
+        top_channels: list[str] = []
+        if anomaly:
+            zscores = channel_zscores(channels, ch_names)
+            top_channels = [
+                name for name, _ in sorted(zscores.items(), key=lambda kv: -kv[1])[:3]
+            ]
+
         return {
             "available": self.sklearn_available or self.moment_available,
             "anomaly": anomaly,
@@ -171,7 +178,7 @@ class MLServeDeployment:
             "moment_score": moment_score,
             "threshold": 0.5,
             "channel_scores": channel_scores,
-            "top_anomalous_channels": [],
+            "top_anomalous_channels": top_channels,
             "confidence": anomaly_score,
             "model_version": self._model_version,
         }

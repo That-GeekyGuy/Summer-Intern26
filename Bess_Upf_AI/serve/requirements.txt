@@ -5,6 +5,7 @@ ray[serve]==2.30.0
 click<8.1.4
 torch==2.1.0
 transformers
+huggingface-hub
 numpy
 pandas
 scikit-learn==1.4.2

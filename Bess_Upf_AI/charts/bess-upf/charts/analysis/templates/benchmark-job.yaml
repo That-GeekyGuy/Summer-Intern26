@@ -18,6 +18,13 @@ spec:
           image: "{{ .Values.registry }}/bess-upf-tools:{{ .Values.tag }}"
           imagePullPolicy: IfNotPresent
           command: ["sh", "/scripts/run.sh"]
+          # /models is a hostPath mount owned by whatever host user set it up
+          # (e.g. via tools/train/train.py run locally) — every other consumer
+          # (chronos, ray) mounts it readOnly, but this job writes new dataset/
+          # report files into it, so it needs to bypass that host-owned ACL
+          # rather than guess the host UID.
+          securityContext:
+            runAsUser: 0
           volumeMounts:
             - name: models
               mountPath: /models

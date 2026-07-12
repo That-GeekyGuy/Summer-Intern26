@@ -30,7 +30,7 @@ SETTINGS
     kafka_group_name           = 'clickhouse-metrics',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 1,
-    stream_flush_interval_ms   = 1000;
+    kafka_flush_interval_ms   = 1000;
 
 CREATE TABLE IF NOT EXISTS upf_metrics (
     upf_id                     LowCardinality(String),
@@ -72,7 +72,17 @@ FROM upf_metrics_kafka;
 -- anomaly_events
 ------------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS anomaly_events_kafka (
+-- The materialized view below reads from anomaly_events_kafka — drop it
+-- first so ClickHouse doesn't refuse to drop/recreate that table as "in use".
+DROP VIEW IF EXISTS anomaly_events_mv;
+
+-- Kafka-engine tables hold no data themselves (pure streaming cursor) and
+-- ClickHouse categorically rejects "ALTER ... ADD COLUMN" on them
+-- (NOT_IMPLEMENTED). Drop+recreate is the only way to add columns — safe
+-- here since Kafka consumer offsets are tracked server-side by the
+-- kafka_group_name, not by this table object's lifecycle.
+DROP TABLE IF EXISTS anomaly_events_kafka;
+CREATE TABLE anomaly_events_kafka (
     upf_id                  String,
     ts                      Float64,
     anomaly                 UInt8,
@@ -80,7 +90,12 @@ CREATE TABLE IF NOT EXISTS anomaly_events_kafka (
     threshold               Float64,
     top_anomalous_channels  Array(String),
     model_version           String,
-    window_end_offset       Int64
+    window_end_offset       Int64,
+    -- Populated only for event_type="predictive" rows (forecast-breach
+    -- warnings); NULL for reactive/ml rows. See ClassifyAnomaly in
+    -- analysis/internal/chclient/client.go.
+    predicted_crossing_time Nullable(Float64),
+    forecast_horizon        Nullable(String)
 ) ENGINE = Kafka
 SETTINGS
     kafka_broker_list          = 'redpanda:9092',
@@ -88,7 +103,7 @@ SETTINGS
     kafka_group_name           = 'clickhouse-anomaly',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 1,
-    stream_flush_interval_ms   = 1000;
+    kafka_flush_interval_ms   = 1000;
 
 CREATE TABLE IF NOT EXISTS anomaly_events (
     upf_id                  LowCardinality(String),
@@ -98,18 +113,28 @@ CREATE TABLE IF NOT EXISTS anomaly_events (
     threshold               Float64,
     top_anomalous_channels  Array(String),
     model_version           String,
-    window_end_offset       Int64
+    window_end_offset       Int64,
+    predicted_crossing_time Nullable(Float64),
+    forecast_horizon        Nullable(String)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/anomaly_events', '{replica}', ts)
 PARTITION BY toYYYYMMDD(ts)
 ORDER BY (upf_id, ts)
 TTL toDateTime(ts) + INTERVAL 90 DAY;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS anomaly_events_mv TO anomaly_events AS
+-- Upgrade path for clusters where anomaly_events already existed before the
+-- predictive-tier columns were added (CREATE TABLE IF NOT EXISTS above is a
+-- no-op against an already-existing table). Unlike the Kafka table above,
+-- ReplicatedReplacingMergeTree supports ALTER ADD COLUMN natively.
+ALTER TABLE anomaly_events ADD COLUMN IF NOT EXISTS predicted_crossing_time Nullable(Float64);
+ALTER TABLE anomaly_events ADD COLUMN IF NOT EXISTS forecast_horizon Nullable(String);
+
+CREATE MATERIALIZED VIEW anomaly_events_mv TO anomaly_events AS
 SELECT
     upf_id,
     toDateTime64(ts, 3) AS ts,
     anomaly, anomaly_score, threshold,
-    top_anomalous_channels, model_version, window_end_offset
+    top_anomalous_channels, model_version, window_end_offset,
+    predicted_crossing_time, forecast_horizon
 FROM anomaly_events_kafka;
 
 -- ============================================================
@@ -132,7 +157,7 @@ SETTINGS
     kafka_group_name         = 'clickhouse-shadow',
     kafka_format             = 'JSONEachRow',
     kafka_skip_broken_messages = 1,
-    stream_flush_interval_ms = 1000;
+    kafka_flush_interval_ms = 1000;
 
 CREATE TABLE IF NOT EXISTS shadow_detections (
     upf_id        LowCardinality(String),
@@ -180,7 +205,7 @@ CREATE TABLE IF NOT EXISTS action_audit_kafka (
     kafka_group_name  = 'clickhouse-audit',
     kafka_format      = 'JSONEachRow',
     kafka_skip_broken_messages = 1,
-    stream_flush_interval_ms = 1000;
+    kafka_flush_interval_ms = 1000;
 
 CREATE TABLE IF NOT EXISTS action_audit (
     action_id      String,
@@ -229,7 +254,7 @@ CREATE TABLE IF NOT EXISTS operator_feedback_kafka (
     kafka_group_name  = 'clickhouse-feedback',
     kafka_format      = 'JSONEachRow',
     kafka_skip_broken_messages = 1,
-    stream_flush_interval_ms = 1000;
+    kafka_flush_interval_ms = 1000;
 
 CREATE TABLE IF NOT EXISTS operator_feedback (
     action_id      String,
