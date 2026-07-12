@@ -110,7 +110,6 @@ func (h *Handler) handleAggregatedHealth(w http.ResponseWriter, r *http.Request)
 	// real implementation would ping them.
 	status := map[string]string{
 		"analysis":   "ok",
-		"prometheus": "ok", // still keeping this to not break frontend if it expects it
 		"llm":        "ok",
 		"sim":        "ok",
 		"clickhouse": "ok",
@@ -118,7 +117,6 @@ func (h *Handler) handleAggregatedHealth(w http.ResponseWriter, r *http.Request)
 	if h.ch == nil {
 		status["clickhouse"] = "down"
 	}
-	// V2: VM and detection are removed.
 	if h.sim == nil {
 		status["sim"] = "down"
 	}
@@ -199,9 +197,9 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleQuery proxies a PromQL instant query to VictoriaMetrics and returns
-// the raw samples. Used by the frontend pulse strip to read metrics directly
-// without routing through the LLM chat endpoint.
+// handleQuery evaluates a PromQL-style instant query against ClickHouse and
+// returns the raw samples. Used by the frontend pulse strip to read metrics
+// directly without routing through the LLM chat endpoint.
 // Query param: q (required) — a PromQL expression, e.g. pfcp_sessions_total
 func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -209,8 +207,6 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"q parameter is required"}`, http.StatusBadRequest)
 		return
 	}
-	// Validate against allowlist and policy limits before forwarding to VictoriaMetrics.
-	// Instant queries use a 0 time range and 0 step — validator only checks the AST.
 	// (PromQL validation removed: ClickHouse requires raw SQL)
 	samples, err := h.ch.QueryInstant(r.Context(), q)
 	if err != nil {

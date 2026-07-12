@@ -34,7 +34,7 @@ function kpiStatus(value: number, warnAt: number, critAt: number): "ok" | "warni
 export function OverviewPage({ creds }: Props) {
   const { setContext } = useAppStore();
 
-  // ── Live KPI data from VictoriaMetrics (Batched Pulse) ────────────────
+  // ── Live KPI data from ClickHouse (Batched Pulse) ──────────────────────
   const { data: pulseData, isLoading: pulseLoading } = useQuery({
     queryKey: ["pulse"],
     queryFn: () => fetchPulse(creds),
@@ -232,9 +232,7 @@ export function OverviewPage({ creds }: Props) {
         boxShadow: "var(--shadow-soft)",
       }}>
         {[
-          { key: "prometheus", label: COPY.overview.services.prometheus },
-          { key: "vm", label: COPY.overview.services.vm },
-          { key: "detection", label: COPY.overview.services.detection },
+          { key: "clickhouse", label: COPY.overview.services.clickhouse },
           { key: "llm", label: COPY.overview.services.llm },
           { key: "sim", label: COPY.overview.services.sim },
         ].map((svc) => {

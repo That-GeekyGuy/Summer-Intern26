@@ -427,19 +427,19 @@ const CHECKS = [
     },
   },
   {
-    id: 'vm',
-    name: 'VictoriaMetrics Proxy',
+    id: 'promql',
+    name: 'PromQL Query (ClickHouse)',
     sub: 'GET /api/v1/query?q=up',
     run: async () => {
       const r = await apiFetch('/api/v1/query?q=up');
       const n = (r.samples || []).length;
-      if (!n) return { text: '0 series — VM may be empty', cls: 'warn' };
+      if (!n) return { text: '0 series — result set may be empty', cls: 'warn' };
       return `${n} series`;
     },
   },
   {
     id: 'anomalies',
-    name: 'Detection Service',
+    name: 'Anomaly Feed (pipeline + serve)',
     sub: 'GET /api/v1/anomalies',
     run: async () => {
       const r = await apiFetch('/api/v1/anomalies');

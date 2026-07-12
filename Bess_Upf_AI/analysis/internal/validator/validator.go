@@ -13,9 +13,10 @@ type Allowlist interface {
 	IsAllowed(name string) bool
 }
 
-// Validator is the primary security boundary between the LLM and VictoriaMetrics.
-// It rejects queries that reference unknown metrics, use excessive time ranges,
-// or use steps so small they could produce resource-exhausting result sets.
+// Validator is the primary security boundary between the LLM and the metrics
+// store. It rejects queries that reference unknown metrics, use excessive
+// time ranges, or use steps so small they could produce resource-exhausting
+// result sets.
 type Validator struct {
 	allowlist    Allowlist
 	maxTimeRange time.Duration

@@ -235,8 +235,9 @@ export async function fetchHotzone(creds: Credentials): Promise<HotzoneResponse>
   return request<HotzoneResponse>("/api/v1/temporal/hotzone", creds);
 }
 
-// ---- VictoriaMetrics instant query ----------------------------------------
-// Proxied through the analysis service at GET /api/v1/query?q=<promql>.
+// ---- PromQL-style instant query --------------------------------------------
+// Proxied through the analysis service at GET /api/v1/query?q=<promql>,
+// which evaluates it against ClickHouse (not an actual VictoriaMetrics/Prometheus).
 // Does NOT go through the LLM — sub-10ms, zero token budget consumed.
 
 export interface InstantSample {

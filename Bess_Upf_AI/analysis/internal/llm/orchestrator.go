@@ -89,7 +89,7 @@ func (ss *SessionStore) startCleanup(ctx context.Context, interval time.Duration
 	}()
 }
 
-// Allowlist is the subset of DynamicAllowlist that the orchestrator needs.
+// Allowlist is the subset of a metric-name allowlist that the orchestrator needs.
 type Allowlist interface {
 	IsAllowed(name string) bool
 	Size() int

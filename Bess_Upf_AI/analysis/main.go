@@ -56,9 +56,8 @@ func main() {
 		env("CLICKHOUSE_DSN", "http://clickhouse:8123"),
 	)
 
-	// ── Dynamic allowlist (from CH) ───────────────────────────────────────────
-	// Not needed for Clickhouse
-	// allowlist := validator.NewDynamicAllowlist(...)
+	// ── Metric-name allowlist ──────────────────────────────────────────────────
+	// Not needed for ClickHouse (no dynamic allowlist implementation currently exists)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()

@@ -24,9 +24,7 @@ export const COPY = {
     systemHealth: "System Health",
     noEvents:     "No active events — all metrics within expected ranges",
     services: {
-      prometheus:  "Prometheus",
-      vm:          "VictoriaMetrics",
-      detection:   "Detection Service",
+      clickhouse:  "ClickHouse",
       llm:         "LLM Backend",
       sim:         "UPF Generator",
     },
