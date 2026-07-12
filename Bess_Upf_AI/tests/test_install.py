@@ -46,5 +46,17 @@ class TestParsePortBinding(unittest.TestCase):
         self.assertIsNone(install.parse_port_binding(raw, 30080))
 
 
+class TestResolveLocalPort(unittest.TestCase):
+    def test_uses_env_value(self):
+        self.assertEqual(install.resolve_local_port({"LOCAL_PORT": "9090"}), 9090)
+
+    def test_defaults_to_8080_when_unset(self):
+        self.assertEqual(install.resolve_local_port({}), 8080)
+
+    def test_exits_on_non_integer(self):
+        with self.assertRaises(SystemExit):
+            install.resolve_local_port({"LOCAL_PORT": "not-a-port"})
+
+
 if __name__ == "__main__":
     unittest.main()

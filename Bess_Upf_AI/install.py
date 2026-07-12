@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -80,6 +81,14 @@ def load_dotenv():
             values[key] = val
             os.environ.setdefault(key, val)
     return values
+
+
+def resolve_local_port(env_values):
+    raw = env_values.get("LOCAL_PORT", "8080")
+    try:
+        return int(raw)
+    except ValueError:
+        sys.exit("ERROR: LOCAL_PORT in .env must be an integer, got {!r}".format(raw))
 
 
 # MITIGATION_API_PORT feeds a containerPort (must stay a YAML int); everything
@@ -164,13 +173,24 @@ def check_prereqs():
         sys.exit("ERROR: Docker daemon not reachable. Start Docker and retry.")
 
 
-def ensure_cluster():
+def ensure_cluster(local_port):
     existing = subprocess.run(["kind", "get", "clusters"], capture_output=True, text=True).stdout.split()
     if CLUSTER_NAME in existing:
-        print("kind cluster '{}' already exists, reusing.".format(CLUSTER_NAME))
-        return
-    run(["kind", "create", "cluster", "--name", CLUSTER_NAME,
-         "--config", os.path.join(ROOT, "k8s", "kind-config.yaml")])
+        current_port = get_current_port_mapping()
+        if current_port == local_port:
+            print("kind cluster '{}' already exists, reusing (port {} already mapped).".format(
+                CLUSTER_NAME, local_port))
+            return
+        print("kind cluster '{}' exists but maps host port {} (want {}); recreating.".format(
+            CLUSTER_NAME, current_port, local_port))
+        run(["kind", "delete", "cluster", "--name", CLUSTER_NAME])
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(render_kind_config(local_port))
+        config_path = f.name
+    try:
+        run(["kind", "create", "cluster", "--name", CLUSTER_NAME, "--config", config_path])
+    finally:
+        os.unlink(config_path)
 
 
 def kubectl_apply_yaml(yaml_text):
@@ -275,6 +295,7 @@ def helm_deploy(tag, include_generator, timeout_min, env_values):
         "--set", "chronos.tag=" + tag,
         "--set", "upf-sim.tag=" + tag,
         "--set", "upf-sim.enabled=" + ("true" if include_generator else "false"),
+        "--set", "ingress-nginx.controller.service.nodePorts.http=" + str(INGRESS_NODE_PORT),
     ] + helm_set_flags_from_env(env_values) + [
         "--force",
         "--timeout", "{}m".format(timeout_min),
@@ -332,7 +353,8 @@ def main():
     check_prereqs()
 
     print("== 2/6 Ensuring kind cluster ==")
-    ensure_cluster()
+    local_port = resolve_local_port(env_values)
+    ensure_cluster(local_port)
 
     print("== 3/6 Namespace + kuberay-operator + pull secret ==")
     ensure_namespace()
