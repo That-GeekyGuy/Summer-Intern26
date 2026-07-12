@@ -65,7 +65,7 @@ flowchart TD
 - `frontend` (React) — operator dashboard.
 - `upf-sim` (Go) — the **generator**: synthetic UPF traffic/metrics for local dev and testing. Disable it (`--no-generator`) when a real UPF feeds the pipeline instead.
 - `redpanda`, `clickhouse` — Kafka-compatible streaming backbone and single source of truth.
-- `vllm` — LLM backend for `analysis`'s chat feature. Runs in **mock mode** by default (canned responses) since it needs a real GPU node otherwise (CUDA image, no CPU fallback) — see [RUNBOOK.md](./RUNBOOK.md).
+- `vllm` — LLM backend for `analysis`'s chat feature. `install.py` auto-detects local VRAM (via `nvidia-smi`) and picks mock (<8GB or no GPU), a 3B, 7B, or 14B AWQ model accordingly — see `.env.example`'s `VLLM_MODE`/`VLLM_MODEL_OVERRIDE` and [RUNBOOK.md](./RUNBOOK.md).
 
 ---
 
