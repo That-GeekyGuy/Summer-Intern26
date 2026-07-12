@@ -179,5 +179,21 @@ class TestResolveVllmConfig(unittest.TestCase):
         self.assertEqual(cfg["model"], "Qwen/Qwen2.5-14B-Instruct-AWQ")
 
 
+class TestHelmSetFlagsFromVllm(unittest.TestCase):
+    def test_mock_sets_only_mock_enabled_true(self):
+        flags = install.helm_set_flags_from_vllm({"mock": True, "model": None, "max_model_len": None, "gpu_mem_util": None})
+        self.assertEqual(flags, ["--set", "analysis.vllm.mock.enabled=true"])
+
+    def test_real_sets_all_four_values(self):
+        cfg = {"mock": False, "model": "Qwen/Qwen2.5-3B-Instruct-AWQ", "max_model_len": 4096, "gpu_mem_util": "0.85"}
+        flags = install.helm_set_flags_from_vllm(cfg)
+        self.assertIn("--set", flags)
+        self.assertIn("analysis.vllm.mock.enabled=false", flags)
+        self.assertIn("--set-string", flags)
+        self.assertIn("analysis.vllm.model=Qwen/Qwen2.5-3B-Instruct-AWQ", flags)
+        self.assertIn("analysis.vllm.maxModelLen=4096", flags)
+        self.assertIn("analysis.vllm.gpuMemoryUtilization=0.85", flags)
+
+
 if __name__ == "__main__":
     unittest.main()

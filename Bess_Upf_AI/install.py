@@ -120,6 +120,17 @@ def helm_set_flags_from_env(env_values):
     return flags
 
 
+def helm_set_flags_from_vllm(vllm_config):
+    flags = ["--set", "analysis.vllm.mock.enabled=" + ("true" if vllm_config["mock"] else "false")]
+    if not vllm_config["mock"]:
+        flags += [
+            "--set-string", "analysis.vllm.model=" + vllm_config["model"],
+            "--set", "analysis.vllm.maxModelLen=" + str(vllm_config["max_model_len"]),
+            "--set-string", "analysis.vllm.gpuMemoryUtilization=" + str(vllm_config["gpu_mem_util"]),
+        ]
+    return flags
+
+
 def ensure_hf_token_secret(env_values):
     token = env_values.get("HF_TOKEN")
     if not token:
@@ -374,7 +385,7 @@ def build_and_load(tag, include_generator):
         run(["kind", "load", "docker-image", image, "--name", CLUSTER_NAME, "--nodes", nodes])
 
 
-def helm_deploy(tag, include_generator, timeout_min, env_values):
+def helm_deploy(tag, include_generator, timeout_min, env_values, vllm_config):
     chart_dir = os.path.join(ROOT, "charts", "bess-upf")
     run(["helm", "dependency", "update"], cwd=chart_dir)
     run([
@@ -390,7 +401,7 @@ def helm_deploy(tag, include_generator, timeout_min, env_values):
         "--set", "upf-sim.tag=" + tag,
         "--set", "upf-sim.enabled=" + ("true" if include_generator else "false"),
         "--set", "ingress-nginx.controller.service.nodePorts.http=" + str(INGRESS_NODE_PORT),
-    ] + helm_set_flags_from_env(env_values) + [
+    ] + helm_set_flags_from_env(env_values) + helm_set_flags_from_vllm(vllm_config) + [
         "--force",
         "--timeout", "{}m".format(timeout_min),
     ])
@@ -466,8 +477,15 @@ def main():
     else:
         print("== 4/6 Skipping build (--skip-build) ==")
 
+    vram_mib = detect_vram_mib()
+    vllm_config = resolve_vllm_config(env_values, vram_mib)
+    if vllm_config["mock"]:
+        print("vLLM: mock mode (detected VRAM: {})".format(vram_mib if vram_mib is not None else "none/undetected"))
+    else:
+        print("vLLM: real mode, model={} (detected VRAM: {} MiB)".format(vllm_config["model"], vram_mib))
+
     print("== 5/6 Helm deploy ==")
-    helm_deploy(args.tag, include_generator, args.timeout, env_values)
+    helm_deploy(args.tag, include_generator, args.timeout, env_values, vllm_config)
 
     print("== 6/6 Waiting for stack ==")
     if not wait_for_stack(args.timeout * 60):
