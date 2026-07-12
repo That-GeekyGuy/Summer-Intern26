@@ -63,7 +63,7 @@ flowchart TD
 - `mitigation` (Python/FastAPI) — policy-driven trust ladder (OBSERVE→RECOMMEND→APPROVE→AUTO), rate-limit/blast-radius guardrails, action catalog, approval API, audit trail to ClickHouse.
 - `analysis` (Go) — API gateway; conversational LLM interface over `vllm`, queries ClickHouse for RCA.
 - `frontend` (React) — operator dashboard.
-- `upf-sim` (Go) — the **generator**: synthetic UPF traffic/metrics for local dev and testing. Disable it (`--no-generator`) when a real UPF feeds the pipeline instead.
+- `upf-sim` (Go) — the **generator**: synthetic UPF traffic/metrics for local dev and testing. Off by default; enable it with `--generator` for local dev without a real UPF.
 - `redpanda`, `clickhouse` — Kafka-compatible streaming backbone and single source of truth.
 - `vllm` — LLM backend for `analysis`'s chat feature. `install.py` auto-detects local VRAM (via `nvidia-smi`) and picks mock (<8GB or no GPU), a 3B, 7B, or 14B AWQ model accordingly — see `.env.example`'s `VLLM_MODE`/`VLLM_MODEL_OVERRIDE` and [RUNBOOK.md](./RUNBOOK.md).
 
@@ -94,13 +94,13 @@ port via `.env`'s `LOCAL_PORT` (see `.env.example`).
 
 ### Accessing the UI
 
-The frontend is exposed via `ingress-nginx` as a `NodePort` service in this
-dev setup:
-
-```bash
-kubectl get svc -n bess-upf bess-upf-ingress-nginx-controller
-# hit http://localhost:<nodePort>
-```
+The frontend/API are reachable at `http://localhost:8080` right after
+`install.py` finishes — see the Install section above. `kind`'s
+`extraPortMappings` maps that host port straight to the ingress-nginx
+controller's NodePort (pinned to `30080`), so no `kubectl port-forward` or
+manual NodePort lookup is needed. Override the host port via `.env`'s
+`LOCAL_PORT` (see `.env.example`); changing it recreates the `kind` cluster
+on the next `install.py` run.
 
 ---
 
