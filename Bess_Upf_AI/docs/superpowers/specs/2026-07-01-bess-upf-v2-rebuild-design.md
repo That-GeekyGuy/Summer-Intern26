@@ -1,4 +1,4 @@
-# BESS-UPF AI v2 — Single-Path Streaming Rebuild Design
+# CoreWatch v2 — Single-Path Streaming Rebuild Design
 
 **Date:** 2026-07-01
 **Status:** Approved (design), pending implementation plan
@@ -8,7 +8,7 @@
 
 ## 1. Goal
 
-Rebuild BESS-UPF AI as a **single-path, real-time streaming platform** that autonomously detects, explains, forecasts, and safely mitigates anomalies on 5G User Plane Functions. End goal is **carrier-grade production** deployment (tested on a small cluster, scalable to carrier scale).
+Rebuild CoreWatch as a **single-path, real-time streaming platform** that autonomously detects, explains, forecasts, and safely mitigates anomalies on 5G User Plane Functions. End goal is **carrier-grade production** deployment (tested on a small cluster, scalable to carrier scale).
 
 Hard constraints from stakeholder:
 - **Single processing path** (hot path only — no parallel warm/poll pipeline).

@@ -2,7 +2,7 @@
 
 export const COPY = {
   app: {
-    name: "BESS-UPF Intelligence",
+    name: "CoreWatch Intelligence",
     tagline: "5G User Plane Function Monitor",
   },
   nav: {
@@ -135,7 +135,7 @@ export const COPY = {
     noEvents:     "No events referenced",
   },
   onboarding: {
-    title: "Welcome to BESS-UPF Intelligence",
+    title: "Welcome to CoreWatch Intelligence",
     body: "This is a three-panel interface: the sidebar shows live system pulse and navigation; the main area shows the current view; the right panel shows context for whatever you've selected. Start with the Overview for a management summary, or jump to Analysis to ask questions in plain English.",
     cta: "Got it",
   },

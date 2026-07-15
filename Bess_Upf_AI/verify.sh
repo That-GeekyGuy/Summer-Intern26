@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Repo-wide Verification Script for BESS-UPF AI
+# Repo-wide Verification Script for CoreWatch
 # Runs unit, integration, and e2e tests across all components.
 
 echo "========================================="

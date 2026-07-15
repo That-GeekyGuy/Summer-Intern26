@@ -1,4 +1,4 @@
-# BESS-UPF AI — Research-Grade System Design
+# CoreWatch — Research-Grade System Design
 
 **Date:** 2026-06-27  
 **Status:** Approved (implicit — goal directive)  
@@ -9,7 +9,7 @@
 
 ## 1. Context and Research Contribution
 
-BESS-UPF AI is an intelligent monitoring platform for 5G User Plane Functions (UPF). It ingests per-node telemetry (N3/N6 throughput, PFCP session rates, drop fractions) from a Prometheus → VictoriaMetrics pipeline, runs multi-tier anomaly detection, and generates LLM-based root cause analysis.
+CoreWatch is an intelligent monitoring platform for 5G User Plane Functions (UPF). It ingests per-node telemetry (N3/N6 throughput, PFCP session rates, drop fractions) from a Prometheus → VictoriaMetrics pipeline, runs multi-tier anomaly detection, and generates LLM-based root cause analysis.
 
 **Unique contribution (not in published literature):**  
 First end-to-end evaluation of a *multi-scale foundation model ensemble* (MOMENT-1-large reconstruction + Chronos-2 prediction-interval breach) against classical and statistical baselines on 5G UPF telemetry, with calibrated uncertainty, LLM-generated RCA, and a live in-app ablation benchmark.

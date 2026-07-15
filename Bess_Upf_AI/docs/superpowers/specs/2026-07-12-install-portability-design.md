@@ -5,7 +5,7 @@ Status: Approved
 
 ## Context
 
-`install.py` is the one-shot installer for the BESS-UPF v2 stack (`kind` +
+`install.py` is the one-shot installer for the CoreWatch v2 stack (`kind` +
 Helm). Four gaps came up while getting the stack running locally:
 
 1. It defaults to deploying `upf-sim` (the synthetic traffic generator),

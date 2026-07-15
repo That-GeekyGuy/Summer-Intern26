@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Run the 5 BESS-UPF v2 services (redpanda, clickhouse, serve, pipeline, mitigation) on a local 4-node `kind` cluster via one umbrella Helm chart, with HA for the 3 stateful/critical components, and prove survival of a node loss with a repeatable test.
+**Goal:** Run the 5 CoreWatch v2 services (redpanda, clickhouse, serve, pipeline, mitigation) on a local 4-node `kind` cluster via one umbrella Helm chart, with HA for the 3 stateful/critical components, and prove survival of a node loss with a repeatable test.
 
 **Architecture:** `kind` cluster (1 control-plane + 3 workers) → `bess-upf` namespace → umbrella chart `charts/bess-upf/` nesting 5 hand-rolled subcharts (redpanda, clickhouse, serve, pipeline, mitigation) plus `ingress-nginx` as a real chart dependency. redpanda and clickhouse run as 3-replica StatefulSets (RF=3 / ReplicatedMergeTree+Keeper quorum). serve runs via the KubeRay operator's `RayCluster` CR with external-Redis GCS fault tolerance. pipeline and mitigation are plain 2-replica Deployments. Images build from the existing Dockerfiles, unchanged, and push to GHCR.
 

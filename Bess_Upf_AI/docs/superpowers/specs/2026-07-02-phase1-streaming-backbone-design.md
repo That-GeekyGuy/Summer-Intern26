@@ -1,4 +1,4 @@
-# BESS-UPF Phase 1 — Real Streaming Backbone Design
+# CoreWatch Phase 1 — Real Streaming Backbone Design
 
 **Date:** 2026-07-02
 **Status:** Approved (design), pending implementation plan

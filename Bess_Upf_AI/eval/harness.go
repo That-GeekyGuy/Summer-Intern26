@@ -204,7 +204,7 @@ func Report(results []Result, baseURL string, elapsed time.Duration) string {
 		}
 	}
 
-	fmt.Fprintf(&sb, "# BESS-UPF Adversarial PromQL Validator Report\n\n")
+	fmt.Fprintf(&sb, "# CoreWatch Adversarial PromQL Validator Report\n\n")
 	fmt.Fprintf(&sb, "**Target:** `%s`  \n", baseURL)
 	fmt.Fprintf(&sb, "**Run time:** %s  \n", elapsed.Round(time.Millisecond))
 	fmt.Fprintf(&sb, "**Result:** %d / %d passed\n\n", pass, total)

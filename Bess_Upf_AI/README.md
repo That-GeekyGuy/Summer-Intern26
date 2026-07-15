@@ -1,4 +1,4 @@
-# BESS-UPF AI (v2 Kubernetes Stack)
+# CoreWatch (v2 Kubernetes Stack)
 
 Intelligent monitoring and analysis platform for 5G User Plane Functions.
 Streams UPF telemetry through Kafka-compatible Redpanda, detects anomalies

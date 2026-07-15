@@ -1,6 +1,6 @@
 # Phase 4c: Platform SLOs
 
-This document defines the Service Level Objectives (SLOs) for the BESS-UPF AI v2 single-path streaming platform. These guarantees act as the contract between the platform team and the operators relying on its closed-loop mitigations.
+This document defines the Service Level Objectives (SLOs) for the CoreWatch v2 single-path streaming platform. These guarantees act as the contract between the platform team and the operators relying on its closed-loop mitigations.
 
 ## Core SLOs
 

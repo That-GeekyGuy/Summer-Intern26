@@ -1,4 +1,4 @@
-# BESS-UPF Analysis Runbook
+# CoreWatch Analysis Runbook
 
 > **Stale sections warning**: this doc predates the V2 migration to ClickHouse-backed
 > detection. There is no standalone `detection` Deployment/Service anymore — anomaly
@@ -13,7 +13,7 @@
 
 ## Overview
 
-This document covers operational procedures for the detection and LLM analysis services added in the second phase of the BESS-UPF metrics stack.
+This document covers operational procedures for the detection and LLM analysis services added in the second phase of the CoreWatch metrics stack.
 
 ---
 

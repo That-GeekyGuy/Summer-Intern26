@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot installer for the BESS-UPF v2 stack (kind + Helm).
+"""One-shot installer for the CoreWatch v2 stack (kind + Helm).
 
 Brings up a local kind cluster (or reuses an existing one), builds and
 loads every service image, and helm-installs the full chart. Safe to
@@ -491,7 +491,7 @@ def wait_for_stack(timeout_s):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="One-shot BESS-UPF v2 installer")
+    parser = argparse.ArgumentParser(description="One-shot CoreWatch v2 installer")
     parser.add_argument("--generator", action="store_true",
                          help="Deploy upf-sim (the synthetic UPF traffic generator). "
                               "Off by default — most environments are fed by a real UPF.")
@@ -556,7 +556,7 @@ def main():
     if not wait_for_stack(args.timeout * 60):
         sys.exit(1)
 
-    print("\nBESS-UPF v2 is up. `kubectl get pods -n {} -w` to watch.".format(NAMESPACE))
+    print("\nCoreWatch v2 is up. `kubectl get pods -n {} -w` to watch.".format(NAMESPACE))
 
 
 if __name__ == "__main__":

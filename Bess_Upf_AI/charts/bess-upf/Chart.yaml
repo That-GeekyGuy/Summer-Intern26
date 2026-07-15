@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bess-upf
-description: BESS-UPF v2 stack — Phase 4a k8s/Helm baseline
+description: CoreWatch v2 stack — Phase 4a k8s/Helm baseline
 version: 0.1.0
 appVersion: "phase4a"
 dependencies:

@@ -1,6 +1,6 @@
 # Phase 4b: Disaster Recovery Runbook
 
-This runbook outlines the procedures for recovering the BESS-UPF v2 components from catastrophic node failures in the Kubernetes cluster.
+This runbook outlines the procedures for recovering the CoreWatch v2 components from catastrophic node failures in the Kubernetes cluster.
 
 ## 1. ClickHouse Recovery
 

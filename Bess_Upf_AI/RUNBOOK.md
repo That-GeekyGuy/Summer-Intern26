@@ -1,6 +1,6 @@
-# RUNBOOK — BESS-UPF AI (v2 Kubernetes Stack)
+# RUNBOOK — CoreWatch (v2 Kubernetes Stack)
 
-Quick reference for managing the Kubernetes-native BESS-UPF streaming stack
+Quick reference for managing the Kubernetes-native CoreWatch streaming stack
 (Redpanda, ClickHouse, Ray/KubeRay). Bring the whole stack up or redeploy
 with `python install.py` (see [README.md](./README.md)) — don't
 `kubectl patch`/`kubectl apply` live resources directly; see §5.
